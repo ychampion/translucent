@@ -1,0 +1,45 @@
+{
+ "1": {
+  "panel": "straight",
+  "movie_px_per_mm_values": [
+   184.8,
+   185.0,
+   184.9
+  ],
+  "median": 184.9,
+  "n": 3
+ },
+ "2": {
+  "panel": "cone",
+  "movie_px_per_mm_values": [
+   492.2,
+   492.0,
+   492.1
+  ],
+  "median": 492.1,
+  "n": 3
+ },
+ "3": {
+  "panel": "3b_crack",
+  "movie_px_per_mm_values": [
+   186.6,
+   186.7,
+   186.6
+  ],
+  "median": 186.6,
+  "n": 3
+ },
+ "4": {
+  "panel": "multiple_initiation",
+  "movie_px_per_mm_values": [
+   161.2,
+   161.2,
+   161.2
+  ],
+  "median": 161.2,
+  "n": 3
+ },
+ "5": {
+  "panel": null
+ }
+}

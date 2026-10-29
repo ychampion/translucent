@@ -1,0 +1,10 @@
+Traceback (most recent call last):
+  File "C:\Users\gamin\translucent\translucent\tools.py", line 87, in call
+    res: ToolResult = spec["fn"](ctx, run_id, rec, **args)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\gamin\translucent\translucent\tools.py", line 416, in segment_images
+    ok, jpg = cv2.imencode(".jpg", _frame(path, f), [cv2.IMWRITE_JPEG_QUALITY, 95])
+                                   ^^^^^^^^^^^^^^^
+  File "C:\Users\gamin\translucent\translucent\tools.py", line 138, in _frame
+    raise ValueError(f"frame {index} not readable")
+ValueError: frame 40 not readable

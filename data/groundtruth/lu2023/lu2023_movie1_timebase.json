@@ -1,0 +1,12 @@
+{
+  "video_sha256": "708efdce5f66643a0a2edcdaaec9cd80d44a3aaf3dbe5df3918cb3e79e50c7c4",
+  "frames": 1261,
+  "x_0h": 879.5,
+  "x_25h": 1265.0,
+  "pixel_bound": 4.0,
+  "uncertainty_s": 1224.248,
+  "source": "Lu et al. 2023, Movie 1 recorded voltage inset; Fig. 2 Source Data cycle-1 bounds",
+  "method": "progressive coloured trace endpoint; 0 and 25 h ticks at x=879.5 and 1265; +/-4 pixels; blank start bounded by first resolvable trace; clipped right edge bounded by cycle-1 discharge end; chronological interval intersection; midpoint per frame",
+  "stated_acquisition_interval_s": 60,
+  "limitations": "Coarse inset digitization, not a 60 s/frame clock. No cycle-2 images. Voltage event times use the full 2 s source log, independently of this frame map."
+}

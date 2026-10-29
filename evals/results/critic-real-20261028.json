@@ -1,0 +1,449 @@
+{
+ "real": {
+  "rows": [
+   {
+    "case": "short_ok",
+    "repeat": 0,
+    "expected": "supported",
+    "verdict": "refuted",
+    "reason": "At the 90 s red line the trace falls to the 0 V horizontal line but does not stay there, as after ~210 s it drops well below 0 V to near -13.3 V until ~345 s before jumping back to 0 V.",
+    "raw": "REFUTED\nAt the 90 s red line the trace falls to the 0 V horizontal line but does not stay there, as after ~210 s it drops well below 0 V to near -13.3 V until ~345 s before jumping back to 0 V.",
+    "usd": 0.00553300000000001
+   },
+   {
+    "case": "recovery_ok",
+    "repeat": 0,
+    "expected": "supported",
+    "verdict": "supported",
+    "reason": "The image shows at the red 215 s line the black trace leaves the flat ~0 V plateau maintained since ~90 s and descends into negative voltage continuing toward ~-13 V.",
+    "raw": "SUPPORTED\nThe image shows at the red 215 s line the black trace leaves the flat ~0 V plateau maintained since ~90 s and descends into negative voltage continuing toward ~-13 V.",
+    "usd": 0.004966000000000026
+   },
+   {
+    "case": "short2_ok",
+    "repeat": 0,
+    "expected": "supported",
+    "verdict": "supported",
+    "reason": "The image shows the black voltage trace rising steeply from its minimum near -13.3 V to the 0 V baseline directly intersecting the red line at 351 s.",
+    "raw": "SUPPORTED\nThe image shows the black voltage trace rising steeply from its minimum near -13.3 V to the 0 V baseline directly intersecting the red line at 351 s.",
+    "usd": 0.0038449999999999873
+   },
+   {
+    "case": "short_window_ok",
+    "repeat": 0,
+    "expected": "supported",
+    "verdict": "supported",
+    "reason": "The black voltage trace is flat and coincident with the 0 V reference line for the entire interval between the red 90 s and 215 s markers.",
+    "raw": "SUPPORTED\nThe black voltage trace is flat and coincident with the 0 V reference line for the entire interval between the red 90 s and 215 s markers.",
+    "usd": 0.0028940000000000077
+   },
+   {
+    "case": "short_late",
+    "repeat": 0,
+    "expected": "refuted",
+    "verdict": "refuted",
+    "reason": "At the red 180 s line the black trace is flat and coincident with the 0 V reference line, having already been stable at 0 V since ~90 s with no fall at 180 s before later dropping below 0 V toward -13.3 V.",
+    "raw": "REFUTED\nAt the red 180 s line the black trace is flat and coincident with the 0 V reference line, having already been stable at 0 V since ~90 s with no fall at 180 s before later dropping below 0 V toward -13.3 V.",
+    "usd": 0.006363999999999981
+   },
+   {
+    "case": "short_late2",
+    "repeat": 0,
+    "expected": "refuted",
+    "verdict": "refuted",
+    "reason": "The voltage trace is flat at ~0 V at the 160 s red line and does not show the sharp negative drop to -13.3 V until after ~215-220 s.",
+    "raw": "REFUTED\nThe voltage trace is flat at ~0 V at the 160 s red line and does not show the sharp negative drop to -13.3 V until after ~215-220 s.",
+    "usd": 0.00322699999999998
+   },
+   {
+    "case": "recovery_late",
+    "repeat": 0,
+    "expected": "refuted",
+    "verdict": "refuted",
+    "reason": "At the red 320 s line the voltage trace is clearly negative (about -11 V to -12 V, well below the 0 V grey line) and only returns sharply to 0 V about 35-40 s later near 355-360 s.",
+    "raw": "REFUTED\nAt the red 320 s line the voltage trace is clearly negative (about -11 V to -12 V, well below the 0 V grey line) and only returns sharply to 0 V about 35-40 s later near 355-360 s.",
+    "usd": 0.004701999999999984
+   },
+   {
+    "case": "short2_early",
+    "repeat": 0,
+    "expected": "refuted",
+    "verdict": "refuted",
+    "reason": "At the red 260 s marker the voltage trace remains distinctly below the 0 V reference line and does not return to 0 V until approximately 355-360 s, nearly 100 s later.",
+    "raw": "REFUTED\nAt the red 260 s marker the voltage trace remains distinctly below the 0 V reference line and does not return to 0 V until approximately 355-360 s, nearly 100 s later.",
+    "usd": 0.003369999999999984
+   },
+   {
+    "case": "short2_late",
+    "repeat": 0,
+    "expected": "refuted",
+    "verdict": "refuted",
+    "reason": "At the red 400 s marker the cell-voltage trace remains flat at 0 V with no negative deflection, whereas the only sharp drop to about -13.3 V occurs much earlier around 345 s.",
+    "raw": "REFUTED\nAt the red 400 s marker the cell-voltage trace remains flat at 0 V with no negative deflection, whereas the only sharp drop to about -13.3 V occurs much earlier around 345 s.",
+    "usd": 0.004078000000000026
+   },
+   {
+    "case": "direction_215",
+    "repeat": 0,
+    "expected": "refuted",
+    "verdict": "refuted",
+    "reason": "At the red 215 s line the voltage trace is on the 0 V level and then steps downward to increasingly negative voltages instead of rising sharply above 0 V.",
+    "raw": "REFUTED\nAt the red 215 s line the voltage trace is on the 0 V level and then steps downward to increasingly negative voltages instead of rising sharply above 0 V.",
+    "usd": 0.0031330000000000524
+   },
+   {
+    "case": "direction_351",
+    "repeat": 0,
+    "expected": "refuted",
+    "verdict": "refuted",
+    "reason": "The image shows at the red 351 s line the voltage rises sharply from about -13 V to 0 V, the opposite of the claimed fall from 0 V to -13 V.",
+    "raw": "REFUTED\nThe image shows at the red 351 s line the voltage rises sharply from about -13 V to 0 V, the opposite of the claimed fall from 0 V to -13 V.",
+    "usd": 0.003377999999999992
+   },
+   {
+    "case": "plot_not_visible",
+    "repeat": 0,
+    "expected": "inconclusive",
+    "verdict": "inconclusive",
+    "reason": "The image plots only cell voltage (ranging from -13.3 V to 3.7 V) versus recorded time (60 s to >360 s) and contains no temperature axis, values, or red-line annotations to evaluate the 21 \u00b0C claim.",
+    "raw": "INCONCLUSIVE\nThe image plots only cell voltage (ranging from -13.3 V to 3.7 V) versus recorded time (60 s to >360 s) and contains no temperature axis, values, or red-line annotations to evaluate the 21 \u00b0C claim.",
+    "usd": 0.0035169999999999924
+   },
+   {
+    "case": "m1_span_ok",
+    "repeat": 0,
+    "expected": "supported",
+    "verdict": "supported",
+    "reason": "The image shows a single straight dark filament running diagonally across the gap and connecting the left electrode to the right electrode.",
+    "raw": "SUPPORTED\nThe image shows a single straight dark filament running diagonally across the gap and connecting the left electrode to the right electrode.",
+    "usd": 0.005622000000000016
+   },
+   {
+    "case": "m1_span_small",
+    "repeat": 0,
+    "expected": "refuted",
+    "verdict": "refuted",
+    "reason": "The image shows a single dark diagonal filament extending across essentially the entire gap from the left electrode to the right electrode, not just a tenth.",
+    "raw": "REFUTED\nThe image shows a single dark diagonal filament extending across essentially the entire gap from the left electrode to the right electrode, not just a tenth.",
+    "usd": 0.005384999999999973
+   },
+   {
+    "case": "m1_span_early",
+    "repeat": 0,
+    "expected": "refuted",
+    "verdict": "refuted",
+    "reason": "The image shows no single dark filament bridging the electrodes \u2014 the only gap-spanning elements visible are light-colored/translucent and reflective horizontal strands, not one straight dark filament.",
+    "raw": "REFUTED\nThe image shows no single dark filament bridging the electrodes \u2014 the only gap-spanning elements visible are light-colored/translucent and reflective horizontal strands, not one straight dark filament.",
+    "usd": 0.005562999999999985
+   },
+   {
+    "case": "frame_speed_not_visible",
+    "repeat": 0,
+    "expected": "inconclusive",
+    "verdict": "inconclusive",
+    "reason": "The image is a single static frame showing a diagonal filament-like structure with no timestamps, time-series, or calibrated scale bar to measure a growth velocity of ~10 um/s.",
+    "raw": "INCONCLUSIVE\nThe image is a single static frame showing a diagonal filament-like structure with no timestamps, time-series, or calibrated scale bar to measure a growth velocity of ~10 um/s.",
+    "usd": 0.006265999999999994
+   },
+   {
+    "case": "short_ok",
+    "repeat": 1,
+    "expected": "supported",
+    "verdict": "refuted",
+    "reason": "The image shows the voltage reaching about 0 V at the 90 s red line and holding near 0 V only until about 215 s before falling steeply to about -13 V until about 345 s and only then returning to 0 V, so it does not stay at 0 V.",
+    "raw": "REFUTED\nThe image shows the voltage reaching about 0 V at the 90 s red line and holding near 0 V only until about 215 s before falling steeply to about -13 V until about 345 s and only then returning to 0 V, so it does not stay at 0 V.",
+    "usd": 0.004054000000000002
+   },
+   {
+    "case": "recovery_ok",
+    "repeat": 1,
+    "expected": "supported",
+    "verdict": "supported",
+    "reason": "At the 215 s red line the black trace departs from its flat 0 V plateau (held since ~90 s) and is already ~1-2 V below the 0 V gridline, then continues falling steeply to much more negative voltages.",
+    "raw": "SUPPORTED\nAt the 215 s red line the black trace departs from its flat 0 V plateau (held since ~90 s) and is already ~1-2 V below the 0 V gridline, then continues falling steeply to much more negative voltages.",
+    "usd": 0.005654000000000048
+   },
+   {
+    "case": "short2_ok",
+    "repeat": 1,
+    "expected": "supported",
+    "verdict": "supported",
+    "reason": "The image shows the cell voltage rising steeply through the red 351 s line from near -13.3 V to regain the 0 V plateau just after 351 s.",
+    "raw": "SUPPORTED\nThe image shows the cell voltage rising steeply through the red 351 s line from near -13.3 V to regain the 0 V plateau just after 351 s.",
+    "usd": 0.004958999999999936
+   },
+   {
+    "case": "short_window_ok",
+    "repeat": 1,
+    "expected": "supported",
+    "verdict": "supported",
+    "reason": "The black cell-voltage trace lies flat along the 0 V reference line between the red markers at 90 s and 215 s.",
+    "raw": "SUPPORTED\nThe black cell-voltage trace lies flat along the 0 V reference line between the red markers at 90 s and 215 s.",
+    "usd": 0.003147000000000011
+   },
+   {
+    "case": "short_late",
+    "repeat": 1,
+    "expected": "refuted",
+    "verdict": "refuted",
+    "reason": "At the 180 s red line the black voltage trace is flat at the grey 0 V level with no fall there, having already been at 0 V since ~90 s and only dropping negative after ~210 s toward -13.3 V before rising back to 0 V at ~360 s.",
+    "raw": "REFUTED\nAt the 180 s red line the black voltage trace is flat at the grey 0 V level with no fall there, having already been at 0 V since ~90 s and only dropping negative after ~210 s toward -13.3 V before rising back to 0 V at ~360 s.",
+    "usd": 0.005526000000000031
+   },
+   {
+    "case": "short_late2",
+    "repeat": 1,
+    "expected": "refuted",
+    "verdict": "refuted",
+    "reason": "The red line at 160 s crosses a flat voltage trace near 0 V with no inflection, while the distinct voltage drop only begins after ~215 s.",
+    "raw": "REFUTED\nThe red line at 160 s crosses a flat voltage trace near 0 V with no inflection, while the distinct voltage drop only begins after ~215 s.",
+    "usd": 0.0036439999999999806
+   },
+   {
+    "case": "recovery_late",
+    "repeat": 1,
+    "expected": "refuted",
+    "verdict": "refuted",
+    "reason": "At the red 320 s line the black voltage trace is well below the 0 V baseline (around -11 to -13 V) having left 0 V near 210 s and not returning to 0 V until about 355-360 s.",
+    "raw": "REFUTED\nAt the red 320 s line the black voltage trace is well below the 0 V baseline (around -11 to -13 V) having left 0 V near 210 s and not returning to 0 V until about 355-360 s.",
+    "usd": 0.004170000000000007
+   },
+   {
+    "case": "short2_early",
+    "repeat": 1,
+    "expected": "refuted",
+    "verdict": "refuted",
+    "reason": "At the red line labeled 260 s the voltage trace is below the 0 V baseline and only returns to 0 V ~90s later around 355 s.",
+    "raw": "REFUTED\nAt the red line labeled 260 s the voltage trace is below the 0 V baseline and only returns to 0 V ~90s later around 355 s.",
+    "usd": 0.003137999999999974
+   },
+   {
+    "case": "short2_late",
+    "repeat": 1,
+    "expected": "refuted",
+    "verdict": "refuted",
+    "reason": "At the 400 s red line the cell voltage trace is flat at 0 V with no drop or spike, while the large negative excursion to -13.3 V occurs much earlier around 345 s and recovers to 0 V by 360 s.",
+    "raw": "REFUTED\nAt the 400 s red line the cell voltage trace is flat at 0 V with no drop or spike, while the large negative excursion to -13.3 V occurs much earlier around 345 s and recovers to 0 V by 360 s.",
+    "usd": 0.004167000000000032
+   },
+   {
+    "case": "direction_215",
+    "repeat": 1,
+    "expected": "refuted",
+    "verdict": "refuted",
+    "reason": "At the red 215 s line the cell voltage is at or just below 0 V and then trends steadily more negative toward -13.3 V, with no sharp rise above 0 V at about 215 s.",
+    "raw": "REFUTED\nAt the red 215 s line the cell voltage is at or just below 0 V and then trends steadily more negative toward -13.3 V, with no sharp rise above 0 V at about 215 s.",
+    "usd": 0.003333999999999948
+   },
+   {
+    "case": "direction_351",
+    "repeat": 1,
+    "expected": "refuted",
+    "verdict": "refuted",
+    "reason": "The image shows at the 351 s red line the voltage is sharply rising from about -13 V toward 0 V, the opposite of a fall from 0 V to -13 V.",
+    "raw": "REFUTED\nThe image shows at the 351 s red line the voltage is sharply rising from about -13 V toward 0 V, the opposite of a fall from 0 V to -13 V.",
+    "usd": 0.0024410000000000265
+   },
+   {
+    "case": "plot_not_visible",
+    "repeat": 1,
+    "expected": "inconclusive",
+    "verdict": "inconclusive",
+    "reason": "The image plots only cell voltage versus recorded time (approximately -13.3 V to 3.7 V from 60 s to 360 s) and contains no temperature data or visible red lines to evaluate the 21 \u00b0C claim.",
+    "raw": "INCONCLUSIVE\nThe image plots only cell voltage versus recorded time (approximately -13.3 V to 3.7 V from 60 s to 360 s) and contains no temperature data or visible red lines to evaluate the 21 \u00b0C claim.",
+    "usd": 0.005735000000000046
+   },
+   {
+    "case": "m1_span_ok",
+    "repeat": 1,
+    "expected": "supported",
+    "verdict": "supported",
+    "reason": "The image shows a single straight dark diagonal filament that visibly spans the entire central gap and contacts both the left and right electrodes.",
+    "raw": "SUPPORTED\nThe image shows a single straight dark diagonal filament that visibly spans the entire central gap and contacts both the left and right electrodes.",
+    "usd": 0.005832999999999977
+   },
+   {
+    "case": "m1_span_small",
+    "repeat": 1,
+    "expected": "refuted",
+    "verdict": "refuted",
+    "reason": "The image shows a dark diagonal filament extending continuously from the left electrode surface to the right electrode surface, bridging the full gap rather than a tenth of it.",
+    "raw": "REFUTED\nThe image shows a dark diagonal filament extending continuously from the left electrode surface to the right electrode surface, bridging the full gap rather than a tenth of it.",
+    "usd": 0.005623000000000045
+   },
+   {
+    "case": "m1_span_early",
+    "repeat": 1,
+    "expected": "refuted",
+    "verdict": "refuted",
+    "reason": "The image shows no single straight dark filament spanning the gap; instead two pale, translucent horizontal filaments are visible bridging the left and right electrodes at the top and bottom of the central region.",
+    "raw": "REFUTED\nThe image shows no single straight dark filament spanning the gap; instead two pale, translucent horizontal filaments are visible bridging the left and right electrodes at the top and bottom of the central region.",
+    "usd": 0.006040999999999963
+   },
+   {
+    "case": "frame_speed_not_visible",
+    "repeat": 1,
+    "expected": "inconclusive",
+    "verdict": "inconclusive",
+    "reason": "The single static micrograph shows a dark diagonal filament bridging a gap but contains no timestamps, time-series, or scale markers to measure or verify a growth rate of about 10 um/s.",
+    "raw": "INCONCLUSIVE\nThe single static micrograph shows a dark diagonal filament bridging a gap but contains no timestamps, time-series, or scale markers to measure or verify a growth rate of about 10 um/s.",
+    "usd": 0.00284300000000004
+   },
+   {
+    "case": "short_ok",
+    "repeat": 2,
+    "expected": "supported",
+    "verdict": "refuted",
+    "reason": "The trace does fall to 0 V at the red 90 s line but it only remains at 0 V until about 210 s before dropping to about -13.3 V by 345 s and then returning to 0 V.",
+    "raw": "REFUTED\nThe trace does fall to 0 V at the red 90 s line but it only remains at 0 V until about 210 s before dropping to about -13.3 V by 345 s and then returning to 0 V.",
+    "usd": 0.004533999999999927
+   },
+   {
+    "case": "recovery_ok",
+    "repeat": 2,
+    "expected": "supported",
+    "verdict": "supported",
+    "reason": "At the 215 s red line the black trace is at 0 V and immediately after it steps down below 0 V to about -1 to -2 V before continuing its negative fall toward -13.3 V.",
+    "raw": "SUPPORTED\nAt the 215 s red line the black trace is at 0 V and immediately after it steps down below 0 V to about -1 to -2 V before continuing its negative fall toward -13.3 V.",
+    "usd": 0.003419000000000061
+   },
+   {
+    "case": "short2_ok",
+    "repeat": 2,
+    "expected": "supported",
+    "verdict": "supported",
+    "reason": "The red line at 351 s intersects the sharply rising black trace that goes from near -13.3 V at ~345-350 s up to the 0 V baseline by ~355-360 s.",
+    "raw": "SUPPORTED\nThe red line at 351 s intersects the sharply rising black trace that goes from near -13.3 V at ~345-350 s up to the 0 V baseline by ~355-360 s.",
+    "usd": 0.0035489999999999133
+   },
+   {
+    "case": "short_window_ok",
+    "repeat": 2,
+    "expected": "supported",
+    "verdict": "supported",
+    "reason": "The black trace remains flat and aligned with the 0 V reference line between the red markers at 90 s and 215 s.",
+    "raw": "SUPPORTED\nThe black trace remains flat and aligned with the 0 V reference line between the red markers at 90 s and 215 s.",
+    "usd": 0.0024330000000000185
+   },
+   {
+    "case": "short_late",
+    "repeat": 2,
+    "expected": "refuted",
+    "verdict": "refuted",
+    "reason": "Evidence from image: The black voltage trace at the red 180 s line is already flat on the 0 V grey line, having fallen to 0 V much earlier at ~85-90 s and remaining there until ~210 s with no drop occurring at 180 s, before later falling below 0 V toward -13.3 V.",
+    "raw": "REFUTED\nEvidence from image: The black voltage trace at the red 180 s line is already flat on the 0 V grey line, having fallen to 0 V much earlier at ~85-90 s and remaining there until ~210 s with no drop occurring at 180 s, before later falling below 0 V toward -13.3 V.",
+    "usd": 0.007826
+   },
+   {
+    "case": "short_late2",
+    "repeat": 2,
+    "expected": "refuted",
+    "verdict": "refuted",
+    "reason": "The voltage trace remains flat at 0 V at the 160 s red line and only begins a stepwise drop to negative voltages after about 210-215 s.",
+    "raw": "REFUTED\nThe voltage trace remains flat at 0 V at the 160 s red line and only begins a stepwise drop to negative voltages after about 210-215 s.",
+    "usd": 0.0045439999999999925
+   },
+   {
+    "case": "recovery_late",
+    "repeat": 2,
+    "expected": "refuted",
+    "verdict": "refuted",
+    "reason": "At the red 320 s line the trace is well below the 0 V baseline (about -11 V to -13 V) and had already left 0 V near ~210 s, only returning sharply to 0 V at about 350-360 s.",
+    "raw": "REFUTED\nAt the red 320 s line the trace is well below the 0 V baseline (about -11 V to -13 V) and had already left 0 V near ~210 s, only returning sharply to 0 V at about 350-360 s.",
+    "usd": 0.0036090000000000844
+   },
+   {
+    "case": "short2_early",
+    "repeat": 2,
+    "expected": "refuted",
+    "verdict": "refuted",
+    "reason": "At the red 260 s line the black voltage trace is still well below the 0 V grey line and only returns to 0 V much later near ~355\u2013360 s.",
+    "raw": "REFUTED\nAt the red 260 s line the black voltage trace is still well below the 0 V grey line and only returns to 0 V much later near ~355\u2013360 s.",
+    "usd": 0.003813999999999984
+   },
+   {
+    "case": "short2_late",
+    "repeat": 2,
+    "expected": "refuted",
+    "verdict": "refuted",
+    "reason": "At the 400 s red line the cell-voltage trace is flat and steady at ~0 V with no drop, spike, or transient, while the only large negative excursion (-13.3 V) ends with a return to 0 V around 350-360 s and does not recur at 400 s.",
+    "raw": "REFUTED\nAt the 400 s red line the cell-voltage trace is flat and steady at ~0 V with no drop, spike, or transient, while the only large negative excursion (-13.3 V) ends with a return to 0 V around 350-360 s and does not recur at 400 s.",
+    "usd": 0.004966000000000026
+   },
+   {
+    "case": "direction_215",
+    "repeat": 2,
+    "expected": "refuted",
+    "verdict": "refuted",
+    "reason": "At the red line marking ~215 s the black voltage trace is just below the 0 V reference line and is decreasing toward more negative voltages, not rising sharply above 0 V.",
+    "raw": "REFUTED\nAt the red line marking ~215 s the black voltage trace is just below the 0 V reference line and is decreasing toward more negative voltages, not rising sharply above 0 V.",
+    "usd": 0.003189999999999915
+   },
+   {
+    "case": "direction_351",
+    "repeat": 2,
+    "expected": "refuted",
+    "verdict": "refuted",
+    "reason": "At the red line marked 351 s the black voltage trace rises steeply from about -13.3 V to 0 V, not falling from 0 V to -13 V.",
+    "raw": "REFUTED\nAt the red line marked 351 s the black voltage trace rises steeply from about -13.3 V to 0 V, not falling from 0 V to -13 V.",
+    "usd": 0.003414000000000028
+   },
+   {
+    "case": "plot_not_visible",
+    "repeat": 2,
+    "expected": "inconclusive",
+    "verdict": "inconclusive",
+    "reason": "The image plots only cell voltage vs recorded time (range -13.3 V to 3.7 V with a 0 V reference) and contains no temperature scale, values, or indication of 21 \u00b0C.",
+    "raw": "INCONCLUSIVE\nThe image plots only cell voltage vs recorded time (range -13.3 V to 3.7 V with a 0 V reference) and contains no temperature scale, values, or indication of 21 \u00b0C.",
+    "usd": 0.00408200000000003
+   },
+   {
+    "case": "m1_span_ok",
+    "repeat": 2,
+    "expected": "supported",
+    "verdict": "supported",
+    "reason": "The image shows a single straight dark filament extending diagonally across the entire central gap and making contact with both the left and right electrodes.",
+    "raw": "SUPPORTED\nThe image shows a single straight dark filament extending diagonally across the entire central gap and making contact with both the left and right electrodes.",
+    "usd": 0.004944999999999977
+   },
+   {
+    "case": "m1_span_small",
+    "repeat": 2,
+    "expected": "refuted",
+    "verdict": "refuted",
+    "reason": "The image shows a dark, sharp diagonal filament extending continuously from the left electrode edge to the right electrode edge, spanning the full width of the gap rather than a small fraction.",
+    "raw": "REFUTED\nThe image shows a dark, sharp diagonal filament extending continuously from the left electrode edge to the right electrode edge, spanning the full width of the gap rather than a small fraction.",
+    "usd": 0.006128000000000022
+   },
+   {
+    "case": "m1_span_early",
+    "repeat": 2,
+    "expected": "refuted",
+    "verdict": "refuted",
+    "reason": "The image shows two light-translucent horizontal filaments spanning the central gap rather than a single straight dark filament.",
+    "raw": "REFUTED\nThe image shows two light-translucent horizontal filaments spanning the central gap rather than a single straight dark filament.",
+    "usd": 0.005713999999999997
+   },
+   {
+    "case": "frame_speed_not_visible",
+    "repeat": 2,
+    "expected": "inconclusive",
+    "verdict": "inconclusive",
+    "reason": "The single static micrograph shows a diagonal filament bridging a gap but contains no timestamps, scale markers, or time-lapse sequence to measure a growth rate of 10 um/s.",
+    "raw": "INCONCLUSIVE\nThe single static micrograph shows a diagonal filament bridging a gap but contains no timestamps, scale markers, or time-lapse sequence to measure a growth rate of 10 um/s.",
+    "usd": 0.0023290000000000255
+   }
+  ],
+  "score": {
+   "runs": 48,
+   "agreement": 0.938,
+   "false_agree": 0.0,
+   "wrong_findings": 33,
+   "unclear": 0.125,
+   "errors": 0,
+   "missed_correct": 0.2,
+   "usd_total": 0.2106,
+   "usd_per_run": 0.00439
+  }
+ }
+}

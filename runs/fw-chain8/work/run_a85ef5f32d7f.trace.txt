@@ -1,0 +1,13 @@
+Traceback (most recent call last):
+  File "C:\Users\gamin\translucent\translucent\tools.py", line 94, in call
+    res: ToolResult = spec["fn"](ctx, run_id, rec, **args)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\gamin\translucent\translucent\tools.py", line 416, in track_objects
+    text, final = sam.sam_video(file_id=_meta_file_id(ctx, video_id, path), prompt=prompt,
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\gamin\translucent\translucent\recordings.py", line 143, in sam_video
+    rec, sub = self._load("video", file_id.removeprefix("rec:"), prompt, metadata, source)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\gamin\translucent\translucent\recordings.py", line 130, in _load
+    raise NoRecording(f"no recorded SAM {kind} output for this prompt ({prompt[:80]}). This replay has no live "
+translucent.recordings.NoRecording: no recorded SAM video output for this prompt (<100f>1<|point;x=418;y=365;w=1920;h=1080|>,2<|point;x=415;y=320;w=1920;h=1080|>,). This replay has no live SAM, so any new prompt fails the same way; only prompts recorded earlier replay

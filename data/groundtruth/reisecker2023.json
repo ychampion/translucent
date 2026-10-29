@@ -1,0 +1,258 @@
+{
+  "schema": {
+    "version": "0.1",
+    "fields": {
+      "id": "stable key",
+      "quantity": "what is measured",
+      "value": "number, list or object",
+      "unit": "unit of value",
+      "uncertainty": "{value, kind: stated|digitisation|derived|none, note}",
+      "provenance": "stated-in-paper | stated-in-SI | digitised | derived | file-metadata",
+      "source": "{figure|table|text|file, locator}",
+      "conditions": "experimental conditions that apply",
+      "notes": "caveats"
+    }
+  },
+  "source": {
+    "citation": "Reisecker, V., Flatscher, F., Porz, L., et al. Effect of pulse-current-based protocols on the lithium dendrite formation and evolution in all-solid-state batteries. Nat. Commun. 14, 2432 (2023)",
+    "doi": "10.1038/s41467-023-37476-y",
+    "url": "https://www.nature.com/articles/s41467-023-37476-y",
+    "licence": "CC BY 4.0 (article and SI files; peer-review file states CC BY 4.0 explicitly)",
+    "files_used": {
+      "article_pdf": "data/raw/reisecker2023_paper/s41467-023-37476-y.pdf (Fig. 3 is vector on page 4)",
+      "si_docx": "41467_2023_37476_MOESM1_ESM.docx (Supplementary Information; tables 2-4, Supp. Figs 9-12)",
+      "movie_captions": "41467_2023_37476_MOESM3_ESM.pdf",
+      "peer_review": "41467_2023_37476_MOESM2_ESM.pdf",
+      "movies": "data/raw/reisecker2023/movie1..5.mp4 = MOESM4..MOESM8"
+    },
+    "data_availability_statement": "The data that support the findings of this study are available from the corresponding author on reasonable request. (No numeric source data published.)"
+  },
+  "global_conditions": {
+    "temperature_C": {"value": 21, "uncertainty": 1, "provenance": "stated-in-paper", "source": "Results + Methods"},
+    "stack_pressure_kPa": {"value": 1.8, "uncertainty": 0.8, "provenance": "stated-in-SI", "source": "Supp. Note 2; main text says '<3 kPa'"},
+    "atmosphere": "Ar glovebox, O2 and H2O < 1 ppm (stated, Methods)",
+    "cell": "symmetric Li:Sn (70:30 wt%) | LLZTO | Li:Sn, pellet clamped between two parallel brass current collectors (Supp. Fig. 21c) (stated)",
+    "electrolytes": {
+      "SC": "single-crystal Li6La3ZrTaO12, Czochralski grown (stated)",
+      "HP": "hot-pressed polycrystalline Li6.4La3Zr1.4Ta0.6O12, Toshima (stated)"
+    },
+    "pulsed_protocol": "PP = 1:1 us pulse/pause (1 us current on, 1 us off) for all SC and HP pulsed experiments (stated, Supp. Note 3)",
+    "ccd_eff_definition": "CCD_eff = CCD / 2 for 1:1 pulsing (plated-capacity basis); equal to CCD for DC (stated, Results)",
+    "current_density_basis": "apparent contact area (stated, Methods)",
+    "current_program": "stepwise increasing galvanostatic cycling until failure (stated: CCD = current density where the characteristic potential drop starts; Supp. Note 5; Supp. Figs 9-10 show the ramp)",
+    "optical_imaging_interval_s": {"value": [2, 7], "provenance": "stated-in-paper", "source": "Methods: 'images recorded on a 2-7 s period'"}
+  },
+  "quantities": [
+    {
+      "id": "growth_rate_definition",
+      "quantity": "definition of dendrite growth rate in Fig. 3e,f",
+      "value": "distance between the electrodes divided by the time needed for the dendrite to reach the opposing electrode",
+      "unit": null,
+      "provenance": "stated-in-paper",
+      "source": {"text": "Results, 'The growth kinetics'"},
+      "notes": "An average over the whole crossing. It is not a tip velocity. The start time (initiation vs current switch) is not defined."
+    },
+    {
+      "id": "slope_SC_DC", "quantity": "slope of growth rate vs CCD_eff, single crystal, DC",
+      "value": 8.4, "unit": "um s^-1 per mA cm^-2",
+      "uncertainty": {"value": null, "kind": "none", "note": "no uncertainty stated"},
+      "provenance": "stated-in-paper", "source": {"figure": "3e", "text": "Results, 'The growth kinetics'"},
+      "conditions": "SC, DC, 21 C",
+      "notes": "Not reproduced by the plotted data: the drawn solid trend line (vector) has slope 9.19 (intercept 4.1 um/s); an OLS fit to the 4 plotted SC DC points gives 9.04 (intercept 4.5); a fit through the origin gives 10.24. See derived_slope_checks."
+    },
+    {
+      "id": "slope_SC_PP", "quantity": "slope of growth rate vs CCD_eff, single crystal, 1:1 us pulsed",
+      "value": 10.5, "unit": "um s^-1 per mA cm^-2",
+      "uncertainty": {"value": null, "kind": "none"},
+      "provenance": "stated-in-paper", "source": {"figure": "3e", "text": "Results"},
+      "conditions": "SC, PP 1:1 us, 21 C",
+      "notes": "Drawn dashed trend line slope 9.62; OLS on 4 plotted points 10.09; through origin 11.06."
+    },
+    {
+      "id": "slope_HP_DC", "quantity": "slope of growth rate vs CCD_eff, hot-pressed polycrystal, DC",
+      "value": 13.7, "unit": "um s^-1 per mA cm^-2",
+      "uncertainty": {"value": null, "kind": "none"},
+      "provenance": "stated-in-paper", "source": {"figure": "3f", "text": "Results"},
+      "conditions": "HP, DC, 21 C",
+      "notes": "NOT reproduced: drawn solid line slope 19.2; OLS on 5 plotted points 17.35; through origin 15.77."
+    },
+    {
+      "id": "slope_HP_PP", "quantity": "slope of growth rate vs CCD_eff, hot-pressed polycrystal, 1:1 us pulsed",
+      "value": 1.1, "unit": "um s^-1 per mA cm^-2",
+      "uncertainty": {"value": null, "kind": "none"},
+      "provenance": "stated-in-paper", "source": {"figure": "3f", "text": "Results"},
+      "conditions": "HP, PP 1:1 us, 21 C",
+      "notes": "NOT reproduced: drawn dashed line slope 2.55; OLS on 6 plotted points 2.85 (intercept 8.0)."
+    },
+    {
+      "id": "growth_rate_at_1mA", "quantity": "typical dendrite growth rate at 1 mA/cm2",
+      "value": 10, "unit": "um/s",
+      "uncertainty": {"value": null, "kind": "none", "note": "'about'"},
+      "provenance": "stated-in-paper", "source": {"text": "Results, Eq. (1) paragraph"},
+      "notes": "Consistent with SC points in Fig. 3e (8.6-18.2 um/s at 0.7-1.3 mA/cm2)."
+    },
+    {
+      "id": "tip_current_density", "quantity": "current density at the dendrite tip implied by 10 um/s growth",
+      "value": 7, "unit": "A/cm2", "provenance": "stated-in-paper", "source": {"text": "Eq. (1)"},
+      "notes": "Uses V_m(Li) = 13.148 cm3/mol (stated)."
+    },
+    {
+      "id": "fig3ef_points", "quantity": "growth rate vs CCD_eff, every plotted point in Fig. 3e (SC) and Fig. 3f (HP)",
+      "value": {"csv": "data/groundtruth/reisecker2023_fig3ef_points.csv", "n_points": 19,
+                "series_counts": {"SC DC": 4, "SC PP": 4, "HP DC": 5, "HP PP": 6}},
+      "unit": "x: mA/cm2 (CCD_eff); y: um/s",
+      "uncertainty": {"value": {"x_mA_cm2": 0.009, "y_um_s": 0.08}, "kind": "digitisation",
+                      "note": "Marker centres and axis ticks read as exact vector path coordinates from the publisher PDF; uncertainty = axis-tick linear-fit residual + 0.01 pt + rounding. The marker half-widths (SC: 0.10-0.14 mA/cm2, 0.9-1.3 um/s; HP: 0.07-0.10 mA/cm2, 0.6-0.8 um/s) bound any visual reading. No error bars are drawn in the figure."},
+      "provenance": "digitised",
+      "source": {"figure": "3e, 3f", "locator": "article PDF page 4"},
+      "notes": "IMPORTANT: Fig. 3e is single crystal (DC and PP), Fig. 3f is hot-pressed (DC and PP). The panels are NOT 'DC vs pulsed'. Cross-check against Supp. Tables 3-4: HP DC x-values match the tabulated CCD_eff to <=0.002 mA/cm2; several SC points and HP PP 2 are offset by 0.05-0.12 mA/cm2; SC PP 1 (1.765) and HP PP 7 (2.4) are not plotted; the 3 low-quality SC DC samples are not plotted. Figure caption has a likely typo: 'green (HP DC)' should be HP PP."
+    },
+    {
+      "id": "fig3ef_trend_lines", "quantity": "endpoints and slopes of the trend lines drawn in Fig. 3e,f",
+      "value": {"csv": "data/groundtruth/reisecker2023_fig3ef_fitlines.csv",
+                "slopes": {"SC DC (solid)": 9.19, "SC PP (dashed)": 9.62, "HP DC (solid)": 19.21, "HP PP (dashed)": 2.55}},
+      "unit": "um s^-1 per mA cm^-2", "provenance": "digitised",
+      "uncertainty": {"value": 0.05, "kind": "digitisation", "note": "relative slope error <1% (vector endpoints)"},
+      "notes": "The caption says the trends are coloured 'for visualization purposes'. They are not the stated fits."
+    },
+    {
+      "id": "derived_slope_checks", "quantity": "least-squares slopes of the digitised points",
+      "value": {"SC DC": {"ols": 9.04, "intercept": 4.53, "through_origin": 10.24, "n": 4},
+                "SC PP": {"ols": 10.09, "intercept": 1.63, "through_origin": 11.06, "n": 4},
+                "HP DC": {"ols": 17.35, "intercept": -1.11, "through_origin": 15.77, "n": 5},
+                "HP PP": {"ols": 2.85, "intercept": 8.01, "through_origin": 6.92, "n": 6}},
+      "unit": "um s^-1 per mA cm^-2", "provenance": "derived",
+      "notes": "SC slopes are within ~10% of the stated values. The HP slopes (13.7 and 1.1 stated) cannot be reproduced from the plotted points. Treat the stated HP slopes as unverified."
+    },
+    {
+      "id": "si_ccd_tables", "quantity": "per-sample CCD, CCD_eff, ASR, current step",
+      "value": {"csv": "data/groundtruth/reisecker2023_si_ccd_tables.csv", "tables": ["Supp. Tab. 2 (PC)", "Supp. Tab. 3 (SC)", "Supp. Tab. 4 (HP)"]},
+      "unit": "uA/cm2, Ohm cm2", "provenance": "stated-in-SI",
+      "uncertainty": {"value": "the current step size (50-250 uA/cm2), per sample", "kind": "stated",
+                      "note": "The paper quotes CCD as 'max value - step size'"},
+      "notes": "Supp. Tab. 4 is not a Word table object; it was extracted from the docx XML. The stated means reproduce from the tables: SC DC 2.7+/-2.0 (excluding the 3 low-quality samples), HP DC 0.6+/-0.3, HP PP 3.3+/-1.8 (eff 1.7+/-0.9). Exception: SC PP gives 2.38+/-1.52 (eff 1.19+/-0.76), but the text states 2.1+/-1.6 (eff 1.0+/-0.8)."
+    },
+    {
+      "id": "ccd_max", "quantity": "maximum CCD",
+      "value": {"SC_DC": 4.95, "SC_PP": 4.8, "HP_PP": 6.6, "HP_DC_mean": 0.6},
+      "unit": "mA/cm2",
+      "uncertainty": {"value": {"SC_DC": 0.05, "SC_PP": 0.1, "HP_PP": 0.1}, "kind": "stated", "note": "step size"},
+      "provenance": "stated-in-paper", "source": {"text": "Results 'The critical current density'"},
+      "notes": "The Supp. Fig. 9 caption gives the highest SC effective CCD as (4.59 +/- 0.05). This conflicts with the 4.95 in the table and main text, probably a digit transposition."
+    },
+    {
+      "id": "sample_dimensions", "quantity": "electrolyte cuboid dimensions (width x length x thickness)",
+      "value": {"SC": [2.7, 3.3, 0.5], "HP": [2.3, 2.5, 0.8], "results_text_both": [3, 3, 0.5]},
+      "unit": "mm",
+      "uncertainty": {"value": null, "kind": "none", "note": "'~' in Methods, 'roughly' in Results. The two statements disagree for HP."},
+      "provenance": "stated-in-paper", "source": {"text": "Methods 'Sample preparation'; Results 'Ensure minimum sample-to-sample variation'"},
+      "notes": "Per-sample dimensions are not given. The paper does not state which dimension is the electrode gap."
+    },
+    {
+      "id": "electrode_contact_area", "quantity": "sample contact area used for the pressure estimate",
+      "value": 1.84, "unit": "mm2", "provenance": "stated-in-SI", "source": {"text": "Supp. Note 2 (1.84e-6 m2)"},
+      "notes": "Derived inference: 1.84 mm2 = 2.3 x 0.8 mm, the HP width x thickness face. So the HP electrode faces are width x thickness and the HP gap would be the 2.5 mm length. The same convention would give an SC gap of 3.3 mm, but the movie frames (below) suggest the gap is the SHORTER visible dimension. Unresolved."
+    },
+    {
+      "id": "movie_calibration", "quantity": "movie pixel scale",
+      "value": {
+        "movie1": {"px_per_mm": 184.9, "via": "Fig. 3a 'straight' 1 mm bar", "inliers": 263},
+        "movie2": {"px_per_mm": 492.1, "via": "Fig. 3a 'cone' 1 mm bar", "inliers": 214},
+        "movie3": {"px_per_mm": [177.4, 186.6], "via": "Fig. 3a 'diffuse' bar / Fig. 3b bar (same sample, the two bars disagree by 5%)", "inliers": [228, 444]},
+        "movie4": {"px_per_mm": 161.2, "via": "Fig. 3a 'multiple initiation' 1 mm bar", "inliers": 156,
+                   "conflict": "Supp. Figs 9 and 12 '0.1 cm' bars on the same sample give 237-262 px/mm"},
+        "movie5": {"px_per_mm": [257, 277], "via": "Supp. Fig. 11c / Supp. Fig. 10 '0.1 cm' bars (no Fig. 3a panel matches Movie 5)", "inliers": [167, 27]}
+      },
+      "unit": "px/mm (full-resolution movie pixels)",
+      "uncertainty": {"value": "at least 5%; up to 1.6x between bar sources", "kind": "derived",
+                      "note": "Similarity transform from SIFT+RANSAC, rotation -90 deg (Fig. 3a is the movie frame rotated 90 deg; movie 4 -85.9 deg). The registration scale is stable to <0.2% across frames. The scale bars themselves are the dominant error."},
+      "provenance": "derived",
+      "source": {"figure": "3a, 3b; Supp. Figs 9-12", "script": "scripts/groundtruth/calibrate_from_fig3a.py, match_movies_to_si.py"},
+      "notes": "Sample extents read by eye from gridded frames (+/-20 px), using the px/mm above: M1 gap 420 px = 2.27 mm, perpendicular 560 px = 3.03 mm. M3 gap ~470 px = 2.5-2.65 mm. M4 gap 405 px = 2.51 mm, perpendicular 470 px = 2.92 mm (with the SI bars it would be 1.6 x 1.9 mm, inconsistent with any stated dimension, so the Fig. 3a bar is preferred). M5 gap 700 px = 2.5-2.7 mm, perpendicular 860 px = 3.1-3.3 mm (Methods HP 2.3 x 2.5 does not fit the aspect ratio). M2 gap ~1416 px = 2.9 mm. Recommended: calibrate per movie from the Fig. 3a bar where available, and report the sample-dimension calibration as an independent cross-check (~10-15% disagreement)."
+    },
+    {
+      "id": "movie_frame_timing", "quantity": "how movie frames map to experiment time",
+      "value": {"fps": 25, "frames_per_source_image": 10, "source_images_per_playback_s": 2.5},
+      "unit": null, "provenance": "derived",
+      "source": {"file": "ffmpeg mpdecimate on the MP4s"},
+      "notes": "Every movie repeats each acquired image for 10 frames (0.4 s). Distinct images: M1 11, M2 14 (first 2.4 s static), M3 51, M4 50, M5 36 (irregular holds in M5). Stated acquisition period is 2-7 s per image, so the playback speed-up is 5x-17.5x. Only Movie 4 has an on-screen clock. There it is 6.9 s/image (median; min 6.4, max 14.1), i.e. ~17.8x."
+    },
+    {
+      "id": "movie4_timebase", "quantity": "Movie 4 frame -> experiment time and cell voltage, from the on-screen marker",
+      "value": {"csv": "data/groundtruth/reisecker2023_movie4_timebase.csv", "t_start_h": 41.3362, "t_end_h": 41.4330, "span_s": 349},
+      "unit": "h, V", "provenance": "derived",
+      "uncertainty": {"value": {"t_s": 0.8, "V": 0.05}, "kind": "derived", "note": "0.74 s per plot pixel; tick-fit residual 0.17 s / 0.006 V"},
+      "source": {"script": "scripts/groundtruth/movie4_timebase.py"},
+      "notes": "The on-screen axis matches Supp. Fig. 12's time axis (41.30-41.46 h)."
+    },
+    {
+      "id": "movie4_voltage_events", "quantity": "voltage events in Movie 4 (consecutive marker samples bracket each event)",
+      "value": {
+        "polarity_reversal_h": [41.3381, 41.3400],
+        "first_short_V_to_0_h": [41.3439, 41.3458],
+        "replating_onset_V_drop_h": [41.3787, 41.3807],
+        "second_short_h": [41.4157, 41.4194]
+      },
+      "unit": "h (experiment clock)", "provenance": "derived",
+      "notes": "First short occurs 14-28 s after the polarity reversal. Second short occurs 133-146 s after re-plating onset. Expected crossing time from the matched Fig. 3e point (45.3 um/s) with a 2.51 mm gap is ~55 s. Neither event matches cleanly (gap / 14-28 s = 90-180 um/s; gap / 133-146 s = 17-19 um/s). The start-time convention is unknown."
+    }
+  ],
+  "movies": [
+    {
+      "movie": 1, "file": "MOESM4 -> data/raw/reisecker2023/movie1.mp4",
+      "caption_verbatim": "Straight Li propagation in SC sample from intact condition to short circuit.",
+      "video": {"width": 1920, "height": 1080, "fps": 25, "frames": 110, "duration_s": 4.4, "distinct_images": 11, "on_screen_time_base": "none", "voltage_panel": false},
+      "sample": "SC (stated)", "waveform": "not stated", "current_density": "not stated", "temperature_C": "21 +/- 1 (global, stated)",
+      "figure_correspondence": {"stated": "Fig. 3a cites Supp. Videos 1-5 collectively", "inferred": "Fig. 3a 'straight' panel is this movie rotated 90 deg (263-328 RANSAC inliers)"},
+      "fig3e_data_point": "not stated; cannot be identified (one of the 8 SC points)",
+      "geometry": "electrodes left and right (vertical bright Li:Sn edges at x~775 and ~1195 px); dendrite grows diagonally right->left",
+      "calibration_px_per_mm": 184.9
+    },
+    {
+      "movie": 2, "file": "MOESM5 -> movie2.mp4",
+      "caption_verbatim": "Branched Li propagation in SC sample from intact condition to short circuit.",
+      "video": {"width": 2304, "height": 1728, "fps": 25, "frames": 260, "duration_s": 10.4, "distinct_images": 14, "on_screen_time_base": "none", "voltage_panel": false},
+      "sample": "SC (stated)", "waveform": "not stated", "current_density": "not stated",
+      "figure_correspondence": {"inferred": "Fig. 3a 'cone' panel (214 inliers). The paper calls this morphology 'cone', the caption calls it 'branched'."},
+      "fig3e_data_point": "not stated; cannot be identified",
+      "calibration_px_per_mm": 492.1
+    },
+    {
+      "movie": 3, "file": "MOESM6 -> movie3.mp4",
+      "caption_verbatim": "Diffuse Li propagation in SC sample from intact condition to short circuit.",
+      "video": {"width": 1920, "height": 1080, "fps": 25, "frames": 510, "duration_s": 20.4, "distinct_images": 51, "on_screen_time_base": "none", "voltage_panel": false},
+      "sample": "SC (stated)", "waveform": "not stated", "current_density": "not stated",
+      "figure_correspondence": {"inferred": "Fig. 3a 'diffuse' panel (228 inliers) AND Fig. 3b crack image (444 inliers): same sample. One peer-review response cites 'Supplementary video 3' for the reversible case, which conflicts with the final caption (Movie 4)."},
+      "fig3e_data_point": "not stated; cannot be identified. Text: 'the diffuse type was encountered very rarely'",
+      "calibration_px_per_mm": [177.4, 186.6]
+    },
+    {
+      "movie": 4, "file": "MOESM7 -> movie4.mp4",
+      "caption_verbatim": "Reversible Li propagation in an SC sample.",
+      "geometry": "Left part of the frame (x 0-906 px) is the microscope view; the right part (x 906-1920 px) is the paper's voltage-vs-time plot, not the sample. In the microscope view the electrodes are vertical bright edges near x 210 and x 615 px; lithium filaments grow right to left between them, within y ~230-560 px.",
+      "video": {"width": 1920, "height": 1080, "fps": 25, "frames": 490, "duration_s": 19.6, "distinct_images": 50, "on_screen_time_base": "voltage vs Time (h) panel, 41.32-41.46 h, moving marker", "voltage_panel": true},
+      "sample": "SC (stated)",
+      "waveform": "DC (inferred: same sample as Supp. Fig. 9, which is 'after application of a direct current program')",
+      "current_density_mA_cm2": {"value": [4.59, 4.95], "provenance": "inferred via Supp. Fig. 9 (caption says 4.59 +/- 0.05 effective CCD, Supp. Tab. 3 SC DC 7 says 4.95). Supp. Fig. 9's current axis reaches ~4.9 mA/cm2 at ~41 h"},
+      "figure_correspondence": {"stated": "Supp. Fig. 12 / Supp. Note 7 (reversible filament) cite Supplementary Video 4",
+                                "inferred": "Supp. Fig. 9 photos (51 inliers), Supp. Fig. 12 photos (31 inliers) and Fig. 3a 'multiple initiation' (156 inliers) all show this sample"},
+      "fig3e_data_point": {"candidate": {"ccd_eff": 4.834, "growth_rate_um_s": 45.31}, "confidence": "medium",
+                           "reason": "highest-CCD SC DC sample; x is offset -0.12 from the table value 4.95; the voltage-event timing does not reproduce 45 um/s (see movie4_voltage_events)"},
+      "calibration_px_per_mm": 161.2
+    },
+    {
+      "movie": 5, "file": "MOESM8 -> movie5.mp4",
+      "caption_verbatim": "Li propagation in an HP sample from intact condition to short circuit.",
+      "video": {"width": 1920, "height": 1080, "fps": 25, "frames": 440, "duration_s": 17.6, "distinct_images": 36, "on_screen_time_base": "none", "voltage_panel": false},
+      "sample": "HP (stated)",
+      "waveform": "1:1 us pulsed (inferred via Supp. Fig. 10)",
+      "current_density_mA_cm2": {"value": 6.6, "ccd_eff": 3.3, "provenance": "inferred: Movie 5 frames register to Supp. Fig. 10 photos (26-27 inliers, scale and rotation consistent across frames; other movies 0). Supp. Fig. 10 = HP sample with the highest CCD (6.6 +/- 0.1) mA/cm2, PP = Supp. Tab. 4 HP PP 2"},
+      "figure_correspondence": {"stated": "Supp. Fig. 11 caption: 'An example of such a dendrite growth can be found in Supplementary Video 5 showing sample (c)'",
+                                "inferred": "Supp. Fig. 11c (167 inliers) and Supp. Fig. 10"},
+      "fig3f_data_point": {"candidate": {"ccd_eff": 3.222, "growth_rate_um_s": 18.3}, "confidence": "medium-high",
+                           "reason": "the only HP PP point near CCD_eff 3.3"},
+      "morphology": "areal (2D front) darkening, not a single filament (Supp. Fig. 11 text)",
+      "calibration_px_per_mm": [257, 277]
+    }
+  ]
+}

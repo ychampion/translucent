@@ -1,0 +1,5 @@
+runs/** binary
+data/** binary
+web/public/fixtures/** binary
+budget/** binary
+evals/critic_cases/** binary

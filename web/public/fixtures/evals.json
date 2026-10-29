@@ -1,0 +1,85 @@
+{
+ "source": {
+  "file": "evals/results/20261029T161733.json",
+  "generated_at": "2026-10-29T16:17:33"
+ },
+ "totals": {
+  "planted": 38,
+  "caught": 38,
+  "plain_caught": 1
+ },
+ "cases": [
+  {
+   "id": "time_base_mislabelled",
+   "label": "Time it by video playback",
+   "quantity": "Growth speed",
+   "reason": "The video plays far faster than the experiment ran, so only the lab's own clock can time it.",
+   "plain": {
+    "value": 112.8,
+    "unit": "µm/s"
+   },
+   "truth": {
+    "value": 6.2,
+    "unit": "µm/s"
+   }
+  },
+  {
+   "id": "scale_other_experiment",
+   "label": "Take the scale from another experiment",
+   "quantity": "Growth speed",
+   "reason": "That scale was measured on a different recording, so the distances are wrong.",
+   "plain": {
+    "value": 98.4,
+    "unit": "µm/s"
+   },
+   "truth": {
+    "value": 6.2,
+    "unit": "µm/s"
+   }
+  },
+  {
+   "id": "voltage_other_movie",
+   "label": "Use another battery's voltage",
+   "quantity": "Battery shorted at",
+   "reason": "That voltage was logged on a different battery, so it can't confirm this one shorted.",
+   "plain": {
+    "value": 90.0,
+    "unit": "s"
+   }
+  },
+  {
+   "id": "box_whole_sample",
+   "label": "Outline the whole sample",
+   "quantity": "Growth speed",
+   "reason": "The outline covers the whole sample, not the filament, so there is nothing real to time.",
+   "plain": {
+    "value": 22.6,
+    "unit": "µm/s"
+   }
+  },
+  {
+   "id": "mask_merged_small_gap",
+   "label": "Blur two filaments into one",
+   "quantity": "Growth speed",
+   "reason": "The outline holds two filaments side by side, so their growth gets mixed together.",
+   "plain": {
+    "value": 67.7,
+    "unit": "µm/s"
+   },
+   "truth": {
+    "value": 1.86,
+    "unit": "µm/s"
+   }
+  },
+  {
+   "id": "claim_cites_nonexistent",
+   "label": "Cite a number that doesn't exist",
+   "quantity": "Growth speed",
+   "reason": "No measurement on record backs that number, so it can't be reported.",
+   "plain": {
+    "value": 45.0,
+    "unit": "µm/s"
+   }
+  }
+ ]
+}

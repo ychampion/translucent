@@ -1,0 +1,10 @@
+**
+!web/
+!web/**
+!deploy/Caddyfile
+web/node_modules/
+web/out/
+web/.next/
+web/tsconfig.tsbuildinfo
+**/.env
+**/.env.*

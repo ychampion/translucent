@@ -1,0 +1,393 @@
+"""Offline consistency checks. Source ledgers are opened read-only; gate writes stay in a scratch database."""
+from __future__ import annotations
+
+from contextlib import contextmanager
+from dataclasses import dataclass, field
+import json
+from pathlib import Path
+import re
+import shutil
+import sqlite3
+import tempfile
+import time
+import uuid
+
+from translucent import gate
+from translucent.contracts import Event, Measurement, ReplayBundle, Review
+from translucent.ledger import Ledger, SCHEMA, TABLES, sha256_file
+
+HASH = re.compile(r"[0-9a-f]{64}\Z")
+
+
+@dataclass
+class Result:
+    findings: int = 0
+    matched: int = 0
+    files: int = 0
+    problems: list[str] = field(default_factory=list)
+
+    @property
+    def ok(self):
+        return not self.problems
+
+    def summary(self):
+        return f"{self.findings} findings re-checked, {self.matched} match; {self.files} files intact"
+
+    def as_dict(self):
+        return {"ok": self.ok, "summary": self.summary(), "findings": self.findings,
+                "matched": self.matched, "files": self.files, "problems": self.problems}
+
+    @property
+    def matches(self):
+        return self.matched
+
+    def to_dict(self):
+        return self.as_dict()
+
+
+@contextmanager
+def read_ledger(root):
+    root = Path(root).resolve()
+    path = root / "ledger.sqlite"
+    if not path.is_file():
+        raise ValueError(f"Ledger not found: {path}")
+    L = Ledger.__new__(Ledger)
+    L.root, L.blobs = root, root / "blobs"
+    L.db = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, isolation_level=None)
+    L.db.execute("PRAGMA query_only=ON")
+    try:
+        yield L
+    finally:
+        L.db.close()
+
+
+@contextmanager
+def _scratch():
+    parent = Path(tempfile.gettempdir()).resolve()
+    root = parent / ("translucent-verify-" + uuid.uuid4().hex)
+    root.mkdir()
+    try:
+        yield root
+    finally:
+        if root.resolve().parent == parent and root.name.startswith("translucent-verify-"):
+            shutil.rmtree(root)
+
+
+@contextmanager
+def snapshot(root):
+    with _scratch() as directory:
+        source = Path(root).resolve()
+        if not (source / "ledger.sqlite").is_file():
+            raise ValueError(f"Ledger not found: {source}")
+        scratch = Ledger.__new__(Ledger)
+        scratch.root, scratch.blobs = Path(directory), source / "blobs"
+        copied_root = scratch.root / "source"
+        copied_root.mkdir()
+        paths = [source / "ledger.sqlite", source / "ledger.sqlite-wal"]
+        def stamps():
+            return [(p.stat().st_size, p.stat().st_mtime_ns) if p.exists() else None for p in paths]
+        for attempt in range(3):
+            before = stamps()
+            try:
+                for path, stamp in zip(paths, before):
+                    dst = copied_root / path.name
+                    if stamp is None:
+                        dst.unlink(missing_ok=True)
+                    else:
+                        shutil.copyfile(path, dst)
+                if before == stamps():
+                    break
+            except FileNotFoundError:
+                pass
+            if attempt == 2:
+                raise ValueError("Ledger changed while copying; retry verification")
+            time.sleep(0.02)
+        scratch.db = sqlite3.connect(scratch.root / "ledger.sqlite", isolation_level=None)
+        try:
+            copied = sqlite3.connect(copied_root / "ledger.sqlite")
+            try:
+                copied.backup(scratch.db)
+            finally:
+                copied.close()
+            yield scratch
+        finally:
+            scratch.db.close()
+
+
+def export_snapshot(L, out, campaign_id):
+    """A sibling receipt preserves ReplayBundle v1 and includes all historical gate inputs."""
+    out = Path(out)
+    root = out / "verification"
+    root.mkdir(parents=True, exist_ok=True)
+    target = sqlite3.connect(root / "ledger.sqlite")
+    try:
+        L.db.backup(target)
+    finally:
+        target.close()
+    with read_ledger(root) as saved:
+        artifacts = saved.list("artifact")
+    paths = [out / "bundle.json", out / "movie.mp4", root / "ledger.sqlite"]
+    for art in artifacts:
+        hexd = art.id.removeprefix("sha256:")
+        if not HASH.fullmatch(hexd) or art.id != "sha256:" + hexd:
+            raise ValueError("Malformed artifact content address")
+        dst = root / "blobs" / hexd[:2] / hexd
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(L.blob_path(art.id), dst)
+        paths.append(dst)
+    receipt = {"version": 1, "campaign_id": campaign_id, "files": [
+        {"path": p.relative_to(out).as_posix(), "sha256": sha256_file(p), "bytes": p.stat().st_size}
+        for p in paths]}
+    (out / "verification.json").write_text(json.dumps(receipt, indent=2), encoding="utf-8")
+
+
+def export_evidence(L, out):
+    campaign_id = json.loads((Path(out) / "bundle.json").read_text(encoding="utf-8"))["campaign"]["id"]
+    export_snapshot(L, out, campaign_id)
+
+
+def evidence(L, claim_id):
+    """The transitive evidence graph, also used by the read-only MCP tools."""
+    claim = L.get("claim", claim_id)
+    if claim is None:
+        raise ValueError(f"Finding not found: {claim_id}")
+    found = {"measurement": {}, "run": {}, "artifact": {}}
+    todo = [("measurement", i) for i in claim.predicate.measurement_ids]
+    problems = []
+    invalid = L.invalid_runs()
+    makers = {}
+    for run in L.list("run"):
+        for aid in run.output_ids:
+            makers.setdefault(aid, []).append(run)
+    while todo:
+        kind, rid = todo.pop()
+        if rid in found[kind]:
+            continue
+        rec = L.get(kind, rid)
+        if rec is None:
+            problems.append(f"Missing {kind} {rid}")
+            continue
+        found[kind][rid] = rec
+        if kind == "measurement":
+            todo += [("run", rec.run_id)] + [("measurement", i) for i in rec.calibration_ids]
+            todo += [("artifact", i) for i in rec.artifact_ids]
+            run = L.get("run", rec.run_id)
+            if run and run.measurement_ids is not None and rec.id not in run.measurement_ids:
+                problems.append(f"Measurement {rec.id} was not produced by run {run.id}")
+        elif kind == "run":
+            if rec.status != "ok" or rec.id in invalid:
+                problems.append(f"Evidence cites failed run {rid} or a later invalidation")
+            for i in rec.input_ids:
+                k = L.kind_of(i)
+                if k in ("artifact", "measurement"):
+                    todo.append((k, i))
+                else:
+                    problems.append(f"Run {rid} cites missing evidence {i}")
+        else:
+            producers = makers.get(rid, [])
+            successful = [r for r in producers if r.status == "ok" and r.id not in invalid]
+            if producers and not successful:
+                problems.append(f"Artifact {rid} came only from failed or invalidated runs")
+            todo += [("run", r.id) for r in successful]
+            if rec.transform:
+                for i in rec.transform.parent_ids:
+                    k = L.kind_of(i)
+                    if k in ("artifact", "measurement"):
+                        todo.append((k, i))
+                    else:
+                        problems.append(f"Artifact {rid} cites missing parent {i}")
+    return {"claim": claim.model_dump(mode="json"),
+            "measurements": [m.model_dump(mode="json") for m in found["measurement"].values()],
+            "runs": [r.model_dump(mode="json") for r in found["run"].values()],
+            "artifacts": [a.model_dump(mode="json") for a in found["artifact"].values()],
+            "reviews": [r.model_dump(mode="json") for r in L.list("review", ref=claim_id)],
+            "problems": problems}
+
+
+def _events(L, result):
+    last, times = {}, {}
+    measured, finished = set(), {}
+    for cid, seq, body in L.db.execute("SELECT campaign_id, seq, body FROM event ORDER BY rowid"):
+        ev = Event.model_validate_json(body)
+        if seq != last.get(cid, 0) + 1:
+            result.problems.append(f"Event sequence gap or changed order in {cid} at {seq}")
+        if ev.seq != seq or ev.campaign_id != cid:
+            result.problems.append(f"Event identity changed in {cid} at {seq}")
+        if ev.t < times.get(cid, ev.t):
+            result.problems.append(f"Event clock went backwards in {cid} at {seq}")
+        if L.get("campaign", cid) is None:
+            result.problems.append(f"Event {seq} cites missing campaign {cid}")
+        if ev.type == "claim.reviewed" and "review" in ev.data:
+            recorded = Review.model_validate(ev.data["review"])
+            if L.get("review", recorded.id) != recorded:
+                result.problems.append(f"Review {recorded.id} differs from its recorded event")
+        if ev.type == "measurement.recorded":
+            if "measurement" not in ev.data:
+                result.problems.append(f"Measurement event {seq} in {cid} lacks its recorded value")
+            else:
+                recorded = Measurement.model_validate(ev.data["measurement"])
+                measured.add(recorded.id)
+                if L.get("measurement", recorded.id) != recorded or ev.refs != [recorded.id]:
+                    result.problems.append(f"Measurement {recorded.id} differs from its recorded event")
+        if ev.type == "tool.finished":
+            run = L.get("run", ev.refs[0]) if ev.refs else None
+            if run is None:
+                result.problems.append(f"Tool completion {seq} in {cid} cites a missing run")
+            else:
+                mids = run.measurement_ids if run.measurement_ids is not None else \
+                    [m.id for m in L.list("measurement", ref=run.id)]
+                finished[run.id] = mids
+                if (ev.refs != [run.id] + run.output_ids + mids or ev.data.get("status") != run.status or
+                        ev.actor != run.tool or ev.campaign_id != run.campaign_id):
+                    result.problems.append(f"Run {run.id} differs from its recorded completion")
+        last[cid], times[cid] = seq, ev.t
+    for rid, mids in finished.items():
+        for mid in mids:
+            if mid not in measured:
+                result.problems.append(f"Measurement {mid} from run {rid} has no recorded event")
+
+
+def _blobs(L, result):
+    artifacts = {a.id: a for a in L.list("artifact")}
+    seen = set()
+    for path in sorted(L.blobs.rglob("*")):
+        if not path.is_file():
+            continue
+        hexd = path.name
+        if (not HASH.fullmatch(hexd) or path.parent.name != hexd[:2] or
+                not path.resolve().is_relative_to(L.blobs.resolve())):
+            result.problems.append(f"Blob has an invalid content address: {path.name}")
+            continue
+        aid = "sha256:" + hexd
+        seen.add(aid)
+        if sha256_file(path) != hexd:
+            result.problems.append(f"Blob bytes changed; do not match content address: {aid}")
+        elif aid in artifacts and path.stat().st_size != artifacts[aid].bytes:
+            result.problems.append(f"Blob size does not match its record: {aid}")
+        else:
+            result.files += 1
+    for aid in artifacts.keys() - seen:
+        result.problems.append(f"Recorded blob is missing: {aid}")
+
+
+def _reviews(L, result, campaign_id):
+    claims = L.list("claim", campaign_id=campaign_id)
+    result.findings = len(claims)
+    for claim in claims:
+        reviews = L.db.execute("SELECT rowid, inserted_at, body FROM record WHERE kind='review' AND ref=? "
+                               "ORDER BY inserted_at, rowid", (claim.id,)).fetchall()
+        gate_reviews = [(row, at, Review.model_validate_json(body)) for row, at, body in reviews
+                        if Review.model_validate_json(body).reviewer == "gate"]
+        if not gate_reviews:
+            result.problems.append(f"Finding {claim.id} has no recorded gate verdict")
+            continue
+        matches = True
+        for row, at, saved in gate_reviews:
+            L.db.execute("SAVEPOINT recheck")
+            try:
+                L.db.execute("DROP TRIGGER IF EXISTS record_no_delete")
+                L.db.execute("DROP TRIGGER IF EXISTS inval_no_delete")
+                L.db.execute("DELETE FROM record WHERE rowid>=?", (row,))
+                L.db.execute("DELETE FROM invalidation WHERE at>?", (at,))
+                fresh = gate.review(L, claim.id)
+                if (fresh.verdict, fresh.checks, fresh.reason) != (saved.verdict, saved.checks, saved.reason):
+                    result.problems.append(f"Finding {claim.id}: recorded {saved.verdict}, re-check gives {fresh.verdict}; "
+                                           "verdict, checks or reason differ")
+                    matches = False
+                if saved.verdict == "supported":
+                    problems = evidence(L, claim.id)["problems"]
+                    result.problems.extend(f"Finding {claim.id}: {p}" for p in problems)
+                    matches = matches and not problems
+            finally:
+                L.db.execute("ROLLBACK TO recheck")
+                L.db.execute("RELEASE recheck")
+        latest = gate_reviews[-1][2]
+        if latest.verdict != "unsupported":
+            status = L.claim_status(claim.id)
+            current = evidence(L, claim.id)["problems"]
+            if status == "stale":
+                result.problems.append(f"Finding {claim.id}: {latest.verdict} when reviewed, evidence since invalidated")
+            result.problems.extend(f"Finding {claim.id}: {p}" for p in current)
+            matches = matches and status != "stale" and not current
+        result.matched += int(matches)
+
+
+def _ledger(root, result, campaign_id=None):
+    with snapshot(root) as L:
+        if L.db.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+            result.problems.append("The ledger database failed its integrity check")
+        expected = re.findall(r"CREATE TRIGGER.*?END;", SCHEMA)
+        normal = lambda s: " ".join(s.replace("IF NOT EXISTS ", "").rstrip(";").split()).lower()
+        actual = {normal(sql) for (sql,) in L.db.execute("SELECT sql FROM sqlite_master WHERE type='trigger'")}
+        if any(normal(sql) not in actual for sql in expected):
+            result.problems.append("The ledger's insert-only protections are missing or changed")
+        for rid, kind, cid, ref, body in L.db.execute("SELECT id, kind, campaign_id, ref, body FROM record"):
+            rec = TABLES[kind].model_validate_json(body)
+            want_cid = getattr(rec, "campaign_id", None) or (rec.id if kind == "campaign" else None)
+            want_ref = getattr(rec, "run_id", None) or getattr(rec, "claim_id", None)
+            if (rid, cid, ref) != (rec.id, want_cid, want_ref):
+                result.problems.append(f"Record {rid} differs from its stored identity or references")
+        _blobs(L, result)
+        _events(L, result)
+        if campaign_id is not None and L.get("campaign", campaign_id) is None:
+            raise ValueError(f"Campaign not found: {campaign_id}")
+        _reviews(L, result, campaign_id)
+
+
+def _bundle(path, result):
+    root = path.parent if path.is_file() else path
+    receipt_path = root / "verification.json"
+    if not receipt_path.is_file():
+        raise ValueError("Bundle lacks verification data; export it again with translucent export")
+    bundle = ReplayBundle.model_validate_json((root / "bundle.json").read_text(encoding="utf-8"))
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    if not isinstance(receipt, dict) or not isinstance(receipt.get("files"), list):
+        raise ValueError("Bundle's evidence file list is missing or malformed")
+    if receipt.get("version") != 1 or receipt.get("campaign_id") != bundle.campaign.id:
+        raise ValueError("Bundle verification manifest has a different version or campaign")
+    listed = set()
+    for item in receipt["files"]:
+        relative = Path(item["path"])
+        target = (root / relative).resolve()
+        if relative.is_absolute() or not target.is_relative_to(root.resolve()):
+            raise ValueError("Bundle manifest path leaves the bundle directory")
+        listed.add(relative.as_posix())
+        if (not target.is_file() or target.stat().st_size != item["bytes"] or
+                sha256_file(target) != item["sha256"]):
+            result.problems.append(f"Exported file changed or is missing: {relative.as_posix()}")
+    if not {"bundle.json", "movie.mp4", "verification/ledger.sqlite"} <= listed:
+        raise ValueError("Bundle manifest omits required evidence files")
+    with snapshot(root / "verification") as L:
+        if L.get("campaign", bundle.campaign.id) != bundle.campaign:
+            result.problems.append("Bundle campaign differs from the evidence snapshot")
+        if L.events(bundle.campaign.id) != bundle.events:
+            result.problems.append("Bundle events differ from the recorded sequence")
+        if L.list("claim", campaign_id=bundle.campaign.id) != bundle.claims:
+            result.problems.append("Bundle findings differ from the recorded findings")
+        expected_reviews = [r for c in bundle.claims for r in L.list("review", ref=c.id)]
+        if bundle.reviews != expected_reviews:
+            result.problems.append("Bundle review differs from the recorded reviews")
+        for kind, records in (("measurement", bundle.measurements), ("artifact", bundle.artifacts),
+                              ("lesson", bundle.lessons)):
+            if any(L.get(kind, rec.id) != rec for rec in records):
+                result.problems.append(f"Bundle {kind} records differ from the evidence snapshot")
+        if not bundle.campaign.inputs or sha256_file(root / "movie.mp4") != \
+                bundle.campaign.inputs[0].removeprefix("sha256:"):
+            result.problems.append("Bundle movie differs from the recorded video")
+    _ledger(root / "verification", result, bundle.campaign.id)
+
+
+def verify(path, campaign_id=None):
+    result = Result()
+    try:
+        path = Path(path)
+        if (path / "ledger.sqlite").is_file():
+            _ledger(path, result, campaign_id)
+        elif path.name == "ledger.sqlite" and path.is_file():
+            _ledger(path.parent, result, campaign_id)
+        else:
+            _bundle(path, result)
+    except (ValueError, KeyError, TypeError, OSError, sqlite3.Error) as exc:
+        result.problems.append(f"Could not re-check evidence: {exc}")
+    result.problems = list(dict.fromkeys(" ".join(p.splitlines()) for p in result.problems))
+    return result

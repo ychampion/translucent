@@ -1,0 +1,1054 @@
+{
+ "note": "DESIGN FIXTURE. Hand-authored narrative over real data, for UI design only; replaced by real runtime replays. Numbers not yet produced by the runtime (speeds, cost, budget) are intentionally absent and render as \"—\".",
+ "campaign": {
+  "id": "c-dendrite-m1",
+  "objective": "How fast does the dendrite grow, does it speed up before the short, and when does the battery fail?",
+  "title": "Lithium dendrite, solid-state cell",
+  "inputs": [
+   "artifact:reisecker2023-movie1"
+  ],
+  "memory": "on",
+  "budget_usd": 0,
+  "created_at": 1793170800
+ },
+ "events": [
+  {
+   "seq": 1,
+   "campaign_id": "c-dendrite-m1",
+   "t": 1793170800,
+   "type": "campaign.started",
+   "actor": "orchestrator",
+   "title": "Started: how fast does the dendrite grow, and when does the battery fail?",
+   "data": {
+    "campaign": {
+     "id": "c-dendrite-m1",
+     "objective": "How fast does the dendrite grow, does it speed up before the short, and when does the battery fail?",
+     "title": "Lithium dendrite, solid-state cell",
+     "inputs": [
+      "artifact:reisecker2023-movie1"
+     ],
+     "memory": "on",
+     "budget_usd": 0,
+     "created_at": 1793170800
+    }
+   }
+  },
+  {
+   "seq": 2,
+   "campaign_id": "c-dendrite-m1",
+   "t": 1793170801.2,
+   "type": "memory.loaded",
+   "actor": "runtime",
+   "title": "No earlier lessons. This is the first campaign.",
+   "data": {
+    "lessons": []
+   }
+  },
+  {
+   "seq": 3,
+   "campaign_id": "c-dendrite-m1",
+   "t": 1793170805,
+   "type": "step.started",
+   "actor": "orchestrator",
+   "title": "Plan: track the dendrite, follow its tip, time the growth"
+  },
+  {
+   "seq": 4,
+   "campaign_id": "c-dendrite-m1",
+   "t": 1793170807.1,
+   "type": "tool.started",
+   "actor": "sam",
+   "title": "Looking for the dendrite by name",
+   "data": {
+    "prompt": "dendrite"
+   }
+  },
+  {
+   "seq": 5,
+   "campaign_id": "c-dendrite-m1",
+   "t": 1793170813.2,
+   "type": "tool.finished",
+   "actor": "sam",
+   "title": "Nothing found by name",
+   "detail": "Asked for \"dendrite\" and \"thin dark line\". Neither matched any of the 110 frames.",
+   "refs": [
+    "run-sam-text"
+   ],
+   "data": {
+    "frames_returned": 0
+   }
+  },
+  {
+   "seq": 6,
+   "campaign_id": "c-dendrite-m1",
+   "t": 1793170814.8,
+   "type": "cost.updated",
+   "actor": "runtime",
+   "title": "Cost updated",
+   "data": {
+    "spent_usd": null,
+    "budget_usd": null
+   }
+  },
+  {
+   "seq": 7,
+   "campaign_id": "c-dendrite-m1",
+   "t": 1793170817.2,
+   "type": "tool.started",
+   "actor": "sam",
+   "title": "Pointing at the dendrite instead",
+   "data": {
+    "frames": [
+     60
+    ]
+   }
+  },
+  {
+   "seq": 8,
+   "campaign_id": "c-dendrite-m1",
+   "t": 1793170826.7,
+   "type": "tool.finished",
+   "actor": "sam",
+   "title": "Dendrite tracked in 50 frames",
+   "refs": [
+    "run-sam-point",
+    "m-frames-tracked"
+   ],
+   "data": {
+    "frame_range": [
+     60,
+     109
+    ],
+    "track": "dendrite 1",
+    "measurement": {
+     "id": "m-frames-tracked",
+     "run_id": "run-sam-point",
+     "quantity": "frames_tracked",
+     "value": 50,
+     "unit": "frames",
+     "uncertainty": {
+      "value": null,
+      "kind": "none",
+      "method": ""
+     },
+     "subject": "dendrite 1",
+     "frame_range": [
+      60,
+      109
+     ],
+     "label": "Frames tracked"
+    }
+   }
+  },
+  {
+   "seq": 9,
+   "campaign_id": "c-dendrite-m1",
+   "t": 1793170827.5,
+   "type": "cost.updated",
+   "actor": "runtime",
+   "title": "Cost updated",
+   "data": {
+    "spent_usd": null,
+    "budget_usd": null
+   }
+  },
+  {
+   "seq": 10,
+   "campaign_id": "c-dendrite-m1",
+   "t": 1793170830.7,
+   "type": "measurement.recorded",
+   "actor": "measure",
+   "title": "A second, independent tracker agrees within 4.5 px",
+   "refs": [
+    "m-tracker-agreement"
+   ],
+   "data": {
+    "measurement": {
+     "id": "m-tracker-agreement",
+     "run_id": "run-classical-tip",
+     "quantity": "tip_agreement",
+     "value": 4.5,
+     "unit": "px",
+     "uncertainty": {
+      "value": null,
+      "kind": "none",
+      "method": "median over tracked frames"
+     },
+     "subject": "dendrite 1",
+     "frame_range": [
+      60,
+      109
+     ],
+     "label": "Two trackers agree on the tip"
+    },
+    "frame_range": [
+     60,
+     109
+    ]
+   }
+  },
+  {
+   "seq": 11,
+   "campaign_id": "c-dendrite-m1",
+   "t": 1793170832.9,
+   "type": "measurement.recorded",
+   "actor": "measure",
+   "title": "Scale set from the paper’s 1 mm scale bar: 184.9 px per mm",
+   "refs": [
+    "m-scale"
+   ],
+   "data": {
+    "measurement": {
+     "id": "m-scale",
+     "run_id": "run-scale-bar",
+     "quantity": "scale",
+     "value": 184.9,
+     "unit": "px/mm",
+     "uncertainty": {
+      "value": null,
+      "kind": "none",
+      "method": "from the paper’s 1 mm scale bar (Fig. 3a)"
+     },
+     "label": "Scale"
+    }
+   }
+  },
+  {
+   "seq": 12,
+   "campaign_id": "c-dendrite-m1",
+   "t": 1793170835.5,
+   "type": "measurement.recorded",
+   "actor": "measure",
+   "title": "Growth speed measured from the tip in every frame",
+   "refs": [
+    "m-speed-naive"
+   ],
+   "data": {
+    "frame_range": [
+     60,
+     109
+    ]
+   }
+  },
+  {
+   "seq": 13,
+   "campaign_id": "c-dendrite-m1",
+   "t": 1793170837.4,
+   "type": "claim.proposed",
+   "actor": "worker",
+   "title": "Finding: the dendrite grows at a steady speed",
+   "refs": [
+    "f-speed-1"
+   ],
+   "data": {
+    "claim": {
+     "id": "f-speed-1",
+     "campaign_id": "c-dendrite-m1",
+     "author": "worker",
+     "predicate": {
+      "type": "value_within",
+      "params": {},
+      "measurement_ids": [
+       "m-speed-naive",
+       "m-scale"
+      ]
+     },
+     "statement": "The dendrite grows at a steady — µm/s.",
+     "created_at": 1793170837.3999999
+    },
+    "frames": [
+     60,
+     61,
+     62,
+     63,
+     64,
+     65,
+     66,
+     67,
+     68,
+     69
+    ]
+   }
+  },
+  {
+   "seq": 14,
+   "campaign_id": "c-dendrite-m1",
+   "t": 1793170841.8,
+   "type": "claim.reviewed",
+   "actor": "gate",
+   "title": "Refused: the speed counts repeated frames as new images",
+   "refs": [
+    "f-speed-1",
+    "r-speed-1"
+   ],
+   "data": {
+    "review": {
+     "id": "r-speed-1",
+     "claim_id": "f-speed-1",
+     "reviewer": "gate",
+     "verdict": "unsupported",
+     "created_at": 1793170841.8,
+     "reason": "The speed treats every frame as a new image, but this movie shows each image 10 times.",
+     "checks": [
+      {
+       "name": "ancestry",
+       "passed": true,
+       "detail": "Every tip position cites the frame it came from."
+      },
+      {
+       "name": "units",
+       "passed": true,
+       "detail": "Pixels to millimetres uses the 1 mm scale bar."
+      },
+      {
+       "name": "distinct_frames",
+       "passed": false,
+       "detail": "Frames 60–69 are one image shown 10 times."
+      },
+      {
+       "name": "time_base",
+       "passed": false,
+       "detail": "Time came from the playback rate, not from when images were taken."
+      }
+     ]
+    }
+   }
+  },
+  {
+   "seq": 15,
+   "campaign_id": "c-dendrite-m1",
+   "t": 1793170844.8,
+   "type": "step.started",
+   "actor": "orchestrator",
+   "title": "Test: compare neighbouring frames to find repeats"
+  },
+  {
+   "seq": 16,
+   "campaign_id": "c-dendrite-m1",
+   "t": 1793170846.2,
+   "type": "tool.started",
+   "actor": "sandbox",
+   "title": "Comparing each frame with the one before"
+  },
+  {
+   "seq": 17,
+   "campaign_id": "c-dendrite-m1",
+   "t": 1793170851.4,
+   "type": "tool.finished",
+   "actor": "sandbox",
+   "title": "Each image is shown 10 times. 110 frames hold 11 real images.",
+   "refs": [
+    "run-dedupe",
+    "m-repeat"
+   ],
+   "data": {
+    "measurement": {
+     "id": "m-repeat",
+     "run_id": "run-dedupe",
+     "quantity": "frames_per_image",
+     "value": 10,
+     "unit": "frames",
+     "uncertainty": {
+      "value": null,
+      "kind": "none",
+      "method": "frame-to-frame difference"
+     },
+     "frame_range": [
+      0,
+      109
+     ],
+     "label": "Each image is shown"
+    },
+    "distinct_frames": [
+     0,
+     10,
+     20,
+     30,
+     40,
+     50,
+     60,
+     70,
+     80,
+     90,
+     100
+    ]
+   }
+  },
+  {
+   "seq": 18,
+   "campaign_id": "c-dendrite-m1",
+   "t": 1793170853.4,
+   "type": "measurement.recorded",
+   "actor": "measure",
+   "title": "Speed re-measured on the 5 distinct images",
+   "refs": [
+    "m-speed-distinct",
+    "m-distinct-images",
+    "m-time-per-image"
+   ],
+   "data": {
+    "measurement": {
+     "id": "m-distinct-images",
+     "run_id": "run-dedupe",
+     "quantity": "distinct_images",
+     "value": 5,
+     "unit": "images",
+     "uncertainty": {
+      "value": null,
+      "kind": "none",
+      "method": ""
+     },
+     "frame_range": [
+      60,
+      109
+     ],
+     "label": "Distinct images while tracked"
+    },
+    "frames": [
+     60,
+     70,
+     80,
+     90,
+     100
+    ]
+   }
+  },
+  {
+   "seq": 19,
+   "campaign_id": "c-dendrite-m1",
+   "t": 1793170855.2,
+   "type": "claim.proposed",
+   "actor": "worker",
+   "title": "Finding: the dendrite grows at a measured speed, timed on distinct images",
+   "refs": [
+    "f-speed-2"
+   ],
+   "data": {
+    "claim": {
+     "id": "f-speed-2",
+     "campaign_id": "c-dendrite-m1",
+     "author": "worker",
+     "predicate": {
+      "type": "value_within",
+      "params": {},
+      "measurement_ids": [
+       "m-speed-distinct",
+       "m-scale",
+       "m-time-per-image",
+       "m-distinct-images"
+      ]
+     },
+     "statement": "The dendrite grows at — µm/s, timed on distinct images.",
+     "supersedes": "f-speed-1",
+     "created_at": 1793170855.2
+    },
+    "frames": [
+     60,
+     70,
+     80,
+     90,
+     100
+    ]
+   }
+  },
+  {
+   "seq": 20,
+   "campaign_id": "c-dendrite-m1",
+   "t": 1793170859.3,
+   "type": "claim.reviewed",
+   "actor": "gate",
+   "title": "Earned: the speed holds up on distinct images",
+   "refs": [
+    "f-speed-2",
+    "r-speed-2"
+   ],
+   "data": {
+    "review": {
+     "id": "r-speed-2",
+     "claim_id": "f-speed-2",
+     "reviewer": "gate",
+     "verdict": "supported",
+     "created_at": 1793170859.3,
+     "reason": "Timed on the 5 distinct images, using the paper’s stated 2–7 s between images, carried as a range.",
+     "checks": [
+      {
+       "name": "ancestry",
+       "passed": true,
+       "detail": "Every tip position cites the frame it came from."
+      },
+      {
+       "name": "units",
+       "passed": true,
+       "detail": "Pixels to millimetres uses the 1 mm scale bar."
+      },
+      {
+       "name": "distinct_frames",
+       "passed": true,
+       "detail": "Timed on frames 60, 70, 80, 90 and 100 only."
+      },
+      {
+       "name": "time_base",
+       "passed": true,
+       "detail": "Uses the paper’s stated 2–7 s between images."
+      }
+     ]
+    }
+   }
+  },
+  {
+   "seq": 21,
+   "campaign_id": "c-dendrite-m1",
+   "t": 1793170862,
+   "type": "claim.proposed",
+   "actor": "worker",
+   "title": "Finding: the dendrite reaches the other electrode in frame 90",
+   "refs": [
+    "f-contact"
+   ],
+   "data": {
+    "claim": {
+     "id": "f-contact",
+     "campaign_id": "c-dendrite-m1",
+     "author": "worker",
+     "predicate": {
+      "type": "exists",
+      "params": {
+       "frame": 90
+      },
+      "measurement_ids": [
+       "m-tracker-agreement"
+      ]
+     },
+     "statement": "The dendrite reaches the other electrode in frame 90.",
+     "created_at": 1793170862
+    },
+    "frames": [
+     80,
+     90,
+     100
+    ]
+   }
+  },
+  {
+   "seq": 22,
+   "campaign_id": "c-dendrite-m1",
+   "t": 1793170865.6,
+   "type": "claim.reviewed",
+   "actor": "gate",
+   "title": "Earned: both trackers put the tip at the electrode from frame 90",
+   "refs": [
+    "f-contact",
+    "r-contact"
+   ],
+   "data": {
+    "review": {
+     "id": "r-contact",
+     "claim_id": "f-contact",
+     "reviewer": "gate",
+     "verdict": "supported",
+     "created_at": 1793170865.6,
+     "reason": "Both trackers put the tip at the far electrode from frame 90 on.",
+     "checks": [
+      {
+       "name": "ancestry",
+       "passed": true,
+       "detail": "Cites frames 80, 90 and 100."
+      },
+      {
+       "name": "tracker_agreement",
+       "passed": true,
+       "detail": "An independent tracker agrees within 4.5 px (median)."
+      },
+      {
+       "name": "in_frame",
+       "passed": true,
+       "detail": "The tip is visible at the electrode edge."
+      }
+     ]
+    }
+   }
+  },
+  {
+   "seq": 23,
+   "campaign_id": "c-dendrite-m1",
+   "t": 1793170867.9,
+   "type": "claim.proposed",
+   "actor": "worker",
+   "title": "Finding: growth speeds up just before the short",
+   "refs": [
+    "f-accel"
+   ],
+   "data": {
+    "claim": {
+     "id": "f-accel",
+     "campaign_id": "c-dendrite-m1",
+     "author": "worker",
+     "predicate": {
+      "type": "trend",
+      "params": {
+       "direction": "increasing"
+      },
+      "measurement_ids": [
+       "m-speed-distinct",
+       "m-time-per-image"
+      ]
+     },
+     "statement": "Growth speeds up just before the short.",
+     "created_at": 1793170867.8999999
+    },
+    "frames": [
+     60,
+     70,
+     80,
+     90
+    ]
+   }
+  },
+  {
+   "seq": 24,
+   "campaign_id": "c-dendrite-m1",
+   "t": 1793170869.4,
+   "type": "step.started",
+   "actor": "orchestrator",
+   "title": "Test: time each step between images"
+  },
+  {
+   "seq": 25,
+   "campaign_id": "c-dendrite-m1",
+   "t": 1793170873.3,
+   "type": "claim.reviewed",
+   "actor": "gate",
+   "title": "Not proven yet: this movie doesn’t record when each image was taken",
+   "refs": [
+    "f-accel",
+    "r-accel"
+   ],
+   "data": {
+    "review": {
+     "id": "r-accel",
+     "claim_id": "f-accel",
+     "reviewer": "gate",
+     "verdict": "inconclusive",
+     "created_at": 1793170873.3,
+     "reason": "This movie doesn’t record when each image was taken, so a speed-up can’t be told apart from timing.",
+     "checks": [
+      {
+       "name": "distinct_frames",
+       "passed": true,
+       "detail": "Uses the 5 distinct images."
+      },
+      {
+       "name": "time_base",
+       "passed": false,
+       "detail": "Only a 2–7 s range is stated; a speed-up needs the time of each image."
+      },
+      {
+       "name": "enough_points",
+       "passed": false,
+       "detail": "5 images is too few to test a trend."
+      }
+     ]
+    }
+   }
+  },
+  {
+   "seq": 26,
+   "campaign_id": "c-dendrite-m1",
+   "t": 1793170874.9,
+   "type": "memory.learned",
+   "actor": "orchestrator",
+   "title": "Learned: These movies repeat each image. Remove repeats before timing growth.",
+   "refs": [
+    "l-repeats"
+   ],
+   "data": {
+    "lesson": {
+     "id": "l-repeats",
+     "text": "These movies repeat each image. Remove repeats before timing growth.",
+     "scope": "source:reisecker2023",
+     "evidence_ids": [
+      "f-speed-1",
+      "r-speed-1",
+      "m-repeat"
+     ],
+     "learned_in": "c-dendrite-m1",
+     "created_at": 1793170874.8999999
+    }
+   }
+  },
+  {
+   "seq": 27,
+   "campaign_id": "c-dendrite-m1",
+   "t": 1793170876.5,
+   "type": "memory.learned",
+   "actor": "orchestrator",
+   "title": "Learned: Point at the object to track it. Naming it doesn’t work on microscopy.",
+   "refs": [
+    "l-point"
+   ],
+   "data": {
+    "lesson": {
+     "id": "l-point",
+     "text": "Point at the object to track it. Naming it doesn’t work on microscopy.",
+     "scope": "tool:sam-3.1",
+     "evidence_ids": [
+      "run-sam-text",
+      "run-sam-point"
+     ],
+     "learned_in": "c-dendrite-m1",
+     "created_at": 1793170876.4999998
+    }
+   }
+  },
+  {
+   "seq": 28,
+   "campaign_id": "c-dendrite-m1",
+   "t": 1793170878.1,
+   "type": "memory.learned",
+   "actor": "orchestrator",
+   "title": "Learned: Measure scale from the scale bar, not the stated field of view.",
+   "refs": [
+    "l-scale"
+   ],
+   "data": {
+    "lesson": {
+     "id": "l-scale",
+     "text": "Measure scale from the scale bar, not the stated field of view.",
+     "scope": "modality:optical-operando",
+     "evidence_ids": [
+      "m-scale"
+     ],
+     "learned_in": "c-dendrite-m1",
+     "created_at": 1793170878.0999997
+    }
+   }
+  },
+  {
+   "seq": 29,
+   "campaign_id": "c-dendrite-m1",
+   "t": 1793170879.3,
+   "type": "campaign.finished",
+   "actor": "orchestrator",
+   "title": "Finished: 2 findings earned, 1 not proven yet",
+   "data": {
+    "answer": "The dendrite crossed the electrolyte in five captured images and reached the other electrode in frame 90. Its speed holds up once repeated frames are removed. Whether it speeds up before the short can’t be told from this movie."
+   }
+  }
+ ],
+ "measurements": [
+  {
+   "id": "m-frames-tracked",
+   "run_id": "run-sam-point",
+   "quantity": "frames_tracked",
+   "value": 50,
+   "unit": "frames",
+   "uncertainty": {
+    "value": null,
+    "kind": "none",
+    "method": ""
+   },
+   "subject": "dendrite 1",
+   "frame_range": [
+    60,
+    109
+   ],
+   "label": "Frames tracked"
+  },
+  {
+   "id": "m-tracker-agreement",
+   "run_id": "run-classical-tip",
+   "quantity": "tip_agreement",
+   "value": 4.5,
+   "unit": "px",
+   "uncertainty": {
+    "value": null,
+    "kind": "none",
+    "method": "median over tracked frames"
+   },
+   "subject": "dendrite 1",
+   "frame_range": [
+    60,
+    109
+   ],
+   "label": "Two trackers agree on the tip"
+  },
+  {
+   "id": "m-scale",
+   "run_id": "run-scale-bar",
+   "quantity": "scale",
+   "value": 184.9,
+   "unit": "px/mm",
+   "uncertainty": {
+    "value": null,
+    "kind": "none",
+    "method": "from the paper’s 1 mm scale bar (Fig. 3a)"
+   },
+   "label": "Scale"
+  },
+  {
+   "id": "m-repeat",
+   "run_id": "run-dedupe",
+   "quantity": "frames_per_image",
+   "value": 10,
+   "unit": "frames",
+   "uncertainty": {
+    "value": null,
+    "kind": "none",
+    "method": "frame-to-frame difference"
+   },
+   "frame_range": [
+    0,
+    109
+   ],
+   "label": "Each image is shown"
+  },
+  {
+   "id": "m-distinct-images",
+   "run_id": "run-dedupe",
+   "quantity": "distinct_images",
+   "value": 5,
+   "unit": "images",
+   "uncertainty": {
+    "value": null,
+    "kind": "none",
+    "method": ""
+   },
+   "frame_range": [
+    60,
+    109
+   ],
+   "label": "Distinct images while tracked"
+  },
+  {
+   "id": "m-time-per-image",
+   "run_id": "run-paper",
+   "quantity": "time_per_image",
+   "value": [
+    2,
+    7
+   ],
+   "unit": "s",
+   "uncertainty": {
+    "value": null,
+    "kind": "bound",
+    "method": "stated range in the paper’s methods"
+   },
+   "label": "Time between images"
+  }
+ ],
+ "claims": [
+  {
+   "id": "f-speed-1",
+   "campaign_id": "c-dendrite-m1",
+   "author": "worker",
+   "predicate": {
+    "type": "value_within",
+    "params": {},
+    "measurement_ids": [
+     "m-speed-naive",
+     "m-scale"
+    ]
+   },
+   "statement": "The dendrite grows at a steady — µm/s.",
+   "created_at": 1793170837.3999999
+  },
+  {
+   "id": "f-speed-2",
+   "campaign_id": "c-dendrite-m1",
+   "author": "worker",
+   "predicate": {
+    "type": "value_within",
+    "params": {},
+    "measurement_ids": [
+     "m-speed-distinct",
+     "m-scale",
+     "m-time-per-image",
+     "m-distinct-images"
+    ]
+   },
+   "statement": "The dendrite grows at — µm/s, timed on distinct images.",
+   "supersedes": "f-speed-1",
+   "created_at": 1793170855.2
+  },
+  {
+   "id": "f-contact",
+   "campaign_id": "c-dendrite-m1",
+   "author": "worker",
+   "predicate": {
+    "type": "exists",
+    "params": {
+     "frame": 90
+    },
+    "measurement_ids": [
+     "m-tracker-agreement"
+    ]
+   },
+   "statement": "The dendrite reaches the other electrode in frame 90.",
+   "created_at": 1793170862
+  },
+  {
+   "id": "f-accel",
+   "campaign_id": "c-dendrite-m1",
+   "author": "worker",
+   "predicate": {
+    "type": "trend",
+    "params": {
+     "direction": "increasing"
+    },
+    "measurement_ids": [
+     "m-speed-distinct",
+     "m-time-per-image"
+    ]
+   },
+   "statement": "Growth speeds up just before the short.",
+   "created_at": 1793170867.8999999
+  }
+ ],
+ "reviews": [
+  {
+   "id": "r-speed-1",
+   "claim_id": "f-speed-1",
+   "reviewer": "gate",
+   "verdict": "unsupported",
+   "created_at": 1793170841.8,
+   "reason": "The speed treats every frame as a new image, but this movie shows each image 10 times.",
+   "checks": [
+    {
+     "name": "ancestry",
+     "passed": true,
+     "detail": "Every tip position cites the frame it came from."
+    },
+    {
+     "name": "units",
+     "passed": true,
+     "detail": "Pixels to millimetres uses the 1 mm scale bar."
+    },
+    {
+     "name": "distinct_frames",
+     "passed": false,
+     "detail": "Frames 60–69 are one image shown 10 times."
+    },
+    {
+     "name": "time_base",
+     "passed": false,
+     "detail": "Time came from the playback rate, not from when images were taken."
+    }
+   ]
+  },
+  {
+   "id": "r-speed-2",
+   "claim_id": "f-speed-2",
+   "reviewer": "gate",
+   "verdict": "supported",
+   "created_at": 1793170859.3,
+   "reason": "Timed on the 5 distinct images, using the paper’s stated 2–7 s between images, carried as a range.",
+   "checks": [
+    {
+     "name": "ancestry",
+     "passed": true,
+     "detail": "Every tip position cites the frame it came from."
+    },
+    {
+     "name": "units",
+     "passed": true,
+     "detail": "Pixels to millimetres uses the 1 mm scale bar."
+    },
+    {
+     "name": "distinct_frames",
+     "passed": true,
+     "detail": "Timed on frames 60, 70, 80, 90 and 100 only."
+    },
+    {
+     "name": "time_base",
+     "passed": true,
+     "detail": "Uses the paper’s stated 2–7 s between images."
+    }
+   ]
+  },
+  {
+   "id": "r-contact",
+   "claim_id": "f-contact",
+   "reviewer": "gate",
+   "verdict": "supported",
+   "created_at": 1793170865.6,
+   "reason": "Both trackers put the tip at the far electrode from frame 90 on.",
+   "checks": [
+    {
+     "name": "ancestry",
+     "passed": true,
+     "detail": "Cites frames 80, 90 and 100."
+    },
+    {
+     "name": "tracker_agreement",
+     "passed": true,
+     "detail": "An independent tracker agrees within 4.5 px (median)."
+    },
+    {
+     "name": "in_frame",
+     "passed": true,
+     "detail": "The tip is visible at the electrode edge."
+    }
+   ]
+  },
+  {
+   "id": "r-accel",
+   "claim_id": "f-accel",
+   "reviewer": "gate",
+   "verdict": "inconclusive",
+   "created_at": 1793170873.3,
+   "reason": "This movie doesn’t record when each image was taken, so a speed-up can’t be told apart from timing.",
+   "checks": [
+    {
+     "name": "distinct_frames",
+     "passed": true,
+     "detail": "Uses the 5 distinct images."
+    },
+    {
+     "name": "time_base",
+     "passed": false,
+     "detail": "Only a 2–7 s range is stated; a speed-up needs the time of each image."
+    },
+    {
+     "name": "enough_points",
+     "passed": false,
+     "detail": "5 images is too few to test a trend."
+    }
+   ]
+  }
+ ],
+ "lessons": [
+  {
+   "id": "l-repeats",
+   "text": "These movies repeat each image. Remove repeats before timing growth.",
+   "scope": "source:reisecker2023",
+   "evidence_ids": [
+    "f-speed-1",
+    "r-speed-1",
+    "m-repeat"
+   ],
+   "learned_in": "c-dendrite-m1",
+   "created_at": 1793170874.8999999
+  },
+  {
+   "id": "l-point",
+   "text": "Point at the object to track it. Naming it doesn’t work on microscopy.",
+   "scope": "tool:sam-3.1",
+   "evidence_ids": [
+    "run-sam-text",
+    "run-sam-point"
+   ],
+   "learned_in": "c-dendrite-m1",
+   "created_at": 1793170876.4999998
+  },
+  {
+   "id": "l-scale",
+   "text": "Measure scale from the scale bar, not the stated field of view.",
+   "scope": "modality:optical-operando",
+   "evidence_ids": [
+    "m-scale"
+   ],
+   "learned_in": "c-dendrite-m1",
+   "created_at": 1793170878.0999997
+  }
+ ]
+}

@@ -1,0 +1,30 @@
+# secrets
+.env
+.env.*
+# large/raw data (fetched by scripts)
+data/raw/
+data/frames/
+data/experiments/*
+!data/experiments/README.md
+# local state: default ledger and API state, spend ledgers, new campaign runs
+state/
+budget/
+runs/*
+!runs/dev-m4/
+!runs/fw-chain6/
+!runs/fw-chain8/
+# tool state and build output
+.claude/
+.gstack/
+.omx/
+__pycache__/
+.venv/
+node_modules/
+*.pyc
+.cache/
+.pytest_cache/
+web/.next/
+web/out/
+data/groundtruth/lu2023/.test-*/
+# deploy runtime state (ledger copy, API jobs)
+deploy/state/

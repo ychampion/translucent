@@ -1,0 +1,119 @@
+{
+  "schema": {"version": "0.1", "same_fields_as": "data/groundtruth/reisecker2023.json"},
+  "source": {
+    "citation": "Lu, X., Lagnoni, M., Bertei, A., et al. Multiscale dynamics of charging and plating in graphite electrodes coupling operando microscopy and phase-field modelling. Nat. Commun. 14, 5127 (2023)",
+    "doi": "10.1038/s41467-023-40574-6",
+    "url": "https://www.nature.com/articles/s41467-023-40574-6",
+    "licence": "CC BY 4.0",
+    "files_used": {
+      "source_data": "data/raw/lu2023/41467_2023_40574_MOESM5_ESM.xlsx (sheets: Fig. 2, Fig. 4, Fig. 5, Fig. 6, Fig. 7, Fig. 8)",
+      "movie": "data/raw/lu2023/movie1.mp4 = MOESM4",
+      "fig2_png": "data/raw/lu2023_paper/41467_2023_40574_Fig2_HTML.png",
+      "movie_caption": "41467_2023_40574_MOESM3_ESM.pdf"
+    },
+    "data_availability_statement": "The data generated in this study are available in the main text and Source Data file."
+  },
+  "global_conditions": {
+    "electrode": "graphite, areal capacity 2 mAh/cm2, strip 2.2 x 8 mm2, ~50 um coating thickness (stated)",
+    "cell": "EL-cell ECC-Opto-Std optical cell: glass window / graphite on Cu / 250 um glass-fibre separator / Li foil (stated)",
+    "geometry_note": "Li+ enters through the lateral surfaces (LSE). The optical 'thickness' is the in-plane 2.2 mm x-direction. Current density = total current / four lateral surface areas (stated)",
+    "microscope": "Keyence VHX-7000, 700x objective (stated)",
+    "frame_interval": {"value": 1, "unit": "min/frame", "provenance": "stated-in-paper", "source": "Methods"},
+    "electrolyte": "not stated for the optical cell. Coin cells use 1 M LiPF6 in EC:EMC 3:7 vol + 2 wt% VC (stated, Methods); assumed but not confirmed for the optical cell",
+    "temperature": "not stated for the optical cell (coin-cell OCV tests at 25.8 C)",
+    "c_rate_equivalence": "2 mA/cm2 (lateral) corresponds to 1C in the coin-cell experiments (stated)"
+  },
+  "quantities": [
+    {
+      "id": "protocol", "quantity": "optical-cell cycling protocol (Fig. 2)",
+      "value": "charge 2 mA/cm2 -> 3 h relax -> discharge 2 mA/cm2 -> 3 h relax -> same at 4 mA/cm2",
+      "provenance": "stated-in-paper", "source": {"text": "Results"},
+      "notes": "Segment times from Source Data (derived): cycle 1 charge 0-13.90 h, relax 13.90-16.90 h, discharge 16.90-26.20 h (9.29 h), relax 26.20-29.20 h; cycle 2 charge 29.20-36.18 h (6.98 h), relax 3.00 h, discharge 4.72 h, relax 3.00 h; end 46.91 h. See lu2023/lu2023_fig2_segments_derived.json"
+    },
+    {
+      "id": "fig2_voltage", "quantity": "optical-cell voltage vs time (Fig. 2 voltage panel; same curve as the movie inset)",
+      "value": {"csv": "data/groundtruth/lu2023/lu2023_fig2_voltage.csv", "rows": 84433, "sampling_s": 2},
+      "unit": "s, V vs Li/Li+", "provenance": "stated-in-paper (Source Data, sheet 'Fig. 2', panel a)",
+      "uncertainty": {"value": null, "kind": "none", "note": "raw data; time column continuous across segments"},
+      "notes": "Converted by scripts/groundtruth/convert_lu2023_source_data.py. The sheet has 8 (time, voltage) column pairs."
+    },
+    {
+      "id": "plating_onset_2mA_stated", "quantity": "plating onset at 2 mA/cm2",
+      "value": 10, "unit": "h of charge",
+      "uncertainty": {"value": null, "kind": "none", "note": "'after 10-h charging'"},
+      "provenance": "stated-in-paper", "source": {"text": "Results: 'the voltage profile becomes negative and reaches a plateau after 10-h charging, indicating the onset of plating, which is also visually confirmed at the LSE at Timestep 4'"},
+      "notes": "Timestep 4 is the end of charge (labelled 14h in Fig. 2), so the visual confirmation is at ~13.9 h, not at 10 h."
+    },
+    {
+      "id": "plating_onset_2mA_from_source_data", "quantity": "voltage markers of plating onset, cycle 1 (2 mA/cm2) charge",
+      "value": {"first_V_below_0_h": 7.435, "first_V_below_-10mV_h": 8.117, "first_V_below_-20mV_h": 8.919, "first_V_below_-30mV_h": 9.554, "V_at_10h_V": -0.0388, "plateau_from_h": 11.0, "plateau_V": -0.048, "voltage_minimum_h": 11.441, "voltage_minimum_V": -0.05183},
+      "unit": "h of charge, V", "provenance": "derived",
+      "uncertainty": {"value": 0.0006, "kind": "derived", "note": "2 s sampling"},
+      "notes": "Which marker equals 'onset' is a definition choice. The paper's model uses a 20 mV nucleation barrier (crossed at 8.9 h). The stated '10 h' lies between the -30 mV crossing and the plateau."
+    },
+    {
+      "id": "plating_onset_4mA", "quantity": "plating onset at 4 mA/cm2",
+      "value": {"stated": "charged at 4 mA/cm2 for only ~1 h, beyond which large-scale plating occurred (voltage dip then long plateau)",
+                "first_V_below_0_h": 0.218, "voltage_dip_minimum_h": 0.809, "voltage_dip_minimum_V": -0.10286, "plateau_V": -0.0452},
+      "unit": "h of charge (cycle 2), V", "provenance": "stated-in-paper + derived",
+      "notes": "Not shown in the movie (the movie covers the 2 mA/cm2 cycle only)."
+    },
+    {
+      "id": "colour_soc_mapping", "quantity": "graphite colour -> particle SOC (x in LixC6)",
+      "value": [
+        {"colour": "dark gray", "stage": "Stage 1L", "soc": "< 0.05"},
+        {"colour": "dark blue", "stage": "Stage 3", "soc": 0.23},
+        {"colour": "red", "stage": "Stage 2", "soc": 0.52},
+        {"colour": "gold", "stage": "Stage 1", "soc": 0.95}
+      ],
+      "unit": "x in LixC6 (particle-level SOC as decimal)",
+      "uncertainty": {"value": null, "kind": "none", "note": "'~' (approximate); Fig. 1e places the swatches at x ~0.02, 0.24, 0.50, 0.96 on the OCV curve"},
+      "provenance": "stated-in-paper", "source": {"figure": "1e", "text": "Results"},
+      "notes": "Percent SOC in the paper means global electrode SOC; decimal means particle SOC. Surface saturation ~0.98 is the stated prerequisite for plating."
+    },
+    {
+      "id": "field_of_view", "quantity": "optical field of view",
+      "value": 400, "unit": "um (along the x / thickness direction, starting at the LSE)",
+      "provenance": "stated-in-paper", "source": {"figure": "2 caption, 1d"},
+      "notes": "Conflicts with the scale bar. Registering the movie to the Fig. 2 strips (50 um bar) gives 3.92 px/um (range 3.83-4.02 over 20 registrations with >=100 inliers), so the 1280-px movie frame spans ~326 um (318-335), not 400 um. The registration scale drifts ~4% between timesteps (0 h vs 14 h), consistent with electrode expansion on lithiation. See movie_calibration."
+    },
+    {
+      "id": "movie_calibration", "quantity": "movie pixel scale",
+      "value": {"px_per_um_from_fig2_scale_bar": 3.923, "range": [3.825, 4.023], "px_per_um_if_frame_width_is_400um": 3.2},
+      "unit": "px/um (1280 x 938 movie)", "provenance": "derived",
+      "uncertainty": {"value": "~2.5% (spread) + ~1% (94-px raster bar)", "kind": "derived"},
+      "source": {"script": "scripts/groundtruth/lu2023_calibrate_from_fig2.py", "csv": "data/groundtruth/lu2023/lu2023_fig2_registration.csv"}
+    },
+    {
+      "id": "fig2_timesteps", "quantity": "Fig. 2 timestep labels (time within each segment, as printed)",
+      "value": [
+        {"ts": 1, "segment": "charge 2 mA/cm2", "label": "0h"}, {"ts": 2, "segment": "charge 2 mA/cm2", "label": "4h"},
+        {"ts": 3, "segment": "charge 2 mA/cm2", "label": "8h"}, {"ts": 4, "segment": "charge 2 mA/cm2", "label": "14h"},
+        {"ts": 5, "segment": "relax", "label": "1.5 h (text, Fig. S1)"}, {"ts": 6, "segment": "relax", "label": "3h"},
+        {"ts": 7, "segment": "discharge 2 mA/cm2", "label": "20min"}, {"ts": 8, "segment": "discharge 2 mA/cm2", "label": "100min"},
+        {"ts": 9, "segment": "discharge 2 mA/cm2", "label": "4h"}, {"ts": 10, "segment": "charge 4 mA/cm2", "label": "0h"},
+        {"ts": 11, "segment": "charge 4 mA/cm2", "label": "2h"}, {"ts": 12, "segment": "charge 4 mA/cm2", "label": "4h"},
+        {"ts": 13, "segment": "charge 4 mA/cm2", "label": "7h"}, {"ts": 14, "segment": "relax", "label": "3h"}
+      ],
+      "provenance": "stated-in-paper (figure labels)", "source": {"figure": "2"},
+      "notes": "Qualitative ground truth per timestep (stated): at 4 h three colours coexist (red/blue/gray); at 8 h gold nucleates at the LSE; plated Li visible at the LSE at ts 4 (green arrows); gold region grows slightly during the first 1.5 h of relaxation and then fades; after the 2 mA/cm2 charge the phase boundary is static during relaxation, after the 4 mA/cm2 charge it keeps moving."
+    },
+    {
+      "id": "plated_layer", "quantity": "time to strip a 0.65 um plated layer (model)",
+      "value": 3, "unit": "h (at least)", "provenance": "stated-in-paper", "source": {"text": "Results, Fig. S5b"},
+      "notes": "Model result, not an image measurement."
+    }
+  ],
+  "movie": {
+    "movie": 1, "file": "MOESM4 -> data/raw/lu2023/movie1.mp4",
+    "caption_verbatim": "Operando optical visualization of the complete charging-relaxation-discharge cycle in the graphite electrode.",
+    "geometry": "The paper's caption runs along the top of the frame (to y 80 px) and its own voltage plot sits in the lower right corner (from x 838, y 578 px); the electrode cross-section fills the band between.",
+    "video": {"width": 1280, "height": 938, "fps": 30, "frames": 1261, "duration_s": 42.03, "distinct_frames": 1048},
+    "on_screen": "text overlay of phase and global SoC (e.g. 'Charging 13.1% SoC', 'Relaxing 83% SoC', 'Discharging 40.3% SoC') plus an inset voltage-vs-time plot (0-25 h axis) that is drawn progressively (red = charge, green = relax, blue = discharge)",
+    "conditions": "2 mA/cm2 cycle only (inset ends during the first discharge; 4 mA/cm2 is not shown) - derived from the inset",
+    "time_base": "Stated acquisition 1 min/frame. 1048 distinct frames would cover ~17.5 h, but the inset spans ~0-25 h, so the movie is subsampled or variably timed. Map frames to time from the inset curve end-point or the SoC overlay, not by frame count.",
+    "figure_correspondence": "Fig. 2 timesteps 1-9 are stills of this sequence (registration to Fig. 2 strips gives 138-1323 inliers)",
+    "plating_in_movie": "plating onset is stated at ~10 h of charge and visible at the LSE (left edge) by end of charge (ts 4)"
+  },
+  "other_source_data_sheets": "Fig. 4 (pore statistics), Fig. 5 (coin-cell OCV relaxation), Fig. 6-8 (model). None is tied to the movie; not converted."
+}

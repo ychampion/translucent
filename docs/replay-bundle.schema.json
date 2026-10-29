@@ -1,0 +1,991 @@
+{
+ "$defs": {
+  "Artifact": {
+   "additionalProperties": false,
+   "properties": {
+    "id": {
+     "title": "Id",
+     "type": "string"
+    },
+    "kind": {
+     "enum": [
+      "video",
+      "frame",
+      "masks",
+      "overlay",
+      "series",
+      "table",
+      "code",
+      "plot",
+      "text",
+      "report"
+     ],
+     "title": "Kind",
+     "type": "string"
+    },
+    "media_type": {
+     "title": "Media Type",
+     "type": "string"
+    },
+    "bytes": {
+     "title": "Bytes",
+     "type": "integer"
+    },
+    "shape": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "integer"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Shape"
+    },
+    "axes": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "string"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Axes"
+    },
+    "source": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/Source"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "transform": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/Transform"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "label": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Label"
+    },
+    "created_at": {
+     "title": "Created At",
+     "type": "number"
+    }
+   },
+   "required": [
+    "id",
+    "kind",
+    "media_type",
+    "bytes",
+    "created_at"
+   ],
+   "title": "Artifact",
+   "type": "object"
+  },
+  "Campaign": {
+   "additionalProperties": false,
+   "properties": {
+    "id": {
+     "title": "Id",
+     "type": "string"
+    },
+    "objective": {
+     "title": "Objective",
+     "type": "string"
+    },
+    "title": {
+     "title": "Title",
+     "type": "string"
+    },
+    "inputs": {
+     "items": {
+      "type": "string"
+     },
+     "title": "Inputs",
+     "type": "array"
+    },
+    "memory": {
+     "default": "on",
+     "enum": [
+      "on",
+      "off"
+     ],
+     "title": "Memory",
+     "type": "string"
+    },
+    "budget_usd": {
+     "title": "Budget Usd",
+     "type": "number"
+    },
+    "created_at": {
+     "title": "Created At",
+     "type": "number"
+    }
+   },
+   "required": [
+    "id",
+    "objective",
+    "title",
+    "inputs",
+    "budget_usd",
+    "created_at"
+   ],
+   "title": "Campaign",
+   "type": "object"
+  },
+  "Check": {
+   "additionalProperties": false,
+   "properties": {
+    "name": {
+     "title": "Name",
+     "type": "string"
+    },
+    "passed": {
+     "title": "Passed",
+     "type": "boolean"
+    },
+    "detail": {
+     "title": "Detail",
+     "type": "string"
+    }
+   },
+   "required": [
+    "name",
+    "passed",
+    "detail"
+   ],
+   "title": "Check",
+   "type": "object"
+  },
+  "Claim": {
+   "additionalProperties": false,
+   "properties": {
+    "id": {
+     "title": "Id",
+     "type": "string"
+    },
+    "campaign_id": {
+     "title": "Campaign Id",
+     "type": "string"
+    },
+    "author": {
+     "title": "Author",
+     "type": "string"
+    },
+    "predicate": {
+     "$ref": "#/$defs/Predicate"
+    },
+    "statement": {
+     "title": "Statement",
+     "type": "string"
+    },
+    "supersedes": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Supersedes"
+    },
+    "created_at": {
+     "title": "Created At",
+     "type": "number"
+    }
+   },
+   "required": [
+    "id",
+    "campaign_id",
+    "author",
+    "predicate",
+    "statement",
+    "created_at"
+   ],
+   "title": "Claim",
+   "type": "object"
+  },
+  "Event": {
+   "additionalProperties": false,
+   "properties": {
+    "seq": {
+     "title": "Seq",
+     "type": "integer"
+    },
+    "campaign_id": {
+     "title": "Campaign Id",
+     "type": "string"
+    },
+    "t": {
+     "title": "T",
+     "type": "number"
+    },
+    "type": {
+     "enum": [
+      "campaign.started",
+      "campaign.finished",
+      "memory.loaded",
+      "memory.learned",
+      "step.started",
+      "step.finished",
+      "tool.started",
+      "tool.finished",
+      "artifact.created",
+      "measurement.recorded",
+      "claim.proposed",
+      "claim.reviewed",
+      "cost.updated",
+      "human.note",
+      "question.asked",
+      "question.answered",
+      "question.expired",
+      "campaign.control",
+      "campaign.paused",
+      "campaign.resumed",
+      "campaign.retry"
+     ],
+     "title": "Type",
+     "type": "string"
+    },
+    "actor": {
+     "title": "Actor",
+     "type": "string"
+    },
+    "title": {
+     "maxLength": 90,
+     "title": "Title",
+     "type": "string"
+    },
+    "detail": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Detail"
+    },
+    "refs": {
+     "default": [],
+     "items": {
+      "type": "string"
+     },
+     "title": "Refs",
+     "type": "array"
+    },
+    "data": {
+     "additionalProperties": true,
+     "default": {},
+     "title": "Data",
+     "type": "object"
+    }
+   },
+   "required": [
+    "seq",
+    "campaign_id",
+    "t",
+    "type",
+    "actor",
+    "title"
+   ],
+   "title": "Event",
+   "type": "object"
+  },
+  "Lesson": {
+   "additionalProperties": false,
+   "description": "Campaign memory: a procedure or fact learned from evidence, reusable by later campaigns.",
+   "properties": {
+    "id": {
+     "title": "Id",
+     "type": "string"
+    },
+    "text": {
+     "title": "Text",
+     "type": "string"
+    },
+    "scope": {
+     "title": "Scope",
+     "type": "string"
+    },
+    "evidence_ids": {
+     "items": {
+      "type": "string"
+     },
+     "title": "Evidence Ids",
+     "type": "array"
+    },
+    "learned_in": {
+     "title": "Learned In",
+     "type": "string"
+    },
+    "created_at": {
+     "title": "Created At",
+     "type": "number"
+    }
+   },
+   "required": [
+    "id",
+    "text",
+    "scope",
+    "evidence_ids",
+    "learned_in",
+    "created_at"
+   ],
+   "title": "Lesson",
+   "type": "object"
+  },
+  "Measurement": {
+   "additionalProperties": false,
+   "description": "A number produced by trusted code (never by a language model).",
+   "properties": {
+    "id": {
+     "title": "Id",
+     "type": "string"
+    },
+    "run_id": {
+     "title": "Run Id",
+     "type": "string"
+    },
+    "quantity": {
+     "title": "Quantity",
+     "type": "string"
+    },
+    "value": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "items": {
+        "type": "number"
+       },
+       "type": "array"
+      }
+     ],
+     "title": "Value"
+    },
+    "unit": {
+     "title": "Unit",
+     "type": "string"
+    },
+    "uncertainty": {
+     "$ref": "#/$defs/Uncertainty"
+    },
+    "subject": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Subject"
+    },
+    "frame_range": {
+     "anyOf": [
+      {
+       "maxItems": 2,
+       "minItems": 2,
+       "prefixItems": [
+        {
+         "type": "integer"
+        },
+        {
+         "type": "integer"
+        }
+       ],
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Frame Range"
+    },
+    "time_range": {
+     "anyOf": [
+      {
+       "maxItems": 2,
+       "minItems": 2,
+       "prefixItems": [
+        {
+         "type": "number"
+        },
+        {
+         "type": "number"
+        }
+       ],
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Time Range"
+    },
+    "calibration_ids": {
+     "default": [],
+     "items": {
+      "type": "string"
+     },
+     "title": "Calibration Ids",
+     "type": "array"
+    },
+    "artifact_ids": {
+     "default": [],
+     "items": {
+      "type": "string"
+     },
+     "title": "Artifact Ids",
+     "type": "array"
+    },
+    "valid_domain": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Valid Domain"
+    },
+    "label": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Label"
+    }
+   },
+   "required": [
+    "id",
+    "run_id",
+    "quantity",
+    "value",
+    "unit",
+    "uncertainty"
+   ],
+   "title": "Measurement",
+   "type": "object"
+  },
+  "Predicate": {
+   "additionalProperties": false,
+   "properties": {
+    "type": {
+     "enum": [
+      "value_within",
+      "values_agree",
+      "events_coincide",
+      "trend",
+      "exists"
+     ],
+     "title": "Type",
+     "type": "string"
+    },
+    "params": {
+     "additionalProperties": true,
+     "title": "Params",
+     "type": "object"
+    },
+    "measurement_ids": {
+     "items": {
+      "type": "string"
+     },
+     "title": "Measurement Ids",
+     "type": "array"
+    }
+   },
+   "required": [
+    "type",
+    "params",
+    "measurement_ids"
+   ],
+   "title": "Predicate",
+   "type": "object"
+  },
+  "Review": {
+   "additionalProperties": false,
+   "description": "Gate reviews decide status; critic and human reviews are recorded but never change it.",
+   "properties": {
+    "id": {
+     "title": "Id",
+     "type": "string"
+    },
+    "claim_id": {
+     "title": "Claim Id",
+     "type": "string"
+    },
+    "reviewer": {
+     "enum": [
+      "gate",
+      "critic",
+      "human"
+     ],
+     "title": "Reviewer",
+     "type": "string"
+    },
+    "verdict": {
+     "enum": [
+      "supported",
+      "refuted",
+      "inconclusive",
+      "unsupported"
+     ],
+     "title": "Verdict",
+     "type": "string"
+    },
+    "checks": {
+     "default": [],
+     "items": {
+      "$ref": "#/$defs/Check"
+     },
+     "title": "Checks",
+     "type": "array"
+    },
+    "reason": {
+     "title": "Reason",
+     "type": "string"
+    },
+    "artifact_ids": {
+     "default": [],
+     "items": {
+      "type": "string"
+     },
+     "title": "Artifact Ids",
+     "type": "array"
+    },
+    "model": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Model"
+    },
+    "author": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Author"
+    },
+    "created_at": {
+     "title": "Created At",
+     "type": "number"
+    }
+   },
+   "required": [
+    "id",
+    "claim_id",
+    "reviewer",
+    "verdict",
+    "reason",
+    "created_at"
+   ],
+   "title": "Review",
+   "type": "object"
+  },
+  "Series": {
+   "additionalProperties": false,
+   "description": "A time series shown alongside the video, e.g. cell voltage.",
+   "properties": {
+    "name": {
+     "title": "Name",
+     "type": "string"
+    },
+    "unit": {
+     "title": "Unit",
+     "type": "string"
+    },
+    "t": {
+     "items": {
+      "type": "number"
+     },
+     "title": "T",
+     "type": "array"
+    },
+    "y": {
+     "items": {
+      "type": "number"
+     },
+     "title": "Y",
+     "type": "array"
+    },
+    "frame_of_t": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "integer"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Frame Of T"
+    }
+   },
+   "required": [
+    "name",
+    "unit",
+    "t",
+    "y"
+   ],
+   "title": "Series",
+   "type": "object"
+  },
+  "Source": {
+   "additionalProperties": false,
+   "properties": {
+    "uri": {
+     "title": "Uri",
+     "type": "string"
+    },
+    "citation": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Citation"
+    },
+    "licence": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Licence"
+    }
+   },
+   "required": [
+    "uri"
+   ],
+   "title": "Source",
+   "type": "object"
+  },
+  "Track": {
+   "additionalProperties": false,
+   "description": "Per-frame geometry for the video overlay. Coordinates are source-video pixels.",
+   "properties": {
+    "subject": {
+     "title": "Subject",
+     "type": "string"
+    },
+    "frames": {
+     "items": {
+      "type": "integer"
+     },
+     "title": "Frames",
+     "type": "array"
+    },
+    "mask_paths": {
+     "items": {
+      "type": "string"
+     },
+     "title": "Mask Paths",
+     "type": "array"
+    },
+    "mask_origins": {
+     "items": {
+      "maxItems": 2,
+      "minItems": 2,
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "type": "array"
+     },
+     "title": "Mask Origins",
+     "type": "array"
+    },
+    "points": {
+     "default": [],
+     "items": {
+      "anyOf": [
+       {
+        "maxItems": 2,
+        "minItems": 2,
+        "prefixItems": [
+         {
+          "type": "number"
+         },
+         {
+          "type": "number"
+         }
+        ],
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "title": "Points",
+     "type": "array"
+    }
+   },
+   "required": [
+    "subject",
+    "frames",
+    "mask_paths",
+    "mask_origins"
+   ],
+   "title": "Track",
+   "type": "object"
+  },
+  "Transform": {
+   "additionalProperties": false,
+   "properties": {
+    "op": {
+     "title": "Op",
+     "type": "string"
+    },
+    "parent_ids": {
+     "items": {
+      "type": "string"
+     },
+     "title": "Parent Ids",
+     "type": "array"
+    },
+    "params": {
+     "additionalProperties": true,
+     "default": {},
+     "title": "Params",
+     "type": "object"
+    }
+   },
+   "required": [
+    "op",
+    "parent_ids"
+   ],
+   "title": "Transform",
+   "type": "object"
+  },
+  "Uncertainty": {
+   "additionalProperties": false,
+   "properties": {
+    "value": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Value"
+    },
+    "kind": {
+     "enum": [
+      "std",
+      "ci95",
+      "bound",
+      "resolution",
+      "none"
+     ],
+     "title": "Kind",
+     "type": "string"
+    },
+    "method": {
+     "title": "Method",
+     "type": "string"
+    }
+   },
+   "required": [
+    "value",
+    "kind",
+    "method"
+   ],
+   "title": "Uncertainty",
+   "type": "object"
+  }
+ },
+ "additionalProperties": false,
+ "properties": {
+  "contract_version": {
+   "default": "1",
+   "title": "Contract Version",
+   "type": "string"
+  },
+  "campaign": {
+   "$ref": "#/$defs/Campaign"
+  },
+  "video": {
+   "title": "Video",
+   "type": "string"
+  },
+  "video_size": {
+   "maxItems": 2,
+   "minItems": 2,
+   "prefixItems": [
+    {
+     "type": "integer"
+    },
+    {
+     "type": "integer"
+    }
+   ],
+   "title": "Video Size",
+   "type": "array"
+  },
+  "fps": {
+   "title": "Fps",
+   "type": "number"
+  },
+  "frame_time_s": {
+   "anyOf": [
+    {
+     "items": {
+      "type": "number"
+     },
+     "type": "array"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null,
+   "title": "Frame Time S"
+  },
+  "tracks": {
+   "default": [],
+   "items": {
+    "$ref": "#/$defs/Track"
+   },
+   "title": "Tracks",
+   "type": "array"
+  },
+  "series": {
+   "default": [],
+   "items": {
+    "$ref": "#/$defs/Series"
+   },
+   "title": "Series",
+   "type": "array"
+  },
+  "events": {
+   "items": {
+    "$ref": "#/$defs/Event"
+   },
+   "title": "Events",
+   "type": "array"
+  },
+  "artifacts": {
+   "default": [],
+   "items": {
+    "$ref": "#/$defs/Artifact"
+   },
+   "title": "Artifacts",
+   "type": "array"
+  },
+  "measurements": {
+   "default": [],
+   "items": {
+    "$ref": "#/$defs/Measurement"
+   },
+   "title": "Measurements",
+   "type": "array"
+  },
+  "claims": {
+   "default": [],
+   "items": {
+    "$ref": "#/$defs/Claim"
+   },
+   "title": "Claims",
+   "type": "array"
+  },
+  "reviews": {
+   "default": [],
+   "items": {
+    "$ref": "#/$defs/Review"
+   },
+   "title": "Reviews",
+   "type": "array"
+  },
+  "lessons": {
+   "default": [],
+   "items": {
+    "$ref": "#/$defs/Lesson"
+   },
+   "title": "Lessons",
+   "type": "array"
+  }
+ },
+ "required": [
+  "campaign",
+  "video",
+  "video_size",
+  "fps",
+  "events"
+ ],
+ "title": "ReplayBundle",
+ "type": "object"
+}

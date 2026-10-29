@@ -1,0 +1,132 @@
+{
+ "cases": [
+  {
+   "id": "short_ok",
+   "statement": "The cell shorts at about 90 s: the voltage falls to 0 V and stays there.",
+   "image": "m4_voltage_90.png",
+   "expected": "supported",
+   "why": "Voltage reaches ~0 V between 86 and 93 s and stays flat until ~211 s.",
+   "source": "reisecker2023/movie4 voltage log (data/groundtruth/reisecker2023_movie4_timebase.csv), marks [90]"
+  },
+  {
+   "id": "recovery_ok",
+   "statement": "At about 215 s the voltage leaves 0 V and falls below -1 V.",
+   "image": "m4_voltage_215.png",
+   "expected": "supported",
+   "why": "Voltage leaves 0 V between 211 and 218 s (re-plating onset) and keeps falling.",
+   "source": "reisecker2023/movie4 voltage log (data/groundtruth/reisecker2023_movie4_timebase.csv), marks [215]"
+  },
+  {
+   "id": "short2_ok",
+   "statement": "A second short occurs at about 351 s: the voltage jumps from about -13 V back to 0 V.",
+   "image": "m4_voltage_351.png",
+   "expected": "supported",
+   "why": "Voltage jumps from -13.3 V to ~0.3 V between 345 and 358 s.",
+   "source": "reisecker2023/movie4 voltage log (data/groundtruth/reisecker2023_movie4_timebase.csv), marks [351]"
+  },
+  {
+   "id": "short_window_ok",
+   "statement": "The voltage stays near 0 V from about 90 s to about 215 s.",
+   "image": "m4_voltage_90_215.png",
+   "expected": "supported",
+   "why": "The flat 0 V stretch runs from ~90 s to ~211 s.",
+   "source": "reisecker2023/movie4 voltage log (data/groundtruth/reisecker2023_movie4_timebase.csv), marks [90, 215]"
+  },
+  {
+   "id": "short_late",
+   "statement": "The cell shorts at about 180 s: the voltage falls to 0 V there.",
+   "image": "m4_voltage_180.png",
+   "expected": "refuted",
+   "why": "+90 s off: at 180 s the voltage has already been ~0 V for 90 s; nothing happens at the mark.",
+   "source": "reisecker2023/movie4 voltage log (data/groundtruth/reisecker2023_movie4_timebase.csv), marks [180]"
+  },
+  {
+   "id": "short_late2",
+   "statement": "The cell shorts at about 160 s.",
+   "image": "m4_voltage_160.png",
+   "expected": "refuted",
+   "why": "+70 s off: the drop to 0 V happened at ~90 s; the mark sits on a flat 0 V line.",
+   "source": "reisecker2023/movie4 voltage log (data/groundtruth/reisecker2023_movie4_timebase.csv), marks [160]"
+  },
+  {
+   "id": "recovery_late",
+   "statement": "At about 320 s the voltage leaves 0 V.",
+   "image": "m4_voltage_320.png",
+   "expected": "refuted",
+   "why": "+105 s off: the voltage left 0 V at ~215 s; at 320 s it is near -11 V.",
+   "source": "reisecker2023/movie4 voltage log (data/groundtruth/reisecker2023_movie4_timebase.csv), marks [320]"
+  },
+  {
+   "id": "short2_early",
+   "statement": "A second short occurs at about 260 s: the voltage returns to 0 V.",
+   "image": "m4_voltage_260.png",
+   "expected": "refuted",
+   "why": "-91 s off: at 260 s the voltage is around -5 V and falling; the return to 0 V is at ~351 s.",
+   "source": "reisecker2023/movie4 voltage log (data/groundtruth/reisecker2023_movie4_timebase.csv), marks [260]"
+  },
+  {
+   "id": "short2_late",
+   "statement": "A second short occurs at about 400 s.",
+   "image": "m4_voltage_400.png",
+   "expected": "refuted",
+   "why": "+49..+55 s after the event and on a flat 0 V line; nothing changes at the mark.",
+   "source": "reisecker2023/movie4 voltage log (data/groundtruth/reisecker2023_movie4_timebase.csv), marks [400]"
+  },
+  {
+   "id": "direction_215",
+   "statement": "At about 215 s the cell voltage rises sharply above 0 V.",
+   "image": "m4_voltage_215.png",
+   "expected": "refuted",
+   "why": "Wrong direction: at 215 s the voltage falls from 0 V to negative values.",
+   "source": "reisecker2023/movie4 voltage log (data/groundtruth/reisecker2023_movie4_timebase.csv), marks [215]"
+  },
+  {
+   "id": "direction_351",
+   "statement": "At about 351 s the voltage falls from 0 V to about -13 V.",
+   "image": "m4_voltage_351.png",
+   "expected": "refuted",
+   "why": "Wrong direction: at 351 s the voltage rises from -13 V to 0 V.",
+   "source": "reisecker2023/movie4 voltage log (data/groundtruth/reisecker2023_movie4_timebase.csv), marks [351]"
+  },
+  {
+   "id": "plot_not_visible",
+   "statement": "The cell temperature stayed at 21 °C throughout the recording.",
+   "image": "m4_voltage_nomarks.png",
+   "expected": "inconclusive",
+   "why": "The image shows only voltage; temperature is not in it.",
+   "source": "reisecker2023/movie4 voltage log (data/groundtruth/reisecker2023_movie4_timebase.csv), marks []"
+  },
+  {
+   "id": "m1_span_ok",
+   "statement": "A single straight dark filament crosses the whole gap from one electrode to the other.",
+   "image": "movie1_frame109.png",
+   "expected": "supported",
+   "why": "Movie 1 last frame: the dendrite runs diagonally from the right electrode to the left one (short).",
+   "source": "reisecker2023/movie1 frame 109"
+  },
+  {
+   "id": "m1_span_small",
+   "statement": "The dark filament has crossed only about a tenth of the gap between the electrodes.",
+   "image": "movie1_frame109.png",
+   "expected": "refuted",
+   "why": "Wrong magnitude: in the last frame it spans the full gap.",
+   "source": "reisecker2023/movie1 frame 109"
+  },
+  {
+   "id": "m1_span_early",
+   "statement": "A single straight dark filament crosses the whole gap from one electrode to the other.",
+   "image": "movie1_frame0.png",
+   "expected": "refuted",
+   "why": "Movie 1 first frame (intact condition): no filament spans the gap yet.",
+   "source": "reisecker2023/movie1 frame 0"
+  },
+  {
+   "id": "frame_speed_not_visible",
+   "statement": "The filament grows at about 10 um/s.",
+   "image": "movie1_frame109.png",
+   "expected": "inconclusive",
+   "why": "One frame has no clock: a speed cannot be read from it.",
+   "source": "reisecker2023/movie1 frame 109"
+  }
+ ]
+}

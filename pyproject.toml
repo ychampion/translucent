@@ -1,0 +1,30 @@
+[project]
+name = "translucent"
+version = "0.1.0"
+description = "Closed-loop campaign runtime for materials R&D: observe, measure, test, earn claims."
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = [
+    "openai>=2.0",
+    "python-dotenv>=1.0",
+    "numpy>=2.0",
+    "opencv-python-headless>=4.10",
+    "pydantic>=2.8",
+    "meta-sam-parser==0.1.0",
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "modal>=1.6",
+]
+
+[project.scripts]
+translucent = "translucent.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8", "httpx>=0.27"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+markers = ["modal: runs against real Modal (opt-in, TRANSLUCENT_MODAL_TESTS=1)"]

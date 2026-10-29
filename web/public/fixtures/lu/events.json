@@ -1,0 +1,177 @@
+{
+ "note": "DESIGN FIXTURE. Hand-authored narrative over real data, for UI design only; replaced by real runtime replays. Numbers not yet produced by the runtime (speeds, cost, budget) are intentionally absent and render as \"—\".",
+ "campaign": {
+  "id": "c-graphite-lu",
+  "objective": "As the graphite charges, when does lithium start plating on its surface?",
+  "title": "Graphite electrode, charging",
+  "inputs": [
+   "artifact:lu2023-movie1"
+  ],
+  "memory": "on",
+  "budget_usd": 0,
+  "created_at": 1793257200
+ },
+ "events": [
+  {
+   "seq": 1,
+   "campaign_id": "c-graphite-lu",
+   "t": 1793257200,
+   "type": "campaign.started",
+   "actor": "orchestrator",
+   "title": "Started: when does lithium start plating on the graphite?",
+   "data": {
+    "campaign": {
+     "id": "c-graphite-lu",
+     "objective": "As the graphite charges, when does lithium start plating on its surface?",
+     "title": "Graphite electrode, charging",
+     "inputs": [
+      "artifact:lu2023-movie1"
+     ],
+     "memory": "on",
+     "budget_usd": 0,
+     "created_at": 1793257200
+    }
+   }
+  },
+  {
+   "seq": 2,
+   "campaign_id": "c-graphite-lu",
+   "t": 1793257201.4,
+   "type": "memory.loaded",
+   "actor": "runtime",
+   "title": "Loaded 3 lessons from the dendrite campaign",
+   "refs": [
+    "l-repeats",
+    "l-point",
+    "l-scale"
+   ],
+   "data": {
+    "lessons": [
+     {
+      "id": "l-repeats",
+      "text": "These movies repeat each image. Remove repeats before timing growth.",
+      "scope": "source:reisecker2023",
+      "evidence_ids": [
+       "f-speed-1",
+       "r-speed-1",
+       "m-repeat"
+      ],
+      "learned_in": "c-dendrite-m1",
+      "created_at": 1793170874.8999999
+     },
+     {
+      "id": "l-point",
+      "text": "Point at the object to track it. Naming it doesn’t work on microscopy.",
+      "scope": "tool:sam-3.1",
+      "evidence_ids": [
+       "run-sam-text",
+       "run-sam-point"
+      ],
+      "learned_in": "c-dendrite-m1",
+      "created_at": 1793170876.4999998
+     },
+     {
+      "id": "l-scale",
+      "text": "Measure scale from the scale bar, not the stated field of view.",
+      "scope": "modality:optical-operando",
+      "evidence_ids": [
+       "m-scale"
+      ],
+      "learned_in": "c-dendrite-m1",
+      "created_at": 1793170878.0999997
+     }
+    ]
+   }
+  },
+  {
+   "seq": 3,
+   "campaign_id": "c-graphite-lu",
+   "t": 1793257204.5,
+   "type": "step.started",
+   "actor": "orchestrator",
+   "title": "Plan: check for repeated images before timing anything",
+   "data": {
+    "lesson_ids": [
+     "l-repeats"
+    ]
+   }
+  },
+  {
+   "seq": 4,
+   "campaign_id": "c-graphite-lu",
+   "t": 1793257205.7,
+   "type": "tool.started",
+   "actor": "sandbox",
+   "title": "Comparing each frame with the one before",
+   "data": {
+    "lesson_ids": [
+     "l-repeats"
+    ]
+   }
+  },
+  {
+   "seq": 5,
+   "campaign_id": "c-graphite-lu",
+   "t": 1793257208.2,
+   "type": "step.started",
+   "actor": "orchestrator",
+   "title": "Plan: point at particles to track them, not name them",
+   "data": {
+    "lesson_ids": [
+     "l-point"
+    ]
+   }
+  },
+  {
+   "seq": 6,
+   "campaign_id": "c-graphite-lu",
+   "t": 1793257210,
+   "type": "step.started",
+   "actor": "orchestrator",
+   "title": "Plan: set scale from the scale bar",
+   "data": {
+    "lesson_ids": [
+     "l-scale"
+    ]
+   }
+  }
+ ],
+ "measurements": [],
+ "claims": [],
+ "reviews": [],
+ "lessons": [
+  {
+   "id": "l-repeats",
+   "text": "These movies repeat each image. Remove repeats before timing growth.",
+   "scope": "source:reisecker2023",
+   "evidence_ids": [
+    "f-speed-1",
+    "r-speed-1",
+    "m-repeat"
+   ],
+   "learned_in": "c-dendrite-m1",
+   "created_at": 1793170874.8999999
+  },
+  {
+   "id": "l-point",
+   "text": "Point at the object to track it. Naming it doesn’t work on microscopy.",
+   "scope": "tool:sam-3.1",
+   "evidence_ids": [
+    "run-sam-text",
+    "run-sam-point"
+   ],
+   "learned_in": "c-dendrite-m1",
+   "created_at": 1793170876.4999998
+  },
+  {
+   "id": "l-scale",
+   "text": "Measure scale from the scale bar, not the stated field of view.",
+   "scope": "modality:optical-operando",
+   "evidence_ids": [
+    "m-scale"
+   ],
+   "learned_in": "c-dendrite-m1",
+   "created_at": 1793170878.0999997
+  }
+ ]
+}

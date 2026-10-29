@@ -1,0 +1,1136 @@
+{
+ "generated_at": "2026-10-29T16:17:33",
+ "seconds": 323.8,
+ "sam_mode": "strict",
+ "totals": {
+  "cases": 38,
+  "errors": 0,
+  "translucent_caught": 38,
+  "baseline_caught": 1,
+  "data_path": {
+   "cases": 24,
+   "translucent_caught": 24,
+   "baseline_caught": 1
+  },
+  "by_class": {
+   "spatial calibration": {
+    "cases": 5,
+    "translucent_caught": 5,
+    "baseline_caught": 1
+   },
+   "time base": {
+    "cases": 4,
+    "translucent_caught": 4,
+    "baseline_caught": 0
+   },
+   "swapped video": {
+    "cases": 3,
+    "translucent_caught": 3,
+    "baseline_caught": 0
+   },
+   "junk masks": {
+    "cases": 9,
+    "translucent_caught": 9,
+    "baseline_caught": 0
+   },
+   "fabricated measurement": {
+    "cases": 8,
+    "translucent_caught": 8,
+    "baseline_caught": 0
+   },
+   "missing corroboration": {
+    "cases": 3,
+    "translucent_caught": 3,
+    "baseline_caught": 0
+   },
+   "retracted evidence": {
+    "cases": 3,
+    "translucent_caught": 3,
+    "baseline_caught": 0
+   },
+   "critic overreach": {
+    "cases": 3,
+    "translucent_caught": 3,
+    "baseline_caught": 0
+   }
+  }
+ },
+ "cases": [
+  {
+   "id": "scale_si_bar",
+   "fault_class": "spatial calibration",
+   "variant": "SI scale bar (1.57x) on record next to the right one",
+   "via": "record",
+   "description": "The experiment record also holds the SI figure's 0.1 cm bar (253 px/mm vs 161.2); the growth speed is measured with it.",
+   "translucent": {
+    "caught": true,
+    "how": "gate:unsupported",
+    "detail": "measured 3.95 \u00b1 0.011 um/s; Not enough evidence: Growth speed, object 1 in um/s: records disagree on the image scale (253.1 vs 161.2 px/mm) (truth 6.2 um/s)",
+    "evidence_ids": [
+     "claim_005380aa6d",
+     "rev_3a022d30e770",
+     "run_9b06b28bc273",
+     "m_08c23b971f04",
+     "m_6fe0bbf69cf9"
+    ]
+   },
+   "baseline": {
+    "caught": false,
+    "how": null,
+    "output": {
+     "1": {
+      "velocity_um_s": 71.85531279549502,
+      "ci95": 0.1987595008352145,
+      "n_frames": 490
+     }
+    }
+   },
+   "error": null,
+   "seconds": 11.1
+  },
+  {
+   "id": "scale_via_sandbox",
+   "fault_class": "spatial calibration",
+   "variant": "SI scale computed in the sandbox",
+   "via": "tool",
+   "description": "The agent re-reads the SI scale bar in sandboxed code (derived:spatial_scale) and passes it to measure_growth.",
+   "translucent": {
+    "caught": true,
+    "how": "tool_failure",
+    "detail": "The tool failed: ValueError: m_4f52a6d0369f is not a recorded image scale",
+    "evidence_ids": [
+     "run_a9ff1deec508",
+     "m_4f52a6d0369f"
+    ]
+   },
+   "baseline": {
+    "caught": false,
+    "how": null,
+    "output": {
+     "1": {
+      "velocity_um_s": 71.85531279549502,
+      "ci95": 0.1987595008352145,
+      "n_frames": 490
+     }
+    }
+   },
+   "error": null,
+   "seconds": 0.61
+  },
+  {
+   "id": "scale_other_experiment",
+   "fault_class": "spatial calibration",
+   "variant": "scale from another experiment",
+   "via": "tool",
+   "description": "Movie 1's scale (184.9 px/mm, via lookup_calibration on Movie 1) is used to measure a Movie 4 filament.",
+   "translucent": {
+    "caught": true,
+    "how": "tool_failure",
+    "detail": "The tool failed: ValueError: m_e092942e30be is the image scale of another recording (truth 6.2 um/s)",
+    "evidence_ids": [
+     "run_6ff752d7be50",
+     "m_e092942e30be"
+    ]
+   },
+   "baseline": {
+    "caught": false,
+    "how": null,
+    "output": {
+     "1": {
+      "velocity_um_s": 98.35900307485015,
+      "ci95": 0.27207155035907366,
+      "n_frames": 490
+     }
+    }
+   },
+   "error": null,
+   "seconds": 0.96
+  },
+  {
+   "id": "length_uncalibrated",
+   "fault_class": "spatial calibration",
+   "variant": "length in um with no calibration",
+   "via": "record",
+   "description": "A filament length in um is recorded from pixel extents with no scale behind it, then claimed.",
+   "translucent": {
+    "caught": true,
+    "how": "gate:unsupported",
+    "detail": "Not enough evidence: filament_length in um: no recorded spatial_scale",
+    "evidence_ids": [
+     "claim_927398a55e",
+     "rev_f1d1ccec3395",
+     "run_673c3a87d8c7",
+     "m_91bdb368ff91"
+    ]
+   },
+   "baseline": {
+    "caught": true,
+    "how": "error: TypeError: unsupported operand type(s) for /: 'float' and 'NoneType'",
+    "output": null
+   },
+   "error": null,
+   "seconds": 0.56
+  },
+  {
+   "id": "scale_id_wrong_kind",
+   "fault_class": "spatial calibration",
+   "variant": "clock passed as the scale",
+   "via": "tool",
+   "description": "measure_growth is given the time-base measurement id as scale_id.",
+   "translucent": {
+    "caught": true,
+    "how": "tool_failure",
+    "detail": "The tool failed: ValueError: m_2eb1f8b7434d is not a recorded image scale",
+    "evidence_ids": [
+     "run_0976136d151d"
+    ]
+   },
+   "baseline": {
+    "caught": false,
+    "how": null,
+    "output": {
+     "1": {
+      "velocity_um_s": 2635.7361838463466,
+      "ci95": 7.290728936433735,
+      "n_frames": 490
+     }
+    }
+   },
+   "error": null,
+   "seconds": 0.58
+  },
+  {
+   "id": "playback_m1",
+   "fault_class": "time base",
+   "variant": "playback frames, Movie 1 (no recorded clock)",
+   "via": "tool",
+   "description": "Real Movie 1 SAM track (recorded replay); speed timed by playback frames at 25 fps, images repeated 10x.",
+   "translucent": {
+    "caught": true,
+    "how": "gate:unsupported",
+    "detail": "measured 742 \u00b1 91 um/s; Not enough evidence: Growth speed, object 1 in um/s: no recorded time_base",
+    "evidence_ids": [
+     "claim_951437bf23",
+     "rev_98b9b8e628aa",
+     "run_21220a8f9d3d",
+     "m_f56833aadc2e"
+    ]
+   },
+   "baseline": {
+    "caught": false,
+    "how": null,
+    "output": {
+     "1": {
+      "velocity_um_s": 741.7461305777041,
+      "ci95": 91.06995810377252,
+      "n_frames": 50
+     }
+    }
+   },
+   "error": null,
+   "seconds": 31.46
+  },
+  {
+   "id": "playback_m4",
+   "fault_class": "time base",
+   "variant": "playback frames although Movie 4 has a clock",
+   "via": "tool",
+   "description": "measure_growth on Movie 4 without time_base_id: playback timing instead of the recorded clock.",
+   "translucent": {
+    "caught": true,
+    "how": "gate:unsupported",
+    "detail": "measured 113 \u00b1 0.31 um/s; Not enough evidence: Growth speed, object 1 in um/s: no recorded time_base",
+    "evidence_ids": [
+     "claim_79c5bb22f6",
+     "rev_ab124baed2cb",
+     "run_6405cbc859ba",
+     "m_57da640a2a99"
+    ]
+   },
+   "baseline": {
+    "caught": false,
+    "how": null,
+    "output": {
+     "1": {
+      "velocity_um_s": 112.81997312989947,
+      "ci95": 0.31207214430144387,
+      "n_frames": 490
+     }
+    }
+   },
+   "error": null,
+   "seconds": 11.61
+  },
+  {
+   "id": "playback_velocity_in_sandbox",
+   "fault_class": "time base",
+   "variant": "playback-timed speed recomputed in the sandbox",
+   "via": "tool",
+   "description": "Lengths and playback times go into sandboxed code that returns derived:growth_velocity in um/s.",
+   "translucent": {
+    "caught": true,
+    "how": "gate:unsupported",
+    "detail": "Not enough evidence: growth velocity in um/s: no recorded time_base",
+    "evidence_ids": [
+     "claim_f51cf8d75b",
+     "rev_ba60c6b07957",
+     "run_b678387af10e",
+     "m_17fa66f01cdd"
+    ]
+   },
+   "baseline": {
+    "caught": false,
+    "how": null,
+    "output": {
+     "1": {
+      "velocity_um_s": 112.81997312989947,
+      "ci95": 0.31207214430144387,
+      "n_frames": 490
+     }
+    }
+   },
+   "error": null,
+   "seconds": 10.58
+  },
+  {
+   "id": "time_base_mislabelled",
+   "fault_class": "time base",
+   "variant": "playback timing recorded as a 'time_base'",
+   "via": "record",
+   "description": "A 'time_base' measurement whose values are frame/25 (playback, not the instrument clock) is on record and passed to measure_growth.",
+   "translucent": {
+    "caught": true,
+    "how": "gate:unsupported",
+    "detail": "measured 113 \u00b1 0.31 um/s; Not enough evidence: Growth speed, object 1 in um/s: no recorded time_base (truth 6.2 um/s)",
+    "evidence_ids": [
+     "claim_d676089fe6",
+     "rev_45c845472440",
+     "run_3614d1fe4208",
+     "m_1c504b1832fd",
+     "m_83f1c9049be1"
+    ]
+   },
+   "baseline": {
+    "caught": false,
+    "how": null,
+    "output": {
+     "1": {
+      "velocity_um_s": 112.81997312989947,
+      "ci95": 0.31207214430144387,
+      "n_frames": 490
+     }
+    }
+   },
+   "error": null,
+   "seconds": 10.34
+  },
+  {
+   "id": "voltage_other_movie",
+   "fault_class": "swapped video",
+   "variant": "Movie 4 voltage corroborates a Movie 1 short",
+   "via": "record",
+   "description": "A contact time measured on Movie 1 is checked against Movie 4's voltage collapse (Movie 1 has no voltage log).",
+   "translucent": {
+    "caught": true,
+    "how": "gate:unsupported",
+    "detail": "Movie 1 voltage lookup said: No voltage log for this experiment. | Not enough evidence: Dendrite touches the far electrode (Movie 1) in s: Real time of each frame belongs to another recording",
+    "evidence_ids": [
+     "claim_9cc3e4a10b",
+     "rev_5837c500ad6b",
+     "run_150eb8eaeb14",
+     "m_3292c1ffa92a",
+     "m_2e84cd908936"
+    ]
+   },
+   "baseline": {
+    "caught": false,
+    "how": null,
+    "output": 90.0
+   },
+   "error": null,
+   "seconds": 0.53
+  },
+  {
+   "id": "clock_other_movie",
+   "fault_class": "swapped video",
+   "variant": "Movie 4 clock applied to a Movie 1 track",
+   "via": "tool",
+   "description": "measure_growth on the real Movie 1 SAM track with Movie 4's recorded clock as time_base_id.",
+   "translucent": {
+    "caught": true,
+    "how": "tool_failure",
+    "detail": "The tool failed: ValueError: m_9868677112fa is not a clock for this video's frames (490 readings for 110 frames)",
+    "evidence_ids": [
+     "run_30005a9f0a8d"
+    ]
+   },
+   "baseline": {
+    "caught": false,
+    "how": null,
+    "output": {
+     "1": {
+      "velocity_um_s": 741.7461305777041,
+      "ci95": 91.06995810377252,
+      "n_frames": 50
+     }
+    }
+   },
+   "error": null,
+   "seconds": 0.96
+  },
+  {
+   "id": "experiment_mislabelled",
+   "fault_class": "swapped video",
+   "variant": "Movie 1 imported under Movie 4's experiment id",
+   "via": "tool",
+   "description": "Movie 1's file is imported as experiment reisecker2023/movie4, so its records (scale, clock) are Movie 4's.",
+   "translucent": {
+    "caught": true,
+    "how": "import refused",
+    "detail": "this file is not the recorded video of reisecker2023/movie4; its lab records do not apply",
+    "evidence_ids": []
+   },
+   "baseline": {
+    "caught": false,
+    "how": null,
+    "output": {
+     "1": {
+      "velocity_um_s": 850.7993768226894,
+      "ci95": 104.45927576543141,
+      "n_frames": 50
+     }
+    }
+   },
+   "error": null,
+   "seconds": 0.76
+  },
+  {
+   "id": "junk_point_masks_m4",
+   "fault_class": "junk masks",
+   "variant": "real Movie 4 point-prompt masks (whole-sample outlines)",
+   "via": "tool",
+   "description": "Recorded SAM per-image outlines from point prompts on Movie 4's thin filaments (known junk), measured with the real scale and clock; every measured object gets the naive claim.",
+   "translucent": {
+    "caught": true,
+    "how": "tool_flag",
+    "detail": "0/5 objects measured despite flags;  | tool said: Outlined 49 captured images (frames 0-480): #1: 49 frames (0-480), 49 flagged: shaped like the electrode edge, not a filament; #2: 34 frames (0-480), 24 flagged: shaped like the electrode edge, not a ",
+    "evidence_ids": [
+     "run_686e345f0c5b"
+    ]
+   },
+   "baseline": {
+    "caught": false,
+    "how": null,
+    "output": {
+     "1": {
+      "velocity_um_s": 9.507773332658125,
+      "ci95": 26.976231537705864,
+      "n_frames": 49
+     },
+     "2": {
+      "velocity_um_s": -3.6717300490298994,
+      "ci95": 40.016992624053756,
+      "n_frames": 34
+     },
+     "3": {
+      "velocity_um_s": -119.1003696764066,
+      "ci95": 53.68585454447008,
+      "n_frames": 49
+     },
+     "4": {
+      "velocity_um_s": 140.75561182954186,
+      "ci95": 50.875721092962976,
+      "n_frames": 38
+     },
+     "5": {
+      "velocity_um_s": 8.373107307439094,
+      "ci95": 13.727774558898936,
+      "n_frames": 49
+     }
+    }
+   },
+   "error": null,
+   "seconds": 93.14
+  },
+  {
+   "id": "box_whole_sample",
+   "fault_class": "junk masks",
+   "variant": "box covers most of the image",
+   "via": "tool",
+   "description": "SAM outlines the whole sample instead of the filament (box 1600x800 px), in every frame.",
+   "translucent": {
+    "caught": true,
+    "how": "tool_flag",
+    "detail": "SAM tool: Tracked from frame 0: #1: 490 frames (0-489), 490 flagged: covers a large part of the image (probably the whole sample, not the object) | #1: none of its 490 outlines is credible (490 covers a large part of the image (probably the whole sample, not the object); best confidence 0.90); not measured. Outline it again with a tighter box along this one object.",
+    "evidence_ids": [
+     "run_09917a38ff5d"
+    ]
+   },
+   "baseline": {
+    "caught": false,
+    "how": null,
+    "output": {
+     "1": {
+      "velocity_um_s": 22.58478034973719,
+      "ci95": 0.05607717765952909,
+      "n_frames": 490
+     }
+    }
+   },
+   "error": null,
+   "seconds": 0.39
+  },
+  {
+   "id": "box_electrode_shaped",
+   "fault_class": "junk masks",
+   "variant": "electrode-shaped box",
+   "via": "tool",
+   "description": "SAM outlines the electrode edge (20 px wide, 700 px tall) instead of a filament.",
+   "translucent": {
+    "caught": true,
+    "how": "tool_flag",
+    "detail": "SAM tool: Tracked from frame 0: #1: 490 frames (0-489), 490 flagged: shaped like the electrode edge, not a filament | #1: none of its 490 outlines is credible (490 shaped like the electrode edge, not a filament; best confidence 0.90); not measured. Outline it again with a tighter box along this one object.",
+    "evidence_ids": [
+     "run_9b95695e2754"
+    ]
+   },
+   "baseline": {
+    "caught": false,
+    "how": null,
+    "output": {
+     "1": {
+      "velocity_um_s": 5.649161086828763,
+      "ci95": 0.014184289489524354,
+      "n_frames": 490
+     }
+    }
+   },
+   "error": null,
+   "seconds": 0.39
+  },
+  {
+   "id": "box_low_confidence",
+   "fault_class": "junk masks",
+   "variant": "low-confidence outlines",
+   "via": "tool",
+   "description": "A plausible filament outline returned with SAM confidence 0.3 in every frame.",
+   "translucent": {
+    "caught": true,
+    "how": "tool_flag",
+    "detail": "SAM tool: Tracked from frame 0: #1: 490 frames (0-489), 490 flagged: low confidence 0.30 | #1: none of its 490 outlines is credible (490 low confidence; best confidence 0.30); not measured. Outline it again with a tighter box along this one object.",
+    "evidence_ids": [
+     "run_922c64d49a1c"
+    ]
+   },
+   "baseline": {
+    "caught": false,
+    "how": null,
+    "output": {
+     "1": {
+      "velocity_um_s": 112.81997312989947,
+      "ci95": 0.31207214430144387,
+      "n_frames": 490
+     }
+    }
+   },
+   "error": null,
+   "seconds": 0.39
+  },
+  {
+   "id": "box_merged_filaments",
+   "fault_class": "junk masks",
+   "variant": "two filaments merged into one outline",
+   "via": "tool",
+   "description": "SAM merges filament 1 (1 px/s) with a faster neighbour 70 px below (2 px/s); one confident box spans both.",
+   "translucent": {
+    "caught": true,
+    "how": "tool_flag",
+    "detail": "SAM tool: Tracked from frame 0: #1: 490 frames (0-489) | #1: merge check needs readable mask pixels for every credible outline (0 of 490 checked); not measured. Outline it again. (truth for filament 1: 6.2 um/s)",
+    "evidence_ids": [
+     "run_32d9088eec51"
+    ]
+   },
+   "baseline": {
+    "caught": false,
+    "how": null,
+    "output": {
+     "1": {
+      "velocity_um_s": 225.70084811403362,
+      "ci95": 0.5864765958278236,
+      "n_frames": 490
+     }
+    }
+   },
+   "error": null,
+   "seconds": 0.4
+  },
+  {
+   "id": "meas_unknown_run",
+   "fault_class": "fabricated measurement",
+   "variant": "cites a run that does not exist",
+   "via": "record",
+   "description": "A growth speed is inserted citing run_id 'run_doesnotexist'.",
+   "translucent": {
+    "caught": true,
+    "how": "admission",
+    "detail": "growth speed: measurement m_abc80d35f2d0 cites unknown run run_doesnotexist",
+    "evidence_ids": []
+   },
+   "baseline": {
+    "caught": false,
+    "how": null,
+    "output": 45.0
+   },
+   "error": null,
+   "seconds": 0.09
+  },
+  {
+   "id": "meas_failed_run",
+   "fault_class": "fabricated measurement",
+   "variant": "cites a failed run",
+   "via": "tool",
+   "description": "segment_images with an unrecorded prompt fails for real (no recording, strict replay); a speed is then inserted citing that failed run.",
+   "translucent": {
+    "caught": true,
+    "how": "admission",
+    "detail": "speed citing tool_failure run: measurement m_b4a3c707a267 cites run run_c98fee455883 with status tool_failure",
+    "evidence_ids": [
+     "run_c98fee455883"
+    ]
+   },
+   "baseline": {
+    "caught": false,
+    "how": null,
+    "output": 45.0
+   },
+   "error": null,
+   "seconds": 0.59
+  },
+  {
+   "id": "meas_missing_artifact",
+   "fault_class": "fabricated measurement",
+   "variant": "cites a nonexistent artifact",
+   "via": "record",
+   "description": "A speed from an ok run cites masks 'sha256:000\u2026' that were never stored.",
+   "translucent": {
+    "caught": true,
+    "how": "admission",
+    "detail": "speed citing missing masks: measurement source sha256:0000000000000000000000000000000000000000000000000000000000000000 is not a recorded artifact",
+    "evidence_ids": []
+   },
+   "baseline": {
+    "caught": false,
+    "how": null,
+    "output": 45.0
+   },
+   "error": null,
+   "seconds": 0.1
+  },
+  {
+   "id": "meas_missing_calibration",
+   "fault_class": "fabricated measurement",
+   "variant": "cites a nonexistent calibration",
+   "via": "record",
+   "description": "A speed from an ok run cites a scale measurement id that was never recorded.",
+   "translucent": {
+    "caught": true,
+    "how": "admission",
+    "detail": "speed citing missing scale: calibration m_nosuchscale is not a recorded measurement",
+    "evidence_ids": []
+   },
+   "baseline": {
+    "caught": false,
+    "how": null,
+    "output": 45.0
+   },
+   "error": null,
+   "seconds": 0.1
+  },
+  {
+   "id": "claim_cites_nonexistent",
+   "fault_class": "fabricated measurement",
+   "variant": "finding cites a made-up measurement id",
+   "via": "tool",
+   "description": "propose_finding is called with measurement id 'm_madeup000000'.",
+   "translucent": {
+    "caught": true,
+    "how": "admission",
+    "detail": "The tool failed: AdmissionError: claim evidence m_madeup000000 is not a recorded measurement",
+    "evidence_ids": [
+     "run_0efd51140d2d"
+    ]
+   },
+   "baseline": {
+    "caught": false,
+    "how": null,
+    "output": 45.0
+   },
+   "error": null,
+   "seconds": 0.1
+  },
+  {
+   "id": "derived_failed_sandbox",
+   "fault_class": "fabricated measurement",
+   "variant": "derived: value from a failed sandbox run",
+   "via": "tool",
+   "description": "run_analysis_code fails (sandbox timeout); a derived:growth_velocity is then inserted citing that run.",
+   "translucent": {
+    "caught": true,
+    "how": "admission",
+    "detail": "derived speed citing tool_failure sandbox run: measurement m_7847f46268c8 cites run run_50345348b5fc with status tool_failure",
+    "evidence_ids": [
+     "run_50345348b5fc"
+    ]
+   },
+   "baseline": {
+    "caught": false,
+    "how": null,
+    "output": 45.0
+   },
+   "error": null,
+   "seconds": 0.12
+  },
+  {
+   "id": "typed_into_sandbox",
+   "fault_class": "fabricated measurement",
+   "variant": "numbers typed into the analysis code",
+   "via": "tool",
+   "description": "Sandboxed code declares the real length and clock series as inputs but never reads them: it returns a speed (45 um/s) and an error bar typed into the code, as a live campaign on Meta's models did (2026-10-29).",
+   "translucent": {
+    "caught": true,
+    "how": "tool_failure",
+    "detail": "The tool failed: ValueError: growth_velocity did not change when the recorded inputs changed slightly, so it is not computed from them. Read every number from /work/inputs instead of typing it into the code, and compute each uncertainty from the data.",
+    "evidence_ids": [
+     "run_ac1833c1fc96"
+    ]
+   },
+   "baseline": {
+    "caught": false,
+    "how": null,
+    "output": 45.0
+   },
+   "error": null,
+   "seconds": 10.96
+  },
+  {
+   "id": "meas_borrowed_run",
+   "fault_class": "fabricated measurement",
+   "variant": "attached to someone else's ok run",
+   "via": "record",
+   "description": "A made-up derived:growth_velocity (45 um/s) cites an unrelated successful run (the scale lookup) and real scale + clock calibrations; that run never produced it.",
+   "translucent": {
+    "caught": true,
+    "how": "admission",
+    "detail": "made-up speed on a borrowed run: measurement m_c9baefcfaaed was not produced by run run_0f8daa0e1566",
+    "evidence_ids": []
+   },
+   "baseline": {
+    "caught": false,
+    "how": null,
+    "output": 45.0
+   },
+   "error": null,
+   "seconds": 0.11
+  },
+  {
+   "id": "short_without_voltage",
+   "fault_class": "missing corroboration",
+   "variant": "short time claimed alone",
+   "via": "record",
+   "description": "A contact (short) time from the video is claimed without the voltage collapse it must be checked against.",
+   "translucent": {
+    "caught": true,
+    "how": "gate:unsupported",
+    "detail": "Not enough evidence: short_time must be checked against the recorded voltage_collapse_time",
+    "evidence_ids": [
+     "claim_c507860801",
+     "rev_20f874ba150a",
+     "run_52f0378a4a50",
+     "m_403de9cf9214"
+    ]
+   },
+   "baseline": {
+    "caught": false,
+    "how": null,
+    "output": 90.0
+   },
+   "error": null,
+   "seconds": 0.11
+  },
+  {
+   "id": "short_vs_recovery",
+   "fault_class": "missing corroboration",
+   "variant": "corroborated by the recovery, not the collapse",
+   "via": "tool",
+   "description": "The short time is checked against the voltage *recovery* (215 s) instead of the collapse.",
+   "translucent": {
+    "caught": true,
+    "how": "gate:unsupported",
+    "detail": "Not enough evidence: short_time must be checked against the recorded voltage_collapse_time",
+    "evidence_ids": [
+     "claim_8d0f9a23f9",
+     "rev_7631b4d96088",
+     "run_72f6bf171c70",
+     "m_a03927e9da81",
+     "m_a36f63d73560"
+    ]
+   },
+   "baseline": {
+    "caught": false,
+    "how": null,
+    "output": 215.0
+   },
+   "error": null,
+   "seconds": 0.1
+  },
+  {
+   "id": "short_as_derived",
+   "fault_class": "missing corroboration",
+   "variant": "short time computed in the sandbox (derived:short_time)",
+   "via": "tool",
+   "description": "The contact time is computed in sandboxed code from the length series and recorded clock, so its quantity is 'derived:short_time', and claimed alone.",
+   "translucent": {
+    "caught": true,
+    "how": "gate:unsupported",
+    "detail": "Not enough evidence: short_time must be checked against the recorded voltage_collapse_time",
+    "evidence_ids": [
+     "claim_1e1c9ca4b1",
+     "rev_49b2aaa30fb8",
+     "run_7adbaa306868",
+     "m_d4a1e348bc42"
+    ]
+   },
+   "baseline": {
+    "caught": false,
+    "how": null,
+    "output": 90.0
+   },
+   "error": null,
+   "seconds": 11.1
+  },
+  {
+   "id": "retract_voltage",
+   "fault_class": "retracted evidence",
+   "variant": "voltage run invalidated after the short was earned",
+   "via": "tool",
+   "description": "Short time vs voltage collapse is earned, then the read_cell_voltage run is invalidated.",
+   "translucent": {
+    "caught": true,
+    "how": "stale",
+    "detail": "before supported, after stale",
+    "evidence_ids": [
+     "claim_621a8e06e3",
+     "run_eb7df86463a8"
+    ]
+   },
+   "baseline": {
+    "caught": false,
+    "how": null,
+    "output": 90.0
+   },
+   "error": null,
+   "seconds": 0.12
+  },
+  {
+   "id": "retract_scale",
+   "fault_class": "retracted evidence",
+   "variant": "scale run invalidated after a speed was earned",
+   "via": "tool",
+   "description": "A growth speed is earned, then the lookup_calibration run that produced the scale is invalidated.",
+   "translucent": {
+    "caught": true,
+    "how": "stale",
+    "detail": "before supported, after stale",
+    "evidence_ids": [
+     "claim_373ef3e58a",
+     "run_a03a1d5308fa"
+    ]
+   },
+   "baseline": {
+    "caught": false,
+    "how": null,
+    "output": {
+     "1": {
+      "velocity_um_s": 112.81997312989947,
+      "ci95": 0.31207214430144387,
+      "n_frames": 490
+     }
+    }
+   },
+   "error": null,
+   "seconds": 10.89
+  },
+  {
+   "id": "retract_masks",
+   "fault_class": "retracted evidence",
+   "variant": "SAM run invalidated after a speed was earned",
+   "via": "tool",
+   "description": "A growth speed is earned, then the track_objects run that produced its masks is invalidated.",
+   "translucent": {
+    "caught": true,
+    "how": "stale",
+    "detail": "before supported, after stale",
+    "evidence_ids": [
+     "claim_42633a4713",
+     "run_c541559b796b"
+    ]
+   },
+   "baseline": {
+    "caught": false,
+    "how": null,
+    "output": {
+     "1": {
+      "velocity_um_s": 112.81997312989947,
+      "ci95": 0.31207214430144387,
+      "n_frames": 490
+     }
+    }
+   },
+   "error": null,
+   "seconds": 10.64
+  },
+  {
+   "id": "critic_wrong_claim",
+   "fault_class": "critic overreach",
+   "variant": "critic supports a claim the gate refutes",
+   "via": "tool",
+   "description": "Clean Movie 4 speed (~6.2 um/s) claimed to be the paper's 40-50 um/s; the critic (fake model) says SUPPORTED.",
+   "translucent": {
+    "caught": true,
+    "how": "gate:refuted",
+    "detail": "critic said supported; status refuted",
+    "evidence_ids": [
+     "claim_c49c032b34",
+     "rev_d3f94f0634f1"
+    ]
+   },
+   "baseline": {
+    "caught": false,
+    "how": null,
+    "output": "supported"
+   },
+   "error": null,
+   "seconds": 11.62
+  },
+  {
+   "id": "critic_unsupported_claim",
+   "fault_class": "critic overreach",
+   "variant": "critic supports a claim the gate finds unsupported",
+   "via": "tool",
+   "description": "Movie 1 playback-timed speed (no recorded clock) is claimed; the critic says SUPPORTED.",
+   "translucent": {
+    "caught": true,
+    "how": "gate:unsupported",
+    "detail": "critic said supported; status unsupported",
+    "evidence_ids": [
+     "claim_624cc20e0d"
+    ]
+   },
+   "baseline": {
+    "caught": false,
+    "how": null,
+    "output": "supported"
+   },
+   "error": null,
+   "seconds": 15.38
+  },
+  {
+   "id": "critic_before_gate",
+   "fault_class": "critic overreach",
+   "variant": "critic review on a claim the gate never saw",
+   "via": "record",
+   "description": "A claim is inserted without a gate review and the critic says SUPPORTED: does the claim count as earned?",
+   "translucent": {
+    "caught": true,
+    "how": "status:proposed",
+    "detail": "critic said supported; status proposed",
+    "evidence_ids": [
+     "claim_2b784ad932"
+    ]
+   },
+   "baseline": {
+    "caught": false,
+    "how": null,
+    "output": "supported"
+   },
+   "error": null,
+   "seconds": 0.92
+  },
+  {
+   "id": "mask_merged_small_gap",
+   "fault_class": "junk masks",
+   "variant": "merged outline, 3 px gap (box narrow enough to pass as one filament)",
+   "via": "tool",
+   "description": "SAM merges filament 1 (0.3 px/s, 10 px wide) with a faster neighbour (0.6 px/s) only 3 px away; the box is 23 px across, so only the mask shows two bodies.",
+   "translucent": {
+    "caught": true,
+    "how": "tool_flag",
+    "detail": "SAM tool: Tracked from frame 0: #1: 490 frames (0-489) | #1: its outline holds two separate bodies side by side from the electrode in 400 of 490 images checked (two filaments merged into one outline); not measured. Outline each filament with its own box. (truth for filament 1: 1.86 um/s)",
+    "evidence_ids": [
+     "run_9f1cfabe4777"
+    ]
+   },
+   "baseline": {
+    "caught": false,
+    "how": null,
+    "output": {
+     "1": {
+      "velocity_um_s": 67.71495257725105,
+      "ci95": 0.21128127898243787,
+      "n_frames": 490
+     }
+    }
+   },
+   "error": null,
+   "seconds": 6.76
+  },
+  {
+   "id": "mask_wide_single",
+   "fault_class": "junk masks",
+   "variant": "single wide filament must not be flagged as merged; claim overstates its speed 2x",
+   "via": "tool",
+   "description": "One solid 50 px wide filament (1 px/s, real mask) and a claim of twice its speed: caught only if the outline is measured (not thrown out as two merged filaments) and the gate refutes the claim.",
+   "translucent": {
+    "caught": true,
+    "how": "gate:refuted",
+    "detail": "measured 6.2 \u00b1 0.018 um/s (truth 6.2); 2x claim -> refuted",
+    "evidence_ids": [
+     "m_fab67ff23f9c",
+     "run_89d7469ecf50"
+    ]
+   },
+   "baseline": {
+    "caught": false,
+    "how": null,
+    "output": {
+     "1": {
+      "velocity_um_s": 112.81870763682446,
+      "ci95": 0.3134982381747945,
+      "n_frames": 490
+     }
+    }
+   },
+   "error": null,
+   "seconds": 42.32
+  },
+  {
+   "id": "mask_merged_connected_small_gap",
+   "fault_class": "junk masks",
+   "variant": "two outlines separated by only two pixels, joined at the electrode",
+   "via": "tool",
+   "description": "One confident SAM mask joins two narrow filaments at the electrode. The two-pixel gap is much smaller than the original box-only fault; the neighbour grows 1.5 times as fast.",
+   "translucent": {
+    "caught": true,
+    "how": "tool_flag",
+    "detail": "#1: its outline holds two separate bodies side by side from the electrode in 5 of 5 images checked (two filaments merged into one outline); not measured. Outline each filament with its own box.",
+    "evidence_ids": [
+     "run_92eae890e269"
+    ]
+   },
+   "baseline": {
+    "caught": false,
+    "how": null,
+    "output": {
+     "1": {
+      "velocity_um_s": 62.0347394540943,
+      "ci95": 2.7171614914275854e-14,
+      "n_frames": 5
+     }
+    }
+   },
+   "error": null,
+   "seconds": 0.47
+  },
+  {
+   "id": "mask_merged_diverging_fronts",
+   "fault_class": "junk masks",
+   "variant": "two tilted outlines with different fronts and a threefold speed ratio",
+   "via": "tool",
+   "description": "One confident SAM mask covers two filaments diverging from neighbouring roots, joined at the electrode. The leading outline grows three times as fast as the target filament.",
+   "translucent": {
+    "caught": true,
+    "how": "tool_flag",
+    "detail": "#1: its outline holds two separate bodies side by side from the electrode in 5 of 5 images checked (two filaments merged into one outline); not measured. Outline each filament with its own box.",
+    "evidence_ids": [
+     "run_a8944e63a2b9"
+    ]
+   },
+   "baseline": {
+    "caught": false,
+    "how": null,
+    "output": {
+     "1": {
+      "velocity_um_s": 62.0347394540943,
+      "ci95": 2.7171614914275854e-14,
+      "n_frames": 5
+     }
+    }
+   },
+   "error": null,
+   "seconds": 0.83
+  }
+ ],
+ "clean": [
+  {
+   "case": "Movie 4, scripted clean filament (1 px per recorded s) on the real clock + scale",
+   "truth": "6.203 um/s",
+   "translucent": "6.200 \u00b1 0.018 um/s (ci95); claim 'within 10% of truth' -> supported",
+   "baseline": "112.82 \u00b1 0.31 um/s (per playback frame, 18.2x truth)"
+  },
+  {
+   "case": "Movie 1, real recorded SAM track (frame 60 point), no recorded clock",
+   "truth": "unknown (no clock on record; paper gives 2-7 s per image)",
+   "translucent": "741.75 \u00b1 91.07 um per playback-s over 50 playback frames (repeats not removed without a clock); claim -> unsupported (no recorded clock)",
+   "baseline": "741.75 \u00b1 91.07 um/s reported as real speed (50 playback frames)"
+  },
+  {
+   "case": "Movie 4 voltage log: first short",
+   "truth": "90 \u00b1 3 s (spikes/groundtruth)",
+   "translucent": "89.55 \u00b1 3.45 s; claim 80-100 s -> supported",
+   "baseline": "93.0 s (first logged sample below 0.5 V, no uncertainty)"
+  }
+ ],
+ "ablation_fake_smoke": {
+  "summary": {
+   "on": {
+    "steps": 3,
+    "tool_runs": 2,
+    "tool_failures": 0,
+    "cost_usd": 0.004,
+    "earned": 1,
+    "refused": 0,
+    "used_campaign1_lesson": 1
+   },
+   "off": {
+    "steps": 6,
+    "tool_runs": 5,
+    "tool_failures": 0,
+    "cost_usd": 0.007,
+    "earned": 1,
+    "refused": 0,
+    "used_campaign1_lesson": 0
+   }
+  },
+  "campaign1": {
+   "campaign_id": "cmp_f0022ab548",
+   "memory": "on",
+   "status": "finished",
+   "steps": 6,
+   "tool_runs": 5,
+   "tool_failures": 0,
+   "first_tools": [
+    "lookup_calibration",
+    "lookup_calibration",
+    "read_cell_voltage"
+   ],
+   "cost_usd": 0.007,
+   "earned": 1,
+   "refused": 0,
+   "not_proven": 0,
+   "stale": 0,
+   "lessons_loaded": 0,
+   "used_campaign1_lesson": false,
+   "lessons_learned": 1
+  }
+ }
+}

@@ -1,0 +1,102 @@
+{
+ "cycle1_charge": {
+  "t_start_s": 2,
+  "t_end_s": 50053.5,
+  "duration_h": 13.9032,
+  "n_samples": 25027,
+  "v_start_V": 0.61423,
+  "v_end_V": -0.04707,
+  "v_min_V": -0.05183,
+  "v_max_V": 0.61423,
+  "first_negative_voltage": {
+   "t_s": 26768,
+   "t_in_charge_h": 7.435,
+   "voltage_V": -3.30938e-05
+  },
+  "voltage_minimum": {
+   "t_s": 41190,
+   "t_in_charge_h": 11.4411,
+   "voltage_V": -0.05183
+  }
+ },
+ "cycle1_relax_after_charge": {
+  "t_start_s": 50055.5,
+  "t_end_s": 60853.5,
+  "duration_h": 2.9994,
+  "n_samples": 5400,
+  "v_start_V": -0.01082,
+  "v_end_V": 0.06983,
+  "v_min_V": -0.01082,
+  "v_max_V": 0.06983
+ },
+ "cycle1_discharge": {
+  "t_start_s": 60855.5,
+  "t_end_s": 94316.2,
+  "duration_h": 9.2946,
+  "n_samples": 16732,
+  "v_start_V": 0.12276,
+  "v_end_V": 1.49982,
+  "v_min_V": 0.12276,
+  "v_max_V": 1.49982
+ },
+ "cycle1_relax_after_discharge": {
+  "t_start_s": 94318.2,
+  "t_end_s": 105116.2,
+  "duration_h": 2.9994,
+  "n_samples": 5400,
+  "v_start_V": 1.32595,
+  "v_end_V": 0.46907,
+  "v_min_V": 0.46907,
+  "v_max_V": 1.32595
+ },
+ "cycle2_charge": {
+  "t_start_s": 105118.2,
+  "t_end_s": 130251.7,
+  "duration_h": 6.9815,
+  "n_samples": 12568,
+  "v_start_V": 0.27521,
+  "v_end_V": -0.04521,
+  "v_min_V": -0.10286,
+  "v_max_V": 0.27521,
+  "first_negative_voltage": {
+   "t_s": 105902.2,
+   "t_in_charge_h": 0.2178,
+   "voltage_V": -4.48375e-05
+  },
+  "voltage_minimum": {
+   "t_s": 108030.2,
+   "t_in_charge_h": 0.8089,
+   "voltage_V": -0.10286
+  }
+ },
+ "cycle2_relax_after_charge": {
+  "t_start_s": 130253.7,
+  "t_end_s": 141051.7,
+  "duration_h": 2.9994,
+  "n_samples": 5400,
+  "v_start_V": -0.01215,
+  "v_end_V": 0.00405,
+  "v_min_V": -0.01215,
+  "v_max_V": 0.00405
+ },
+ "cycle2_discharge": {
+  "t_start_s": 141053,
+  "t_end_s": 158062.8,
+  "duration_h": 4.7249,
+  "n_samples": 8506,
+  "v_start_V": 0.02443,
+  "v_end_V": 1.49888,
+  "v_min_V": 0.02443,
+  "v_max_V": 1.49888
+ },
+ "cycle2_relax_after_discharge": {
+  "t_start_s": 158064,
+  "t_end_s": 168862,
+  "duration_h": 2.9994,
+  "n_samples": 5400,
+  "v_start_V": 1.27613,
+  "v_end_V": 0.24625,
+  "v_min_V": 0.24625,
+  "v_max_V": 1.27613
+ }
+}

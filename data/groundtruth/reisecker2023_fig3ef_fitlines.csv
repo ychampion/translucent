@@ -1,0 +1,5 @@
+figure_panel,series,line_style,x1,y1,x2,y2,slope_um_s_per_mA_cm2,intercept_um_s,stated_slope
+3e,SC DC,solid,0.609,9.68,4.648,46.78,9.19,4.09,8.4
+3e,SC PP,dashed,0.434,6.47,2.423,25.6,9.62,2.3,10.5
+3f,HP PP,dashed,0.835,10.22,3.393,16.74,2.55,8.09,1.1
+3f,HP DC,solid,0.377,5.14,1.086,18.75,19.21,-2.11,13.7

@@ -1,0 +1,91 @@
+{
+  "experiment": "lu2023/movie1",
+  "tool": "segment_images",
+  "args": {
+    "boxes": [
+      [
+        0,
+        120,
+        120,
+        420
+      ],
+      [
+        0,
+        420,
+        120,
+        760
+      ]
+    ],
+    "max_images": 12
+  },
+  "prompt": "<0f>1<|box;x1=0;y1=120;x2=120;y2=420;w=1280;h=938|>,2<|box;x1=0;y1=420;x2=120;y2=760;w=1280;h=938|>",
+  "metadata": {
+    "include_confidence": "true"
+  },
+  "jpeg_quality": 95,
+  "images": [
+    {
+      "frame": 0,
+      "t_s": 466.926,
+      "jpeg_sha256": "80b515bd7fa8a248f32514787811b83eed698e4397717d4e840bcb5070375a16"
+    },
+    {
+      "frame": 116,
+      "t_s": 9221.79,
+      "jpeg_sha256": "b282e616b1bdb216f2176f9ff4a28f4eff947cba20c8332b6250cf1482a562ae"
+    },
+    {
+      "frame": 217,
+      "t_s": 16225.681,
+      "jpeg_sha256": "33f1ea1587c6934d955c2663ee49553cfa59947973518b0d9923d32cb42b8d58"
+    },
+    {
+      "frame": 344,
+      "t_s": 25097.276,
+      "jpeg_sha256": "1f14950da3d219c566cadebfed20770ec46511ab1a4006299f117ac50ee67596"
+    },
+    {
+      "frame": 481,
+      "t_s": 34902.724,
+      "jpeg_sha256": "4cb9681cdcc5c79ce5c5743486073c37a1b6f169f51a4819c602cf136201b5c0"
+    },
+    {
+      "frame": 615,
+      "t_s": 44941.634,
+      "jpeg_sha256": "5d17f977118a0b3f4cc7fc91f3a05150b3350826b193e559e252aec2c53a1b2c"
+    },
+    {
+      "frame": 726,
+      "t_s": 53579.767,
+      "jpeg_sha256": "4b214e28fac7c07d1746b1c7f1021fff3b5ae6c7f217aff7689b14bb4d16ef47"
+    },
+    {
+      "frame": 820,
+      "t_s": 61050.584,
+      "jpeg_sha256": "bfd70146327cf8559e9b570399b6035e6025f0c8cafe2248ca332d5268d2aaf2"
+    },
+    {
+      "frame": 941,
+      "t_s": 69455.253,
+      "jpeg_sha256": "d9ff805c13e82a68a721732a23ca6468a0e0fe2ef7fcc74b2cbd5d1a7c355132"
+    },
+    {
+      "frame": 1045,
+      "t_s": 77392.996,
+      "jpeg_sha256": "905ad38dde8ef533234f0702d2c6b50793fca5ee3ee870286ee526475565357f"
+    },
+    {
+      "frame": 1152,
+      "t_s": 85330.739,
+      "jpeg_sha256": "16505c4f17fa6f14a1355b68798de0c0752581811658e03620d23ad6566dce9a"
+    },
+    {
+      "frame": 1258,
+      "t_s": 93325.415,
+      "jpeg_sha256": "35e784398978a50fb7c691f2f6799f2787b7cf472b120f4032e099839937f110"
+    }
+  ],
+  "sam_image_calls": 12,
+  "sam_video_calls": 0,
+  "purpose": "Compare the left electrode edge before and after charging; candidate plated-lithium regions. These boxes need visual review against graphite and current collector; no visual finding is earned yet."
+}

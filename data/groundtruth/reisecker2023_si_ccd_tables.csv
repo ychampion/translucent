@@ -1,0 +1,40 @@
+table,sample,sample_type,conditions,asr_ohm_cm2,ccd_uA_cm2,ccd_eff_uA_cm2,step_uA_cm2,note
+SuppTab2,PC DC 1,PC,DC,,250,250,50,ASR '*' = no data available
+SuppTab2,PC DC 2,PC,DC,,20,20,5,sample name 'PC DC 2' appears twice in source table
+SuppTab2,PC DC 2,PC,DC,,325,325,5,sample name 'PC DC 2' appears twice in source table (likely PC DC 3)
+SuppTab2,PC PP 1,PC,1:1 (ms),4.4,400,200,200,
+SuppTab2,PC PP 2,PC,1:2 (ms),1.5,600,200,200,
+SuppTab2,PC PP 3,PC,1:3 (ms),34.1,600,150,200,
+SuppTab2,PC PP 4,PC,1:5 (ms),60.8,600,100,200,
+SuppTab2,PC PP 5,PC,1:10 (ms),19.1,1200,109,200,
+SuppTab2,PC PP 6,PC,1:1 (us),6.6,1200,600,200,
+SuppTab2,PC PP 7,PC,1:2 (us),8.8,2000,667,200,
+SuppTab2,PC PP 8,PC,1:2 (us),8.7,800,267,200,
+SuppTab2,PC PP 9,PC,1:3 (us),10.5,600,150,200,
+SuppTab2,PC PP 10,PC,1:3 (us),10.3,1800,450,200,
+SuppTab3,SC DC 1,SC,DC,140.3,250,250,250,lower-quality sample (SiC-paper polished) per Supp. Note 5
+SuppTab3,SC DC 2,SC,DC,115.4,400,400,200,lower-quality sample per Supp. Note 5
+SuppTab3,SC DC 3,SC,DC,44.9,400,400,200,lower-quality sample per Supp. Note 5
+SuppTab3,SC DC 4,SC,DC,,1250,1250,50,ASR '-' in source
+SuppTab3,SC DC 5,SC,DC,,800,800,50,
+SuppTab3,SC DC 6,SC,DC,,3900,3900,50,
+SuppTab3,SC DC 7,SC,DC,,4950,4950,50,max SC DC CCD; main text '(4.95-0.05) mA/cm2'; Supp. Fig. 9 caption says '(4.59 +/- 0.05)'
+SuppTab3,SC PP 1,SC,1:1 (us),,3530,1765,100,
+SuppTab3,SC PP 2,SC,1:1 (us),,1600,800,100,
+SuppTab3,SC PP 3,SC,1:1 (us),,2340,1170,100,
+SuppTab3,SC PP 4,SC,1:1 (us),,900,450,100,
+SuppTab3,SC PP 5,SC,1:1 (us),,1100,550,100,
+SuppTab3,SC PP 6,SC,1:1 (us),,4800,2400,100,
+SuppTab4,HP DC 1,HP,DC,704.1,200,200,100,not heat-treated (Supp. Note 1)
+SuppTab4,HP DC 2,HP,DC,86.0,500,500,50,no final polishing (Supp. Note 1)
+SuppTab4,HP DC 3,HP,DC,51.4,650,650,50,
+SuppTab4,HP DC 4,HP,DC,,1050,1050,50,
+SuppTab4,HP DC 5,HP,DC,,400,400,50,
+SuppTab4,HP DC 6,HP,DC,,450,450,50,
+SuppTab4,HP PP 1,HP,1:1 (us),,2100,1050,100,ASR '*' = no data available
+SuppTab4,HP PP 2,HP,1:1 (us),,6600,3300,100,max HP CCD; Supp. Fig. 10 sample (inferred = Movie 5)
+SuppTab4,HP PP 3,HP,1:1 (us),,1350,675,100,
+SuppTab4,HP PP 4,HP,1:1 (us),,2750,1375,100,
+SuppTab4,HP PP 5,HP,1:1 (us),,3200,1600,100,
+SuppTab4,HP PP 6,HP,1:1 (us),,2100,1050,100,
+SuppTab4,HP PP 7,HP,1:1 (us),,4800,2400,100,

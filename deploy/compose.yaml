@@ -1,0 +1,25 @@
+# Translucent on one host: the API (no model keys, live campaigns off) and the web app behind Caddy.
+# Listens on 127.0.0.1 only. Making it public is a separate, deliberate step (deploy/README.md).
+name: translucent
+services:
+  api:
+    build: {context: .., dockerfile: Dockerfile}
+    restart: unless-stopped
+    environment:
+      TRANSLUCENT_LIVE: "0"
+      TRANSLUCENT_SAM: strict
+      TRANSLUCENT_TEAM_TOKEN: ${TRANSLUCENT_TEAM_TOKEN:-}
+    volumes:
+      - ${TRANSLUCENT_LEDGER:-./state/ledger}:/ledger
+      - ./state/api:/state
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/campaigns', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+  web:
+    build: {context: .., dockerfile: deploy/web.Dockerfile}
+    restart: unless-stopped
+    depends_on: [api]
+    ports:
+      - "127.0.0.1:${TRANSLUCENT_PORT:-8090}:8080"
