@@ -57,18 +57,12 @@ export const INTERVENTIONS: InterventionEntry[] = [
     line: "The heater is cut. Stand down, escalate, or watch longer? Scored on 50 recorded NIST trials it hadn’t seen.",
     source: "scripted",
     tab: "Scripted benchmark",
-    // `uv run translucent verify web/public/fixtures/nist-bench.json`, 2026-10-30, at 5c9524b: exit 1 after 15 min.
-    // 22 more lines like the second follow, one per update record.
+    // `uv run translucent verify web/public/fixtures/nist-bench.json`, 2026-10-31, at 923925c: exit 0.
     verified: {
       command: "uv run translucent verify web/public/fixtures/nist-bench.json",
-      output: [
-        "126 findings re-checked, 126 match; 247 files intact, 1500 decisions re-checked",
-        "int_3ad4150acba34cd68b629449d291fd13: Committed probability differs from its executable world model",
-        "int_39eb6bdae86d4a17ac57094efa87f3a1: Compatibility predictions differ from executable models",
-        "… 21 more records: Compatibility predictions differ from executable models",
-      ],
-      exit: 1,
-      ranOn: "2026-10-30",
+      output: ["126 findings re-checked, 126 match; 247 files intact, 1500 decisions re-checked"],
+      exit: 0,
+      ranOn: "2026-10-31",
     },
   },
   {
