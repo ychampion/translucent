@@ -52,3 +52,4 @@ export function Spinner({ size = 16 }: { size?: number }) {
     </svg>
   );
 }
+export const IconWiden = (p: P) => <Svg {...p}><rect x="3" y="4" width="14" height="12" rx="2.5" /><path d="M8 4v12M11 10h3.5M12.8 8.2 14.5 10l-1.7 1.8" /></Svg>;

@@ -66,7 +66,9 @@ def assert_failure(ctx, result, before=1):  # the fixture records one input meas
     run = ctx.ledger.get("run", result.run_id)
     assert run.status == "tool_failure" and run.provider == "modal"
     assert len(ctx.ledger.list("measurement")) == before
-    assert result.outputs == [] and run.output_ids == []
+    # the only thing a failed run keeps is the record of why it failed
+    assert result.outputs == run.output_ids
+    assert all(ctx.ledger.get("artifact", o).label == "Error trace" for o in run.output_ids)
     assert not any(e.type == "measurement.recorded" for e in ctx.ledger.events(ctx.campaign_id))
     assert isinstance(ctx.ledger, Ledger)  # adapter also removes itself on failure
 
@@ -78,6 +80,9 @@ def test_success_records_hash_provider_events_and_idempotency(ctx, fake):
     run = ctx.ledger.get("run", result.run_id)
     m = ctx.ledger.get("measurement", result.outputs[0])
     assert run.code_sha == hashlib.sha256(b"# analysis").hexdigest()
+    code = ctx.ledger.get("artifact", "sha256:" + run.code_sha)  # the code is kept, under the same hash
+    assert code.kind == "code" and code.id in run.input_ids
+    assert ctx.ledger.blob_path(code.id).read_bytes() == b"# analysis"
     assert run.provider == "modal" and run.provider_request_id == "sb-fake"
     assert m.quantity == "derived:speed" and m.value == 2.5 and m.unit == "um/s"
     assert m.label == "Growth speed" and m.uncertainty.kind == "none"
@@ -167,7 +172,8 @@ def test_input_files_and_provenance_inheritance(ctx, fake):
     assert result.status == "ok"
     m = ledger.get("measurement", result.outputs[0])
     assert m.calibration_ids == ["scale", "clock"] and m.artifact_ids == [artifact.id]
-    assert ledger.get("run", result.run_id).input_ids == ["a", "b", artifact.id]
+    code = "sha256:" + hashlib.sha256(b"# analysis").hexdigest()  # the code is kept as the run's last input
+    assert ledger.get("run", result.run_id).input_ids == ["a", "b", artifact.id, code]
     code, files, timeout = fake.calls[0]
     index = json.loads(files["inputs.json"])
     assert json.loads(files[index["a"]]) == {"value": 2, "unit": "um/s", "uncertainty": {

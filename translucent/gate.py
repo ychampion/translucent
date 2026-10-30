@@ -57,12 +57,16 @@ def _needs(unit: str) -> set[str] | None:
     return need
 
 
-def _trusted(ledger: Ledger, m) -> bool:
-    """A non-derived measurement produced by a tool that reads the experiment's own records."""
-    return not m.quantity.startswith("derived:") and ledger.get("run", m.run_id).tool in TRUSTED_RECORDS
+def _trusted(ledger: Ledger, m, campaign: str) -> bool:
+    """A non-derived measurement produced by a tool that reads the experiment's own records. A value a person declared
+    in a what-if branch counts only for findings of that branch (campaign: the campaign of the finding under review)."""
+    run = ledger.get("run", m.run_id)
+    if "assumption" in run.params and run.campaign_id != campaign:
+        return False
+    return not m.quantity.startswith("derived:") and run.tool in TRUSTED_RECORDS
 
 
-def _calibrations(ledger: Ledger, m, _seen=None) -> list:
+def _calibrations(ledger: Ledger, m, campaign: str, _seen=None) -> list:
     """Every calibration a measurement depends on, transitively, that came from the experiment's records."""
     _seen = _seen if _seen is not None else set()
     out = []
@@ -71,13 +75,21 @@ def _calibrations(ledger: Ledger, m, _seen=None) -> list:
             continue
         _seen.add(cid)
         c = ledger.get("measurement", cid)
-        if c.quantity not in ("spatial_scale", "time_base") or _trusted(ledger, c):
+        if c.quantity not in ("spatial_scale", "time_base") or _trusted(ledger, c, campaign):
             out.append(c)
-        out += _calibrations(ledger, c, _seen)
+        out += _calibrations(ledger, c, campaign, _seen)
     return out
 
 
-def _conflict(ledger: Ledger, c) -> str | None:
+def _what_if_elsewhere(ledger: Ledger, a, b, campaign: str) -> bool:
+    """For a finding of a what-if branch, the scale a person declared there and a scale recorded outside the branch
+    answer different questions: they never conflict. Within the finding's own campaign they still do."""
+    ra, rb = ledger.get("run", a.run_id), ledger.get("run", b.run_id)
+    return any("assumption" in r.params and r.campaign_id == campaign and other.campaign_id != campaign
+               for r, other in ((ra, rb), (rb, ra)))
+
+
+def _conflict(ledger: Ledger, c, campaign: str) -> str | None:
     """Another trusted, current scale for the same recording that disagrees with this one beyond both uncertainties."""
     if c.quantity != "spatial_scale" or not isinstance(c.value, (int, float)):
         return None
@@ -85,7 +97,9 @@ def _conflict(ledger: Ledger, c) -> str | None:
     for x in ledger.list("measurement"):
         if x.id == c.id or x.quantity != "spatial_scale" or not isinstance(x.value, (int, float)):
             continue
-        if not _trusted(ledger, x) or ledger.stale_reason(x.id) or not ledger.recordings(x.id) & mine:
+        if not _trusted(ledger, x, campaign) or ledger.stale_reason(x.id) or not ledger.recordings(x.id) & mine:
+            continue
+        if _what_if_elsewhere(ledger, c, x, campaign):
             continue
         if abs(x.value - c.value) > _half_width(x) + _half_width(c):
             return f"records disagree on the image scale ({c.value:.4g} vs {x.value:.4g} {c.unit})"
@@ -113,10 +127,10 @@ def _provenance(ledger: Ledger, claim: Claim) -> list[Check]:
                                 detail=f"{m.label or m.quantity}: unit {m.unit!r} not recognised"))
             continue
         need -= {m.quantity} if m.quantity in ("spatial_scale", "time_base") else set()
-        cals = _calibrations(ledger, m)
+        cals = _calibrations(ledger, m, claim.campaign_id)
         missing = need - {c.quantity for c in cals}
         foreign = [c for c in cals if c.quantity in need and not own & ledger.recordings(c.id)]
-        conflict = next((w for c in cals if c.quantity in need and (w := _conflict(ledger, c))), None)
+        conflict = next((w for c in cals if c.quantity in need and (w := _conflict(ledger, c, claim.campaign_id))), None)
         detail = (f"no recorded {', '.join(sorted(missing))}" if missing else
                   f"{foreign[0].label or foreign[0].quantity} belongs to another recording" if foreign else
                   conflict or "calibration on record")
@@ -130,7 +144,7 @@ def _provenance(ledger: Ledger, claim: Claim) -> list[Check]:
         if any(m.quantity.removeprefix("derived:") == q for m in ms):
             # the partner must be the instrument's own record, not a value computed by agent code
             checks.append(Check(name="independently corroborated",
-                                passed=any(m.quantity == partner and _trusted(ledger, m) for m in ms),
+                                passed=any(m.quantity == partner and _trusted(ledger, m, claim.campaign_id) for m in ms),
                                 detail=f"{q} must be checked against the recorded {partner}"))
     return checks
 

@@ -3,13 +3,10 @@ import { useEffect, useState } from "react";
 import { EXPERIMENTS } from "@/lib/campaigns";
 import { FAULTS, SECOND_OPINION } from "@/lib/proof";
 import { loadBundle } from "@/lib/sources";
-import { money } from "@/lib/words";
+import { STOPPED_S, money } from "@/lib/words";
 import { CheckYourself } from "./CheckYourself";
 import { PageHeader } from "./Shell";
 import { TryToFool } from "./TryToFool";
-
-/** A pause longer than this between two events is time the campaign was stopped, not running. */
-const STOPPED_S = 600;
 
 /**
  * Cost and running time of the hero campaign, summed from its own recorded events. A runtime resume grants a fresh

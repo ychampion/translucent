@@ -27,9 +27,11 @@ interface Props {
   label: string;
   /** A thin progress line along the top edge (a replay's position), 0 to 1. */
   progress?: number;
+  /** Escape in the field (e.g. leave answering a question). */
+  onEscape?: () => void;
 }
 
-export function Composer({ value, onChange, onSubmit, placeholder, canSend, busy, onStop, plus, left, right, tray, disabled, autoFocus, label, progress }: Props) {
+export function Composer({ value, onChange, onSubmit, placeholder, canSend, busy, onStop, plus, left, right, tray, disabled, autoFocus, label, progress, onEscape }: Props) {
   const field = useRef<HTMLTextAreaElement>(null);
   const [menu, setMenu] = useState(false);
   const [confirmStop, setConfirmStop] = useState(false);
@@ -89,7 +91,10 @@ export function Composer({ value, onChange, onSubmit, placeholder, canSend, busy
           disabled={disabled}
           maxLength={2000}
           onChange={(e) => onChange(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit(); } }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit(); }
+            else if (e.key === "Escape" && onEscape) { e.stopPropagation(); onEscape(); }
+          }}
         />
         <div className="composer-bar">
           {!!plus?.length && (

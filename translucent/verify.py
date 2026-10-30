@@ -15,6 +15,9 @@ import uuid
 from translucent import gate
 from translucent.contracts import Event, Measurement, ReplayBundle, Review
 from translucent.ledger import Ledger, SCHEMA, TABLES, sha256_file
+from translucent.intervention_gate import install as _install_intervention_gate
+
+_install_intervention_gate()
 
 HASH = re.compile(r"[0-9a-f]{64}\Z")
 
@@ -24,18 +27,26 @@ class Result:
     findings: int = 0
     matched: int = 0
     files: int = 0
+    decisions: int = 0                                 # re-checked decisions; named in the summary only when present
     problems: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)   # informational only; never a problem
 
     @property
     def ok(self):
         return not self.problems
 
     def summary(self):
-        return f"{self.findings} findings re-checked, {self.matched} match; {self.files} files intact"
+        text = f"{self.findings} findings re-checked, {self.matched} match; {self.files} files intact"
+        return text + (f", {self.decisions} decisions re-checked" if self.decisions else "")
 
     def as_dict(self):
-        return {"ok": self.ok, "summary": self.summary(), "findings": self.findings,
-                "matched": self.matched, "files": self.files, "problems": self.problems}
+        out = {"ok": self.ok, "summary": self.summary(), "findings": self.findings,
+               "matched": self.matched, "files": self.files, "problems": self.problems}
+        if self.notes:
+            out["notes"] = self.notes
+        if self.decisions:
+            out["decisions"] = self.decisions
+        return out
 
     @property
     def matches(self):
@@ -114,16 +125,38 @@ def snapshot(root):
             scratch.db.close()
 
 
-def export_snapshot(L, out, campaign_id):
-    """A sibling receipt preserves ReplayBundle v1 and includes all historical gate inputs."""
+def copy_snapshot(L, path, campaign_id, records=None):
+    """Copy original record/event order and insert-only protections into a receipt."""
+    target = sqlite3.connect(path)
+    try:
+        if records is None:
+            L.db.backup(target)
+        else:
+            target.executescript(SCHEMA)
+            with target:
+                for row in L.db.execute("SELECT id, kind, campaign_id, ref, body, inserted_at FROM record "
+                                        "ORDER BY rowid"):
+                    if row[0] in records:
+                        target.execute("INSERT INTO record VALUES (?,?,?,?,?,?)", row)
+                for row in L.db.execute("SELECT campaign_id, seq, body FROM event WHERE campaign_id=? ORDER BY rowid",
+                                        (campaign_id,)):
+                    target.execute("INSERT INTO event VALUES (?,?,?)", row)
+                for row in L.db.execute("SELECT run_id, reason, at FROM invalidation ORDER BY rowid"):
+                    if row[0] in records:
+                        target.execute("INSERT INTO invalidation VALUES (?,?,?)", row)
+    finally:
+        target.close()
+
+
+def export_snapshot(L, out, campaign_id, records=None):
+    """A sibling receipt preserves ReplayBundle v1 and includes all historical gate inputs.
+
+    With `records` (a set of record ids), the receipt's ledger holds only those records, in their original order,
+    and only this campaign's events: enough to re-check this campaign's evidence, not the rest of the ledger."""
     out = Path(out)
     root = out / "verification"
     root.mkdir(parents=True, exist_ok=True)
-    target = sqlite3.connect(root / "ledger.sqlite")
-    try:
-        L.db.backup(target)
-    finally:
-        target.close()
+    copy_snapshot(L,root / 'ledger.sqlite',campaign_id,records)
     with read_ledger(root) as saved:
         artifacts = saved.list("artifact")
     paths = [out / "bundle.json", out / "movie.mp4", root / "ledger.sqlite"]
@@ -141,9 +174,9 @@ def export_snapshot(L, out, campaign_id):
     (out / "verification.json").write_text(json.dumps(receipt, indent=2), encoding="utf-8")
 
 
-def export_evidence(L, out):
+def export_evidence(L, out, records=None):
     campaign_id = json.loads((Path(out) / "bundle.json").read_text(encoding="utf-8"))["campaign"]["id"]
-    export_snapshot(L, out, campaign_id)
+    export_snapshot(L, out, campaign_id, records)
 
 
 def evidence(L, claim_id):
@@ -332,10 +365,133 @@ def _ledger(root, result, campaign_id=None):
         if campaign_id is not None and L.get("campaign", campaign_id) is None:
             raise ValueError(f"Campaign not found: {campaign_id}")
         _reviews(L, result, campaign_id)
+        _forks(L, result, campaign_id)
+        _decisions(L, result, campaign_id)
+        _setup_note(L, result, campaign_id)
+        from translucent.intervention_verify_cache import verification_cache
+        # Historical legacy reviews above deliberately change their scratch
+        # view. Intervention checks below use one immutable current snapshot.
+        with verification_cache(L):
+            _interventions(L, result, campaign_id)
+
+
+def _interventions(L, result, campaign_id):
+    from translucent.intervention import problems as intervention_problems
+    from translucent.intervention import records as intervention_records
+    from translucent.intervention_bench import evaluate_claim
+
+    result.problems.extend(intervention_problems(L, campaign_id))
+    cids = {
+        r.campaign_id for r in L.list("intervention")
+        if campaign_id is None or r.campaign_id == campaign_id
+    }
+    for cid in cids:
+        rs = intervention_records(L, cid)
+        for claim in (r for r in rs if r.type == "claim"):
+            result.findings += 1
+            reviews = [r for r in rs if r.type == "review" and r.data["claim_id"] == claim.id]
+            if not reviews:
+                result.problems.append(f"Finding {claim.id} has no recorded intervention gate verdict")
+            elif all(r.data == evaluate_claim(L, claim) for r in reviews):
+                result.matched += 1
+            else:
+                result.problems.append(
+                    f"Finding {claim.id} has a recorded intervention gate verdict that differs from recomputation"
+                )
+        result.decisions += sum(
+            r.type == "decision" and r.data["scored"] and not r.data.get("parent_decision_id")
+            for r in rs
+        )
+
+
+def _forks(L, result, campaign_id):
+    """What-if branches: each override must touch the finding it re-examines, and a changed assumption may only
+    appear in the branch it was declared for. Nothing is checked on a ledger without forks."""
+    from translucent.rerun import unused_overrides
+    forks = [TABLES["fork"].model_validate_json(b) for (b,) in
+             L.db.execute("SELECT body FROM record WHERE kind='fork' ORDER BY rowid")]
+    for fork in forks:
+        if campaign_id is not None and campaign_id not in (fork.campaign_id, fork.parent_campaign_id):
+            continue
+        try:
+            if unused_overrides(L, fork):
+                result.problems.append(f"Fork {fork.id} overrides a quantity its finding never used")
+        except (ValueError, AttributeError):
+            result.problems.append(f"Fork {fork.id} re-examines a finding that is not recorded")
+    rows = L.db.execute("SELECT body FROM record WHERE kind='run' AND body LIKE '%\"assumption\"%'")
+    for (body,) in rows:
+        run = TABLES["run"].model_validate_json(body)
+        if "assumption" not in run.params or (campaign_id is not None and run.campaign_id != campaign_id):
+            continue
+        fork = L.get("fork", run.params["assumption"]) if isinstance(run.params["assumption"], str) else None
+        if fork is None or fork.campaign_id != run.campaign_id:
+            result.problems.append(f"Branch measurement claims a what-if it was not created under (run {run.id})")
+
+
+def _decisions(L, result, campaign_id):
+    """Pre-registered metrics: each protocol precedes its campaign's start, and each recorded decision re-checks to the
+    same outcome and checks on the ledger as it stood. Nothing is checked on a ledger without protocols."""
+    from translucent import protocol
+    for (cid,) in L.db.execute("SELECT DISTINCT campaign_id FROM record WHERE kind='protocol' ORDER BY rowid").fetchall():
+        if campaign_id is not None and cid != campaign_id:
+            continue
+        if why := protocol.pre_registered(L, cid):
+            result.problems.append(why)
+    rows = L.db.execute("SELECT rowid, inserted_at, body FROM record WHERE kind='decision' ORDER BY rowid").fetchall()
+    for row, at, body in rows:
+        saved = TABLES["decision"].model_validate_json(body)
+        if campaign_id is not None and saved.campaign_id != campaign_id:
+            continue
+        L.db.execute("SAVEPOINT recheck")
+        try:
+            L.db.execute("DROP TRIGGER IF EXISTS record_no_delete")
+            L.db.execute("DROP TRIGGER IF EXISTS inval_no_delete")
+            L.db.execute("DELETE FROM record WHERE rowid>=?", (row,))
+            L.db.execute("DELETE FROM invalidation WHERE at>?", (at,))
+            outcome, checks = protocol.decide(L, saved.campaign_id, saved.metric_id, saved.winner_claim_id,
+                                              saved.verification_claim_id)
+            if (outcome, checks) != (saved.outcome, saved.checks):
+                result.problems.append(f"Decision {saved.id}: recorded {saved.outcome}, re-check gives {outcome}; "
+                                       "outcome or checks differ")
+        finally:
+            L.db.execute("ROLLBACK TO recheck")
+            L.db.execute("RELEASE recheck")
+        result.decisions += 1
+
+
+def _setup_note(L, result, campaign_id):
+    """One informational line comparing the gate code findings were recorded with (from each campaign's setup
+    record, when it has one) with the gate code re-checking them now."""
+    recorded = set()
+    for cid, body in L.db.execute("SELECT campaign_id, body FROM event ORDER BY rowid"):
+        if campaign_id is not None and cid != campaign_id:
+            continue
+        ev = Event.model_validate_json(body)
+        setup = ev.data.get("setup_id") if ev.type == "campaign.started" else None
+        if not isinstance(setup, str) or not HASH.fullmatch(setup.removeprefix("sha256:")):
+            continue
+        try:
+            snap = json.loads(L.blob_path(setup).read_text(encoding="utf-8"))
+            recorded.add(snap["code"]["files"]["gate.py"])
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+    if not recorded:
+        return
+    from translucent.runtime import code_version
+    now = code_version()["files"]["gate.py"]
+    if recorded == {now}:
+        result.notes.append(f"Re-checked with the gate code the findings were recorded with ({now[:12]})")
+    else:
+        result.notes.append(f"Recorded with gate code {', '.join(sorted(h[:12] for h in recorded))}; "
+                            f"re-checked with gate code {now[:12]}")
 
 
 def _bundle(path, result):
     root = path.parent if path.is_file() else path
+    candidate = path if path.is_file() and path.suffix=='.json' else root/'bundle.json'
+    if candidate.is_file() and json.loads(candidate.read_text(encoding='utf-8')).get('intervention') is not None:
+        from translucent.intervention_export import verify_bundle
+        return verify_bundle(candidate,result)
     receipt_path = root / "verification.json"
     if not receipt_path.is_file():
         raise ValueError("Bundle lacks verification data; export it again with translucent export")
@@ -368,9 +524,12 @@ def _bundle(path, result):
         if bundle.reviews != expected_reviews:
             result.problems.append("Bundle review differs from the recorded reviews")
         for kind, records in (("measurement", bundle.measurements), ("artifact", bundle.artifacts),
-                              ("lesson", bundle.lessons)):
+                              ("lesson", bundle.lessons), ("run", bundle.runs), ("fork", bundle.forks),
+                              ("decision", bundle.decisions)):
             if any(L.get(kind, rec.id) != rec for rec in records):
                 result.problems.append(f"Bundle {kind} records differ from the evidence snapshot")
+        if bundle.protocol is not None and L.get("protocol", bundle.protocol.id) != bundle.protocol:
+            result.problems.append("Bundle protocol differs from the evidence snapshot")
         if not bundle.campaign.inputs or sha256_file(root / "movie.mp4") != \
                 bundle.campaign.inputs[0].removeprefix("sha256:"):
             result.problems.append("Bundle movie differs from the recorded video")

@@ -22,7 +22,7 @@ import cv2
 import numpy as np
 from meta_sam_parser import CompletedOutcome, decode_mask_to_raster, decode_mask_to_svg_path, video_segmentation_format
 
-from translucent import gate, instruments, recordings
+from translucent import gate, instruments, recordings, scrub
 from translucent.contracts import Claim, Lesson, Measurement, Predicate, Run, Source, Transform, Uncertainty
 from translucent.ledger import Ledger, sha256_file
 
@@ -44,6 +44,8 @@ class Context:
     step_id: str = "s0"
     meta: Any = None          # translucent.providers.MeteredMeta, created lazily
     workdir: Path | None = None
+    assumptions: frozenset = frozenset()   # what-if forks this caller may apply (set by translucent.rerun only)
+    fresh: bool = False                     # a replication: re-execute, reusing only runs from this same step
 
     def scratch(self) -> Path:
         d = self.workdir or (self.ledger.root / "work")
@@ -65,7 +67,7 @@ def tool(name: str, description: str, parameters: dict, title: str):
     return deco
 
 
-UNCACHED = {"propose_finding", "record_lesson"}  # a verdict is re-decided every time: evidence may have changed
+UNCACHED = {"propose_finding", "record_lesson", "declare_winner"}  # a verdict is re-decided every time: evidence may have changed
 
 
 def call(ctx: Context, name: str, args: dict) -> ToolResult:
@@ -75,10 +77,12 @@ def call(ctx: Context, name: str, args: dict) -> ToolResult:
         return ToolResult(run_id="", status="tool_failure", summary=f"No tool named {name}.")
     # models sometimes drop the "sha256:" of a content address; a bare 64-hex string can only mean that artifact
     args = {k: "sha256:" + v if isinstance(v, str) and re.fullmatch(r"[0-9a-f]{64}", v) else v for k, v in args.items()}
+    if isinstance(args.get("code"), str):   # agent-written code is recorded forever: no secrets in it, ever
+        args["code"] = scrub.scrub(args["code"])
     key = hashlib.sha256(json.dumps([name, args], sort_keys=True).encode()).hexdigest()
     # idempotency: identical successful call in this ledger is reused, never re-run (SAM is non-deterministic)
     for r in ctx.ledger.list("run", campaign_id=ctx.campaign_id) if name not in UNCACHED else []:
-        if r.idempotency_key == key and r.status == "ok" and                 not any(ctx.ledger.stale_reason(i) for i in r.output_ids if ctx.ledger.kind_of(i) == "measurement"):
+        if r.idempotency_key == key and r.status == "ok" and (not ctx.fresh or r.step_id == ctx.step_id) and                 not any(ctx.ledger.stale_reason(i) for i in r.output_ids if ctx.ledger.kind_of(i) == "measurement"):
             prior = ctx.ledger.events(ctx.campaign_id)
             cached = next((e for e in reversed(prior) if e.type == "tool.finished" and r.id in e.refs), None)
             if cached:
@@ -95,9 +99,15 @@ def call(ctx: Context, name: str, args: dict) -> ToolResult:
         res: ToolResult = spec["fn"](ctx, run_id, rec, **args)
         status, error = res.status, None
     except Exception as e:  # noqa: BLE001 - every failure is recorded, typed, and shown to the agent
-        status, error = "tool_failure", f"{type(e).__name__}: {e}"
+        status, error = "tool_failure", scrub.error_summary(e)
         res = ToolResult(run_id=run_id, status=status, summary=f"The tool failed: {error}")
+        # the full traceback stays in the private work folder; the shared record keeps only the summary
         (ctx.scratch() / f"{run_id}.trace.txt").write_text(traceback.format_exc(), encoding="utf-8")
+        try:
+            rec["outputs"].append(ctx.ledger.put_bytes(error.encode("utf-8"), suffix=".txt", kind="text",
+                                                       media_type="text/plain", label="Error trace").id)
+        except Exception:  # noqa: BLE001 - the failure itself is still recorded on the run
+            pass
     if status == "ok":  # numbers taken from outputs of failed or substituted runs are not evidence
         pending = [m.id for m in rec["measurements"]]  # a run may calibrate its own outputs (e.g. playback time)
         bad = next((w for m in rec["measurements"] if (w := ctx.ledger.admission_problem(m, pending))), None)
@@ -282,15 +292,38 @@ def _repeat_factor(path: Path) -> tuple[float, bool]:
 
 # ------------------------------------------------------------------ calibration (from the experiment's records)
 
+def _what_if(ctx, assumption: str, quantities: set[str]):
+    """The person's fork behind a hidden `assumption` argument, and its overrides for these quantities. Only a
+    person's what-if run (translucent.rerun) may pass one, and only in that fork's own branch campaign."""
+    fork = ctx.ledger.get("fork", assumption) if isinstance(assumption, str) else None
+    if fork is None or assumption not in ctx.assumptions or fork.campaign_id != ctx.campaign_id:
+        raise ValueError("a changed assumption can only come from a person's what-if branch")
+    found = {o.quantity: o for o in fork.overrides if o.quantity in quantities}
+    if not found:
+        raise ValueError(f"this what-if does not change {' or '.join(sorted(quantities))}")
+    return fork, found, f"declared by {fork.author} in a what-if branch: {fork.reason}"
+
+
+def scale_px_per_mm(o) -> tuple[float, float]:
+    """A spatial_scale override as (px/mm, uncertainty in px/mm)."""
+    if o.unit == "px/mm":
+        return float(o.value), float(o.uncertainty)
+    if o.unit == "um/px":
+        return 1000 / float(o.value), 1000 * float(o.uncertainty) / float(o.value) ** 2
+    raise ValueError(f"a scale is given in px/mm or um/px, not {o.unit}")
+
+
 @tool("lookup_calibration",
       "Ask the experiment's records for a calibration: 'spatial_scale' (pixels per mm, from a scale bar) or "
       "'time_base' (recorded frame-time estimates; check the uncertainty bound). Returns nothing if none is on record.",
       {"required": ["video_id", "quantity"], "properties": {
           "video_id": {"type": "string"}, "quantity": {"type": "string", "enum": ["spatial_scale", "time_base"]}}},
       "Checking the experiment's records")
-def lookup_calibration(ctx, run_id, rec, video_id, quantity):
+def lookup_calibration(ctx, run_id, rec, video_id, quantity, assumption=None):
     rec["inputs"].append(video_id)
     exp = _experiment(ctx.ledger, video_id)
+    if assumption is not None:
+        return _declared_calibration(ctx, run_id, rec, video_id, quantity, assumption, exp)
     if quantity == "spatial_scale":
         cal = instruments.spatial_scale(exp)
         if cal is None:
@@ -332,6 +365,32 @@ def lookup_calibration(ctx, run_id, rec, video_id, quantity):
     return ToolResult(run_id, "ok", f"Recorded clock found: {len(distinct)} distinct capture times, one image every "
                                     f"{step:.1f} s, spanning {distinct[-1] - distinct[0]:.0f} s. Measurement id {mid}.",
                       data={"measurement_id": mid})
+
+
+def _declared_calibration(ctx, run_id, rec, video_id, quantity, assumption, exp):
+    if quantity == "spatial_scale":
+        _, found, declared = _what_if(ctx, assumption, {"spatial_scale"})
+        value, u = scale_px_per_mm(found["spatial_scale"])
+        if not value > 0 or u < 0:
+            raise ValueError("a declared scale must be positive")
+        mid = _measure(rec, run_id, "spatial_scale", value, "px/mm", u, "bound", declared, label="Image scale",
+                       valid_domain=declared, artifact_ids=[video_id])
+        return ToolResult(run_id, "ok", f"Scale: {value:.6g} ± {u:.3g} px per mm ({declared}). Measurement id {mid}.",
+                          data={"measurement_id": mid})
+    _, found, declared = _what_if(ctx, assumption, {"time_base_interval"})
+    o = found["time_base_interval"]
+    times = instruments.frame_times(exp)
+    if times is None:
+        raise ValueError("no recorded clock to rescale")
+    step = float(np.median(np.diff(sorted(set(times)))))
+    if o.unit != "s" or not float(o.value) > 0 or step <= 0:
+        raise ValueError("a declared capture interval is a positive number of seconds")
+    times = [t * float(o.value) / step for t in times]
+    mid = _measure(rec, run_id, "time_base", times, "s", float(o.uncertainty) or float(o.value) / 2, "resolution",
+                   declared + "; ± half the declared capture interval", label="Real time of each frame",
+                   valid_domain=declared, artifact_ids=[video_id])
+    return ToolResult(run_id, "ok", f"Declared clock: one image every {float(o.value):g} s ({declared}). "
+                      f"Measurement id {mid}.", data={"measurement_id": mid})
 
 
 # ------------------------------------------------------------------ SAM 3.1 tracking
@@ -807,29 +866,45 @@ def _voltage_log(ctx, rec, run_id, video_id, series, every_s=60.0):
       "and when it recovers; for a charging log, when the voltage drops below 0 V (lithium plating).",
       {"required": ["video_id"], "properties": {"video_id": {"type": "string"}}},
       "Reading the battery's voltage")
-def read_cell_voltage(ctx, run_id, rec, video_id):
+def read_cell_voltage(ctx, run_id, rec, video_id, assumption=None):
     rec["inputs"].append(video_id)
     exp = _experiment(ctx.ledger, video_id)
     series = instruments.voltage(exp)
     if series is None:
         return ToolResult(run_id, "ok", "No voltage log for this experiment.")
+    declared, threshold = None, series.get("short_threshold_v")
+    if assumption is not None:
+        if series.get("clock") == "log":
+            raise ValueError("a what-if on the voltage needs a voltage record with one reading per frame")
+        _, found, declared = _what_if(ctx, assumption, {"short_threshold_v", "voltage_offset_s"})
+        if "short_threshold_v" in found:
+            o = found["short_threshold_v"]
+            if o.unit != "V" or not float(o.value) > 0:
+                raise ValueError("a declared short threshold is a positive number of volts")
+            threshold = float(o.value)
+        if "voltage_offset_s" in found:
+            o = found["voltage_offset_s"]
+            if o.unit != "s":
+                raise ValueError("a declared voltage clock offset is in seconds")
+            series = {**series, "t": [x + float(o.value) for x in series["t"]]}
     if series.get("clock") == "log":
         return _voltage_log(ctx, rec, run_id, video_id, series)
     t, v = np.asarray(series["t"]), np.asarray(series["v"])
+    what_if = {"valid_domain": declared} if declared else {}
     tid = _measure(rec, run_id, "time_base", instruments.frame_times(exp), "s", series["dt"] / 2, "resolution",
                    "instrument clock per frame", label="Real time of each frame", artifact_ids=[video_id])
     vid = _measure(rec, run_id, "cell_voltage", v.tolist(), "V", 0.05, "resolution", series["method"],
-                   label="Cell voltage", calibration_ids=[tid], artifact_ids=[video_id])
-    shorted = np.abs(v) < series["short_threshold_v"]
+                   label="Cell voltage", calibration_ids=[tid], artifact_ids=[video_id], **what_if)
+    shorted = np.abs(v) < threshold
     events, lines = [], []
     edges = np.flatnonzero(np.diff(shorted.astype(int)))
     for e in edges:
         kind = "voltage_collapse_time" if shorted[e + 1] else "voltage_recovery_time"
         when = float((t[e] + t[e + 1]) / 2)
         mid = _measure(rec, run_id, kind, when, "s", float(t[e + 1] - t[e]) / 2, "bound",
-                       f"|V| crosses {series['short_threshold_v']} V between captures", calibration_ids=[tid],
+                       f"|V| crosses {threshold} V between captures", calibration_ids=[tid],
                        artifact_ids=[video_id],
-                       label="Battery shorts" if kind == "voltage_collapse_time" else "Battery recovers")
+                       label="Battery shorts" if kind == "voltage_collapse_time" else "Battery recovers", **what_if)
         events.append(mid)
         lines.append(f"{'short starts' if 'collapse' in kind else 'short ends'} at {when:.0f} s "
                      f"(± {(t[e + 1] - t[e]) / 2:.0f} s) — {mid}")
@@ -850,14 +925,15 @@ def read_cell_voltage(ctx, run_id, rec, video_id):
           "measurement_ids": {"type": "array", "items": {"type": "string"}},
           "params": {"type": "object"},
           "statement": {"type": "string", "description": "One plain sentence a non-specialist understands."},
-          "supersedes": {"type": "string"}}},
+          "supersedes": {"type": "string"},
+          "metric_id": {"type": "string", "description": "The pre-registered metric this finding attempts, if any."}}},
       "Checking a finding")
-def propose_finding(ctx, run_id, rec, type, measurement_ids, params, statement, supersedes=None):
+def propose_finding(ctx, run_id, rec, type, measurement_ids, params, statement, supersedes=None, metric_id=None):
     rec["inputs"] += measurement_ids
     cid = f"claim_{uuid.uuid4().hex[:10]}"
     claim = Claim(id=cid, campaign_id=ctx.campaign_id, author="worker", statement=statement, supersedes=supersedes,
                   predicate=Predicate(type=type, params=params, measurement_ids=measurement_ids),
-                  created_at=time.time())
+                  created_at=time.time(), metric_id=metric_id)
     ctx.ledger.add(claim)
     ctx.ledger.emit(ctx.campaign_id, "claim.proposed", "worker", statement, refs=[cid],
                     data={"claim": claim.model_dump(mode="json")})
@@ -870,8 +946,36 @@ def propose_finding(ctx, run_id, rec, type, measurement_ids, params, statement, 
     # a hint for the planner only: the gate's own wording stays fixed so recorded verdicts re-check byte for byte
     hint = (" Give the finding's unit as the measurements' unit." if any(c.name == "units match" and not c.passed
                                                                        for c in rv.checks) else "")
+    if metric_id is not None:
+        from translucent.protocol import on_protocol
+        fits, why = on_protocol(ctx.ledger, claim)
+        hint += f" Metric {metric_id}: {why}" + ("." if fits else "; it can never win.")
     return ToolResult(run_id, "ok", f"{title} ({rv.verdict}). {rv.reason} Checks: {checks}.{hint} Finding id {cid}.",
                       data={"claim_id": cid, "verdict": rv.verdict})
+
+
+@tool("declare_winner",
+      "Declare which method's finding best answers a pre-registered metric. It is recorded only as a winner if enough "
+      "different methods were tried, the winner is on protocol and supported, a supported verification finding "
+      "re-derived its value through separate runs, every replication succeeded, and no other method disagrees; "
+      "otherwise it is recorded as no winner yet, with the checks that failed.",
+      {"required": ["metric_id", "winner"], "properties": {
+          "metric_id": {"type": "string"},
+          "winner": {"type": "string", "description": "The finding id of the winning attempt."},
+          "verification": {"type": "string", "description": "The finding id that re-derived the winner's value."}}},
+      "Choosing the best method")
+def declare_winner(ctx, run_id, rec, metric_id, winner, verification=None):
+    from translucent import protocol
+    if protocol.protocol_of(ctx.ledger, ctx.campaign_id) is None:
+        return ToolResult(run_id, "tool_failure", "This campaign has no pre-registered metrics; nothing to declare.")
+    d = protocol.record(ctx.ledger, ctx.campaign_id, metric_id, winner if ctx.ledger.kind_of(winner) == "claim"
+                        else None, verification if verification and ctx.ledger.kind_of(verification) == "claim"
+                        else None, time.time())
+    checks = "; ".join(f"{'pass' if c.passed else 'FAIL'} {c.name}: {c.detail}" for c in d.checks)
+    title = {"winner": "Winner declared", "tie": "Methods tie", "tradeoff": "Winner on this metric only",
+             "insufficient_evidence": "No winner yet"}[d.outcome]
+    return ToolResult(run_id, "ok", f"{title} ({d.outcome}). Checks: {checks}. Decision id {d.id}.",
+                      data={"decision_id": d.id, "outcome": d.outcome})
 
 
 @tool("record_lesson",

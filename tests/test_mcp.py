@@ -55,7 +55,7 @@ def test_stdio_initialize_discovery_and_tool_calls(ledger):
     assert [r["id"] for r in replies] == [1, 2, 3, 4, 5, 6]
     assert replies[0]["result"]["protocolVersion"] == "2025-06-18"
     catalog = replies[1]["result"]["tools"]
-    assert {t["name"] for t in catalog} == {"list_campaigns", "list_findings", "get_evidence", "verify"}
+    assert {t["name"] for t in catalog} == {"list_campaigns", "list_findings", "get_evidence", "verify", "list_branches"}
     assert all(t["annotations"]["readOnlyHint"] for t in catalog)
     values = [json.loads(r["result"]["content"][0]["text"]) for r in replies[2:]]
     assert values[0][0]["id"] == "c"

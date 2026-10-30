@@ -9,24 +9,41 @@ import { experiment, lessonSource } from "@/lib/campaigns";
 import type { Event } from "@/lib/contracts";
 import { peopleApi } from "@/lib/people";
 import type { CampaignStore, CampaignView, Question, StoryLine } from "@/lib/store";
-import { answerParts, clean, clock, isPhrasedTool, keepUnits, toolPhrase } from "@/lib/words";
+import { reducedMotion, scrollBehavior } from "@/lib/motion";
+import { activeSeconds, answerParts, clean, clock, durationWord, isPhrasedTool, keepUnits, money, toolPhrase } from "@/lib/words";
 import { FindingCard, StateMark } from "./Findings";
 import { FrameStrip } from "./FrameStrip";
 import { IconBolt, IconBook, IconChevron, IconDown, IconEye, IconMemory, IconRuler, IconShape, IconWave, Spinner } from "./Icons";
+import { Boundary } from "./Status";
 import { Initial, useTeam } from "./Team";
 
 // ---------------------------------------------------------------- steady reveal
 
-/** Show lines one at a time at a calm pace; a large jump (a replay skipped ahead, a reload) shows at once. */
+/**
+ * Show lines one at a time at a calm pace; a large jump (a replay skipped ahead, a reload) shows at once. When lines
+ * piled up while the page was hidden, `newFrom` is where the reader left off.
+ */
 function useSteady(target: number, gap = 180) {
   const [shown, setShown] = useState(target);
+  const [newFrom, setNewFrom] = useState<number | null>(null);
+  const away = useRef(false);
+  useEffect(() => {
+    const on = () => { if (document.hidden) away.current = true; };
+    document.addEventListener("visibilitychange", on);
+    return () => document.removeEventListener("visibilitychange", on);
+  }, []);
   useEffect(() => {
     if (shown === target) return;
-    if (shown > target || target - shown > 24) { setShown(target); return; }
+    if (shown > target || target - shown > 24 || reducedMotion()) {
+      if (target - shown > 24 && shown > 0 && away.current) setNewFrom(shown);
+      away.current = false;
+      setShown(target);
+      return;
+    }
     const id = setTimeout(() => setShown((s) => Math.min(target, s + 1)), gap);
     return () => clearTimeout(id);
   }, [shown, target, gap]);
-  return shown;
+  return { shown, newFrom: newFrom != null && newFrom < target ? newFrom : null };
 }
 
 // ---------------------------------------------------------------- grouping
@@ -131,10 +148,12 @@ interface Props {
   selected: string | null;
   onOpenFinding(id: string): void;
   onFrames(frames: number[]): void;
+  /** Find in thread: folded steps that match open. */
+  query?: string;
 }
 
-export const Thread = memo(function Thread({ campaignKey, store, view, active, selected, onOpenFinding, onFrames }: Props) {
-  const shown = useSteady(view.story.length);
+export const Thread = memo(function Thread({ campaignKey, store, view, active, selected, onOpenFinding, onFrames, query = "" }: Props) {
+  const { shown, newFrom } = useSteady(view.story.length);
   const lines = view.story.slice(0, shown);
   const caughtUp = shown >= view.story.length;
   const bySeq = useMemo(() => new Map(view.events.map((e) => [e.seq, e] as const)), [view.events]);
@@ -174,7 +193,7 @@ export const Thread = memo(function Thread({ campaignKey, store, view, active, s
   useLayoutEffect(() => {
     const el = scroller.current, inner = content.current;
     if (!el || !inner) return;
-    const follow = () => { if (stuckRef.current) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" }); };
+    const follow = () => { if (stuckRef.current) el.scrollTo({ top: el.scrollHeight, behavior: scrollBehavior() }); };
     const ro = new ResizeObserver(follow);
     ro.observe(inner);
     return () => ro.disconnect();
@@ -184,7 +203,7 @@ export const Thread = memo(function Thread({ campaignKey, store, view, active, s
     if (!el) return;
     stuckRef.current = true;
     setStuck(true);
-    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    el.scrollTo({ top: el.scrollHeight, behavior: scrollBehavior() });
   };
 
   const fresh = (id: string) => {
@@ -192,47 +211,27 @@ export const Thread = memo(function Thread({ campaignKey, store, view, active, s
     return active && !!f && f.reviewedSeq != null && f.reviewedSeq >= lastSeq - 1;
   };
 
-  const ctx: StepCtx = { campaignKey, store, view, runs, onFrames };
+  const ctx: StepCtx = { campaignKey, store, view, runs, onFrames, query: query.trim().toLowerCase() };
+  const newKey = newFrom != null ? view.story[newFrom]?.key : undefined;
+  const worked = answer ? workedLine(view) : null;
 
   return (
     <div className="thread-wrap">
     <div className="thread-scroll" ref={scroller}>
-      <div className="thread" ref={content} aria-live="polite">
+      <div className="thread" ref={content}>
         {view.campaign?.objective && (
           <div className="msg msg-user"><p className="bubble">{view.campaign.objective}</p></div>
         )}
-        {blocks.map((b) => {
-          switch (b.kind) {
-            case "agent": {
-              const steps = mergeSteps(b.items.filter((i) => i.kind !== "finding"));
-              const fold = (b !== lastAgent || view.finished) && steps.length > 2;
-              const shownItems = mergeSteps(b.items);
-              return (
-                <div key={b.key} className="msg msg-agent">
-                  {b.headline && <p className="headline">{b.headline}</p>}
-                  {fold ? (
-                    <>
-                      <Folded steps={steps} ctx={ctx} />
-                      {b.items.filter((i) => i.kind === "finding").map((i) => renderFinding(i))}
-                    </>
-                  ) : (
-                    shownItems.map((i) => (i.kind === "finding" ? renderFinding(i) : <StepRow key={i.line.key} item={i} ctx={ctx} />))
-                  )}
-                </div>
-              );
-            }
-            case "person":
-              return <PersonMsg key={b.key} author={b.author} text={b.text} />;
-            case "system":
-              return <p key={b.key} className="msg-system">{b.text}</p>;
-            case "question":
-              return <QuestionMsg key={b.key} q={b.q} text={b.text} />;
-          }
-        })}
+        {blocks.map((b) => (
+          newKey && blockHas(b, newKey)
+            ? [<p key={`new-${b.key}`} className="msg-system is-new">New since you left</p>, renderBlock(b)]
+            : renderBlock(b)
+        ))}
         {view.hiccup && <p className="msg-system">Connection hiccup, trying again</p>}
         {active && !view.finished && !lastLine?.running && (
-          <p className="working"><Spinner size={14} /><span>{view.questions.some((q) => q.status === "open") ? "Waiting for the team" : "Working"}</span></p>
+          <p className="working"><Spinner size={14} /><span>{liveLine(view, lines)}</span></p>
         )}
+        {answer && worked && <p className="msg-system worked num">{worked}</p>}
         {answer && (
           <div className="msg msg-agent msg-answer">
             <p className="answer-lead">{keepUnits(answer.lead)}</p>
@@ -263,10 +262,44 @@ export const Thread = memo(function Thread({ campaignKey, store, view, active, s
     </div>
   );
 
+  function renderBlock(b: Block) {
+    switch (b.kind) {
+      case "agent": {
+        const steps = mergeSteps(b.items.filter((i) => i.kind !== "finding"));
+        const done = b !== lastAgent || view.finished;
+        const fold = done && steps.length > 2;
+        const shownItems = mergeSteps(b.items);
+        return (
+          <div key={b.key} className={`msg msg-agent ${done ? "is-done" : ""}`}>
+            {b.headline && <p className="headline">{b.headline}</p>}
+            {fold ? (
+              <>
+                <Folded steps={steps} ctx={ctx} />
+                {b.items.filter((i) => i.kind === "finding").map((i) => renderFinding(i))}
+              </>
+            ) : (
+              shownItems.map((i) => (i.kind === "finding" ? renderFinding(i) : <StepRow key={i.line.key} item={i} ctx={ctx} />))
+            )}
+          </div>
+        );
+      }
+      case "person":
+        return <PersonMsg key={b.key} author={b.author} text={b.text} />;
+      case "system":
+        return <p key={b.key} className="msg-system">{b.text}</p>;
+      case "question":
+        return <QuestionMsg key={b.key} q={b.q} text={b.text} />;
+    }
+  }
+
   function renderFinding(i: Item) {
     const f = i.line.findingId ? findings.get(i.line.findingId) : undefined;
     if (!f) return null;
-    return <FindingCard key={i.line.key} f={f} fresh={fresh(f.claim.id)} selected={selected === f.claim.id} onOpen={() => onOpenFinding(f.claim.id)} />;
+    return (
+      <Boundary key={i.line.key} label="This finding">
+        <FindingCard f={f} fresh={fresh(f.claim.id)} selected={selected === f.claim.id} onOpen={() => onOpenFinding(f.claim.id)} />
+      </Boundary>
+    );
   }
 });
 
@@ -278,6 +311,8 @@ interface StepCtx {
   view: CampaignView;
   runs: { started: Map<string, Event>; finished: Map<string, Event> };
   onFrames(frames: number[]): void;
+  /** Lower-cased find query, or "". */
+  query: string;
 }
 
 const TOOL_ICON: Record<string, ReactNode> = {
@@ -292,12 +327,14 @@ const TOOL_ICON: Record<string, ReactNode> = {
 
 /** Several finished steps, folded into one quiet line that opens to the list. */
 function Folded({ steps, ctx }: { steps: Item[]; ctx: StepCtx }) {
-  const [open, setOpen] = useState(false);
+  const [userOpen, setOpen] = useState(false);
+  const found = !!ctx.query && steps.some((i) => stepWords(i, ctx).toLowerCase().includes(ctx.query));
+  const open = userOpen || found;
   const n = steps.reduce((s, i) => s + (i.kind === "memory" ? 1 : i.line.count), 0);
   return (
     <div className={`fold ${open ? "is-open" : ""}`}>
       <button type="button" className="step step-fold" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
-        <span className="step-text">{n} steps</span>
+        <span className="step-text">{foldLine(steps, n, ctx)}</span>
         <IconChevron size={13} className="step-chev" />
       </button>
       <Reveal open={open}>
@@ -305,6 +342,56 @@ function Folded({ steps, ctx }: { steps: Item[]; ctx: StepCtx }) {
       </Reveal>
     </div>
   );
+}
+
+/** "12 steps · 3 min · 1 didn’t work": how many, how long, and what went wrong. */
+function foldLine(steps: Item[], n: number, ctx: StepCtx) {
+  const parts = [`${n} ${n === 1 ? "step" : "steps"}`];
+  const ts = steps.map((i) => i.line.t);
+  const lastRun = steps[steps.length - 1]?.line.runs?.slice(-1)[0];
+  const end = lastRun ? ctx.runs.finished.get(lastRun)?.t : undefined;
+  if (end != null) ts.push(end);
+  const secs = activeSeconds(ts);
+  if (secs >= 1) parts.push(durationWord(secs));
+  const count = (pick: (l: StoryLine) => boolean | undefined) => steps.reduce((s, i) => s + (pick(i.line) ? i.line.count : 0), 0);
+  const failed = count((l) => l.failed), unrecorded = count((l) => l.unrecorded);
+  if (failed) parts.push(`${failed} didn’t work`);
+  if (unrecorded) parts.push(`${unrecorded} not in this recording`);
+  return parts.join(" · ");
+}
+
+/** The words a step shows, for find in thread. */
+function stepWords(i: Item, ctx: StepCtx): string {
+  const l = i.line;
+  if (i.kind === "step" && l.tool) return `${toolPhrase(l.tool, { running: false, frames: l.frames ?? [] })} ${l.title}`;
+  if (i.kind === "memory") return `${l.title} ${(ctx.view.lessonsLoaded ?? []).map((x) => x.text).join(" ")}`;
+  return l.title;
+}
+
+/** Does this block hold the story line with this key? */
+function blockHas(b: Block, key: string) {
+  return b.kind === "agent" ? b.key === `a${key}` || b.items.some((i) => i.line.key === key) : b.key === key;
+}
+
+/** What the agent is doing right now, when no step of its own is running. */
+function liveLine(view: CampaignView, lines: StoryLine[]) {
+  if (view.questions.some((q) => q.status === "open")) return "Waiting for the team";
+  const running = [...lines].reverse().find((l) => l.running && l.tool);
+  if (running) return toolPhrase(running.tool!, { running: true, frames: [] });
+  if (view.findings.some((f) => f.state === "checking" && !f.failed)) return "Checking a finding";
+  const last = lines[lines.length - 1];
+  if (!last || last.kind === "plan") return "Planning the next step";
+  const plan = [...lines].reverse().find((l) => l.kind === "plan");
+  return plan ? `Working on: ${plan.title.length > 72 ? `${plan.title.slice(0, 70)}…` : plan.title}` : "Working";
+}
+
+/** "Worked for 18 min · $0.37", counting only the time it was running. */
+export function workedLine(view: CampaignView): string | null {
+  const ts = view.events.map((e) => e.t);
+  if (ts.length < 2) return null;
+  const parts = [`Worked for ${durationWord(activeSeconds(ts))}`];
+  if (view.spentUsd != null) parts.push(money(view.spentUsd));
+  return parts.join(" · ");
 }
 
 /** What a replayed request to the outliner would have done, for a step the recording has no reply for. */
@@ -461,7 +548,7 @@ function QuestionMsg({ q, text }: { q: Question | undefined; text: string }) {
     if (ok) setReply("");
   };
   return (
-    <div className={`msg msg-agent msg-question ${open ? "is-open" : ""}`}>
+    <div className={`msg msg-agent msg-question ${open ? "is-open" : ""}`} data-question={q?.id}>
       <p className="question-kicker">{open ? "A question for the team" : "Asked the team"}</p>
       <p className="headline">{text}</p>
       {open && (

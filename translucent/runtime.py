@@ -7,6 +7,8 @@ SAM 3.1 is always the Meta Model API. Every paid call is metered against the pro
 """
 from __future__ import annotations
 
+from translucent.intervention_runtime import InterventionCampaigner
+
 import json
 import logging
 import re
@@ -330,12 +332,16 @@ class Campaigner:
     def _memory(self) -> str:
         if self.c.memory == "off":
             return ""
-        lessons = self.L.list("lesson")
-        if not lessons:
+        from translucent import memory
+        picked = memory.select(self.L, self.c)
+        if not picked:
             return ""
+        lessons = [d["lesson"] for d in picked]
         self.L.emit(self.c.id, "memory.loaded", "runtime", f"Remembering {len(lessons)} lesson{'s' if len(lessons) != 1 else ''} from earlier campaigns",
-                    refs=[x.id for x in lessons], data={"lessons": [x.text for x in lessons]})
-        return "Lessons from earlier campaigns (with evidence):\n" + "\n".join(f"- {x.text} [{x.scope}]" for x in lessons)
+                    refs=[x.id for x in lessons], data={"lessons": [x.text for x in lessons],
+                                                        "why": [{"id": d["lesson"].id, "reason": d["reason"],
+                                                                 "confidence": d["confidence"]} for d in picked]})
+        return memory.prompt(self.L, picked)
 
     # ------------------------------------------------------------ worker + critic
 
@@ -370,13 +376,14 @@ class Campaigner:
             self.L.emit(self.c.id, "step.finished", "critic", "Second opinion unavailable", detail=str(e)[:200])
             return
         verdict, reason = critic_verdict(msg.content)
+        shown = self.L.put_file(image, kind="plot", media_type="image/png", label="What the second opinion looked at")
         rv = Review(id=f"rev_{uuid.uuid4().hex[:12]}", claim_id=claim_id, reviewer="critic", verdict=verdict,
-                    reason=reason[:400], model=self.roles["critic"][1],
+                    reason=reason[:400], model=self.roles["critic"][1], artifact_ids=[shown.id],
                     created_at=time.time())
         self.L.add(rv)
         self.L.emit(self.c.id, "claim.reviewed", "critic", "Second opinion: " + {"supported": "agrees",
                     "refuted": "disagrees", "inconclusive": "unsure"}[verdict], detail=rv.reason,
-                    refs=[claim_id, rv.id], data={"review": rv.model_dump()})
+                    refs=[claim_id, rv.id, shown.id], data={"review": rv.model_dump()})
 
     # ------------------------------------------------------------ loop
 
@@ -385,7 +392,22 @@ class Campaigner:
         for vid in self.c.inputs:
             a = self.L.get("artifact", vid)
             exps.append(f"{vid} — {a.label} ({a.source.citation if a.source else ''})")
-        return ORCHESTRATOR.format(objective=self.c.objective, experiments="; ".join(exps), memory=self._memory())
+        from translucent.protocol import prompt
+        return ORCHESTRATOR.format(objective=self.c.objective, experiments="; ".join(exps),
+                                   memory=self._memory()) + self._what_if() + prompt(self.L, self.c.id)
+
+    def _what_if(self) -> str:
+        """For a person's what-if branch: what they changed, and the declared values to cite instead of the records."""
+        fork = next(iter(self.L.list("fork", campaign_id=self.c.id)), None)
+        if fork is None:
+            return ""
+        claim = self.L.get("claim", fork.claim_id) if fork.claim_id else None
+        declared = [f"{m.label or m.quantity} {m.id} = {_value(m)}" for r in self.L.list("run", campaign_id=self.c.id)
+                    if "assumption" in r.params for m in self.L.list("measurement", ref=r.id)]
+        return ("\nThis campaign is a what-if branch. " + f"{fork.author} changed an assumption: {fork.reason}. "
+                + (f"Re-examine the finding \"{claim.statement}\" ({claim.id}) under it. " if claim else "")
+                + ("Cite these declared values instead of the experiment's records: " + "; ".join(declared) + "."
+                   if declared else ""))
 
     def _last_seq(self) -> int:
         return self.L.db.execute("SELECT COALESCE(MAX(seq), 0) FROM event WHERE campaign_id=?", (self.c.id,)).fetchone()[0]
@@ -394,7 +416,12 @@ class Campaigner:
         if self.resuming:
             return self.resume()
         self.cursor = self._last_seq()  # anything a person sent while the campaign was queued is read at step 1
-        self.L.emit(self.c.id, "campaign.started", "runtime", self.c.title, detail=self.c.objective, data=self._models())
+        from translucent.protocol import protocol_of
+        setup = self.L.put_json(setup_snapshot(self.L, self.c, self._models()), kind="report", label="Setup")
+        pre = protocol_of(self.L, self.c.id)
+        self.L.emit(self.c.id, "campaign.started", "runtime", self.c.title, detail=self.c.objective,
+                    refs=[setup.id] + ([pre.id] if pre else []),
+                    data={**self._models(), "setup_id": setup.id, **({"protocol_id": pre.id} if pre else {})})
         return self._loop([{"role": "system", "content": self._system()},
                            {"role": "user", "content": "Begin the campaign."}])
 
@@ -568,8 +595,10 @@ class Campaigner:
     # ------------------------------------------------------------ loop
 
     def _loop(self, messages) -> dict:
-        schemas = [t["schema"] for n, t in tools.REGISTRY.items()
-                   if n != "run_analysis_code" or self.roles["orchestrator"][1] not in NO_CODE_TOOL] + EXTRA_TOOLS
+        from translucent.protocol import protocol_of
+        hidden = set() if protocol_of(self.L, self.c.id) else {"declare_winner"}
+        schemas = [t["schema"] for n, t in tools.REGISTRY.items() if n not in hidden and
+                   (n != "run_analysis_code" or self.roles["orchestrator"][1] not in NO_CODE_TOOL)] + EXTRA_TOOLS
         result, idle = {"status": "max_steps"}, 0
         for step in range(1, self.s.max_steps + 1):
             self.ctx.step_id = f"s{step}"
@@ -670,6 +699,61 @@ class Campaigner:
             return _voltage_plot(series, times, self.ctx.scratch() / f"{claim_id}_voltage.png")
         frames = [a for a in self.L.list("artifact") if a.kind == "frame"]
         return self.L.blob_path(frames[-1].id) if frames else None
+
+
+CODE_FILES = ("gate.py", "tools.py", "analysis.py", "instruments.py", "verify.py", "protocol.py")
+
+
+def _unavailable(reason: str) -> dict:
+    return {"unavailable": reason}
+
+
+def code_version() -> dict:
+    """Hashes of the code that decides and measures, and the git commit when the source is a checkout."""
+    import hashlib
+    import subprocess
+    here = Path(__file__).resolve().parent
+    files = {}
+    for name in CODE_FILES:  # line endings normalised, so a Windows and a Linux checkout of one commit agree
+        files[name] = hashlib.sha256((here / name).read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+    try:
+        commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=here, capture_output=True, text=True, timeout=10)
+        dirty = subprocess.run(["git", "status", "--porcelain", "--", "translucent"], cwd=here, capture_output=True,
+                               text=True, timeout=10)
+        git = ({"commit": commit.stdout.strip(), "changed_since_commit": bool(dirty.stdout.strip())}
+               if commit.returncode == 0 else _unavailable("not a git checkout"))
+    except (OSError, subprocess.SubprocessError):
+        git = _unavailable("git not available")
+    return {"files": files, "git": git}
+
+
+def setup_snapshot(ledger: Ledger, campaign: Campaign, models: dict) -> dict:
+    """What a campaign was run with: code, interpreter and packages, models, and the experiment records' hashes."""
+    import platform
+    from importlib import metadata
+    packages = {}
+    for name in ("pydantic", "numpy", "opencv-python-headless", "opencv-python", "openai", "modal"):
+        try:
+            packages[name] = metadata.version(name)
+        except metadata.PackageNotFoundError:
+            continue
+    recordings = []
+    for vid in campaign.inputs:
+        art = ledger.get("artifact", vid)
+        exp = art.source.uri.removeprefix("experiment:") if art and art.source else None
+        entry = {"video_id": vid, "experiment": exp}
+        if exp and exp.startswith("user/"):
+            try:
+                from translucent import experiments
+                _, record, _ = experiments.load(exp)
+                entry["record_sha256"] = record["sha256"]
+            except (ValueError, OSError) as e:
+                entry["record_sha256"] = _unavailable(str(e)[:200])
+        elif exp in instruments.RECORDED_FILES:
+            entry["record_sha256"] = {"video": instruments.RECORDED_FILES[exp]}
+        recordings.append(entry)
+    return {"code": code_version(), "python": platform.python_version(), "packages": packages, **models,
+            "memory": campaign.memory, "budget_usd": campaign.budget_usd, "recordings": recordings}
 
 
 def new_campaign(ledger: Ledger, objective: str, title: str, inputs: list[str], memory="on", budget_usd=5.0) -> Campaign:

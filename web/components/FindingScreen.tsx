@@ -6,7 +6,7 @@ import { VideoClock } from "@/lib/clock";
 import type { Measurement } from "@/lib/contracts";
 import { momentKind, momentLabel, momentsOf, type CampaignStore, type CampaignView, type Finding, type Moment } from "@/lib/store";
 import { connectLive, liveIdFor } from "@/lib/sources";
-import { useCampaign } from "@/lib/useCampaign";
+import { useCampaignLoad } from "@/lib/useCampaign";
 import {
   SECOND_WORD, STATE_WORD, checkDetail, checkLabel, disagreedLine, framesWord, keepUnits, groupChecks, isLong, modelName, momentSeconds, plainLabel,
   plainReason, subjectWord, timeOn, uncertaintyWord, valueWord,
@@ -15,9 +15,11 @@ import { frameAtTime, shortCitation } from "./EvidencePanel";
 import { CheckGlyph, StateMark, findingHref, paperFor } from "./Findings";
 import { FrameStrip } from "./FrameStrip";
 import { Share } from "./Share";
-import { Spinner } from "./Icons";
+import { LoadState } from "./Status";
 import { SignalPanel, isSynced } from "./SignalPanel";
 import { PageHeader } from "./Shell";
+import { HowWeKnow, useGraph } from "./Trail";
+import { COMPARABLE, compareHref, compareTargetFor } from "./CompareScreen";
 
 /** Label for a number the runtime has not produced yet (the measurement is referenced but absent). */
 function missingLabel(id: string) {
@@ -27,7 +29,7 @@ function missingLabel(id: string) {
 
 /** The finding a page is about (?id=), and its campaign shown as finished when the page is opened directly. */
 export function useFindingPage(campaignKey: string) {
-  const c = useCampaign(campaignKey);
+  const { c, error, retry } = useCampaignLoad(campaignKey);
   const [findingId, setFindingId] = useState<string | null>(null);
   useEffect(() => {
     const read = () => setFindingId(new URLSearchParams(window.location.search).get("id"));
@@ -40,10 +42,10 @@ export function useFindingPage(campaignKey: string) {
   useEffect(() => {
     if (!store) return;
     const liveId = liveIdFor(campaignKey);
-    if (liveId) return connectLive(liveId, store, (e) => console.warn("Live stream error", e));
+    if (liveId) return connectLive(liveId, store);
     if (store.index === 0 && store.total > 0) store.showUpTo(store.total);
   }, [store, campaignKey]);
-  return { c, findingId };
+  return { c, findingId, error, retry };
 }
 
 /**
@@ -90,11 +92,11 @@ export function findingEvidence(view: CampaignView, store: CampaignStore, f: Fin
 }
 
 export function FindingScreen({ campaignKey }: { campaignKey: string }) {
-  const { c, findingId } = useFindingPage(campaignKey);
+  const { c, findingId, error, retry } = useFindingPage(campaignKey);
   const ex = experiment(campaignKey);
   const still = useMemo(() => new VideoClock(), []);
 
-  if (!c || findingId == null) return <div className="screen loading"><div className="center-spin"><Spinner size={22} /></div></div>;
+  if (!c || findingId == null) return <div className="screen loading"><PageHeader /><LoadState error={error} onRetry={retry} /></div>;
   const { view, store } = c;
   const f = view.findings.find((x) => x.claim.id === findingId);
   if (!f) {
@@ -223,6 +225,27 @@ export function FindingScreen({ campaignKey }: { campaignKey: string }) {
           {media.citation && <p className="evidence-source">{shortCitation(media.citation)}</p>}
         </section>
       </main>
+      <div className="detail-know">
+        <Know store={store} view={view} f={f} campaignKey={campaignKey} frames={frames} />
+        <p className="know-links">
+          <Link className="pill-link" href={`/c/${campaignKey}/graph/?focus=${encodeURIComponent(f.claim.id)}`}>The whole evidence graph</Link>
+          <CompareWith campaignKey={campaignKey} />
+        </p>
+      </div>
     </div>
   );
+}
+
+/** A link to the same experiment's other recorded run, when there is one. */
+function CompareWith({ campaignKey }: { campaignKey: string }) {
+  const target = compareTargetFor(campaignKey);
+  if (!target) return null;
+  const label = COMPARABLE.find((x) => x.folder === target)?.label ?? target;
+  return <Link className="pill-link" href={compareHref(experiment(campaignKey).folder, target)}>Compare with {label.replace(/^[^,]+, /, "the ")}</Link>;
+}
+
+/** The finding's trail, built from the campaign's graph. */
+export function Know({ store, view, f, campaignKey, frames, compact }: { store: CampaignStore; view: CampaignView; f: Finding; campaignKey: string; frames: number[]; compact?: boolean }) {
+  const graph = useGraph(store, view);
+  return <HowWeKnow graph={graph} f={f} store={store} campaignKey={campaignKey} frames={frames} compact={compact} />;
 }

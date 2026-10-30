@@ -47,8 +47,10 @@ async function readJson(r: Response): Promise<unknown> {
 const absolute = (u: string) => /^(https?:|data:|blob:)/.test(u);
 
 /** A replay export: bundle.json. */
-export async function loadBundle(key: string): Promise<Bundle> {
-  const base = fixtureBase(key);
+export const loadBundle = (key: string) => loadBundleAt(fixtureBase(key));
+
+/** The replay export in one folder under public/fixtures (the compare page loads two by folder). */
+export async function loadBundleAt(base: string): Promise<Bundle> {
   const r = await fetch(`${base}/bundle.json`);
   if (!r.ok) throw new Error(`No replay at ${base}/bundle.json`);
   const bundle = (await readJson(r)) as Bundle;
@@ -93,6 +95,8 @@ export function getStore(key: string): Promise<CampaignStore> {
   if (!p) {
     p = liveId ? (driver ? driver.open(liveId, key) : openLive(liveId)) : loadBundle(key).then((b) => storeFrom(b, true));
     stores.set(id, p);
+    // A failed load is not cached, so Retry fetches again.
+    p.catch(() => { if (stores.get(id) === p) stores.delete(id); });
   }
   return p;
 }
@@ -153,6 +157,7 @@ export function connectLive(campaignId: string, store: CampaignStore, onError?: 
   if (driver) return driver.connect(campaignId, store, onError);
   const es = new EventSource(api(`/api/campaigns/${encodeURIComponent(campaignId)}/events`));
   const handle = (m: MessageEvent) => {
+    store.setStream("ok");
     try {
       const e = JSON.parse(m.data) as Event;
       if (e && typeof e.seq === "number" && typeof e.type === "string") store.ingest(e);
@@ -162,12 +167,15 @@ export function connectLive(campaignId: string, store: CampaignStore, onError?: 
   };
   for (const t of EVENT_TYPES) es.addEventListener(t, handle as EventListener);
   es.onmessage = handle;
+  es.onopen = () => store.setStream("ok");
   es.onerror = (err) => {
     // A finished campaign's stream ends; don't reconnect forever.
-    if (store.getSnapshot().finished) es.close();
-    else onError?.(err);
+    if (store.getSnapshot().finished) { es.close(); store.setStream("ok"); return; }
+    // The browser retries on its own while the stream is CONNECTING; CLOSED means it gave up.
+    store.setStream(es.readyState === EventSource.CLOSED ? "lost" : "retrying");
+    onError?.(err);
   };
-  return () => es.close();
+  return () => { es.close(); store.setStream("ok"); };
 }
 
 // ---------------------------------------------------------------- replay pacing

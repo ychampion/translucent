@@ -18,19 +18,24 @@ import secrets
 import shutil
 import threading
 import time
-from typing import Annotated, Literal
 import uuid
+from typing import Annotated, Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError, model_validator
 
 from translucent import analysis, budget, experiments, replay  # analysis import registers the sandbox tool
-from translucent.contracts import ReplayBundle, Review
+from translucent.scrub import scrub
+from translucent.contracts import Override, ReplayBundle, Review
 from translucent.ledger import Ledger
 from translucent.runtime import (Campaigner, Settings, campaign_state, explain_check,  # noqa: F401 - re-exported
                                  new_campaign)
+from translucent.intervention_gate import install as _install_intervention_gate
+
+_install_intervention_gate()
 
 DEFAULT_LEDGER = Path("state/ledger")
 DEFAULT_STATE = Path("state/api")
@@ -55,12 +60,36 @@ def explain_review(review):
     return review
 
 
+class MetricTest(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    type: Literal["value_within", "events_coincide", "trend"]
+    params: dict[str, float | str]
+
+
+class MetricRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    id: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9_-]{0,47}$")
+    name: str = Field(min_length=1, max_length=200)
+    quantities: list[str] = Field(min_length=1, max_length=10)
+    unit: str = Field(min_length=1, max_length=20)
+    test: MetricTest
+    min_methods: int = Field(default=2, ge=1, le=10)
+    needs_verification: bool = True
+
+
+class ProtocolRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    author: str = Field(min_length=1, max_length=80, pattern=r"^[^\x00-\x1f\x7f]+$")
+    metrics: list[MetricRequest] = Field(min_length=1, max_length=10)
+
+
 class CampaignRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     objective: str = Field(min_length=1, max_length=10000)
     experiment_id: str = Field(min_length=1, max_length=256)
     profile: Literal["dev", "meta"] | None = None   # default: the server's (TRANSLUCENT_PROFILE)
     budget: float = Field(gt=0)
+    protocol: ProtocolRequest | None = None          # metrics fixed before the agent starts
 
 
 class Job(BaseModel):
@@ -74,6 +103,7 @@ class Job(BaseModel):
     error: str | None = None
     resume: bool = False            # the worker continues the campaign from the ledger instead of starting it
     budget: float | None = None     # budget for a resumed run (the campaign record keeps its original one)
+    rerun: str | None = None        # a what-if rerun that reaches the remote sandbox: the fork id to re-run
 
 
 Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=80,
@@ -122,6 +152,16 @@ class ReviewRequest(_PersonAction):
 
 class ControlRequest(_PersonAction):
     action: Literal["pause", "resume", "stop"]
+
+
+class ForkRequest(_PersonAction):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    claim_id: str = Field(min_length=1, max_length=128)
+    reason: Text
+    overrides: list[Override] = Field(min_length=1, max_length=5)
+    mode: Literal["rerun", "agent"] = "rerun"
+    budget: float | None = Field(default=None, gt=0)          # agent mode: the paid run's budget
+    profile: Literal["dev", "meta"] | None = None
 
 
 class ResumeRequest(BaseModel):
@@ -234,6 +274,7 @@ def create_app(ledger_dir=None, state_dir=None, *, campaigner_factory=None, poll
     ledger_dir = Path(ledger_dir or os.environ.get("TRANSLUCENT_LEDGER_DIR", DEFAULT_LEDGER))
     state_dir = Path(state_dir or os.environ.get("TRANSLUCENT_STATE_DIR", DEFAULT_STATE))
     jobs_dir, cache_dir, uploads_dir = state_dir / "jobs", state_dir / "bundles", state_dir / "uploads"
+    replies_dir, replies_mutex = state_dir / "idempotency", threading.Lock()
     upload_mutex, in_flight = threading.Lock(), set()
     mutex, export_mutex, people_mutex, register_mutex = (threading.Lock(), threading.Lock(), threading.Lock(),
                                                          threading.Lock())
@@ -291,11 +332,15 @@ def create_app(ledger_dir=None, state_dir=None, *, campaigner_factory=None, poll
                 campaign = L.get("campaign", cid)
                 if campaign is None:
                     raise ValueError("queued campaign missing from ledger")
-                if job.budget is not None:
-                    campaign = campaign.model_copy(update={"budget_usd": job.budget})
-                camp = factory(L, campaign, Settings(profile=job.profile, ask_wait_s=900, on_status=on_status,
-                                                     shutting_down=stopping.is_set))
-                result = camp.resume() if job.resume else camp.run()
+                if job.rerun is not None:
+                    from translucent.rerun import rerun
+                    result = rerun(L, job.rerun)
+                else:
+                    if job.budget is not None:
+                        campaign = campaign.model_copy(update={"budget_usd": job.budget})
+                    camp = factory(L, campaign, Settings(profile=job.profile, ask_wait_s=900, on_status=on_status,
+                                                         shutting_down=stopping.is_set))
+                    result = camp.resume() if job.resume else camp.run()
             with mutex:
                 save(job, status="finished", result=result)
         except Exception as exc:
@@ -346,7 +391,7 @@ def create_app(ledger_dir=None, state_dir=None, *, campaigner_factory=None, poll
     if "*" in origins:
         raise ValueError("TRANSLUCENT_CORS_ORIGINS must list explicit origins")
     app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["GET", "POST", "PUT"],
-                       allow_headers=["Authorization", "Last-Event-ID", "Content-Type"])
+                       allow_headers=["Authorization", "Last-Event-ID", "Content-Type", "Idempotency-Key"])
 
     def get_campaign(L, cid):
         campaign = L.get("campaign", cid)
@@ -418,7 +463,9 @@ def create_app(ledger_dir=None, state_dir=None, *, campaigner_factory=None, poll
     def cached_bundle(campaign_id):
         with export_mutex, ledger() as L:
             c = get_campaign(L, campaign_id)
-            if not c.inputs:
+            from translucent.intervention import records as intervention_records
+            intervention=bool(intervention_records(L,campaign_id,'protocol'))
+            if not c.inputs and not intervention:
                 raise HTTPException(409, "Campaign has no recorded video")
             # A conservative global revision also invalidates on new evidence,
             # reviews or invalidations that were not accompanied by an event.
@@ -430,7 +477,8 @@ def create_app(ledger_dir=None, state_dir=None, *, campaigner_factory=None, poll
             if not target.exists() or not version.exists() or json.loads(version.read_text()) != stamp:
                 exported = replay.export(_ExportLedger(L, out), campaign_id, out / "export",
                                          include_verification=False)
-                exported = exported.model_copy(update={"video": "/api/artifacts/" + c.inputs[0]})
+                if c.inputs:
+                    exported = exported.model_copy(update={"video": "/api/artifacts/" + c.inputs[0]})
                 _atomic_json(target, exported.model_dump(mode="json"))
                 _atomic_json(version, stamp)
             return ReplayBundle.model_validate_json(target.read_text(encoding="utf-8"))
@@ -460,6 +508,51 @@ def create_app(ledger_dir=None, state_dir=None, *, campaigner_factory=None, poll
                 explain_review(event["data"]["review"])
         return body
 
+    @app.get("/api/campaigns/{campaign_id}/graph")
+    def campaign_graph(campaign_id: str):
+        from translucent.graph import campaign_graph as build_graph
+        with ledger() as L:
+            get_campaign(L, campaign_id)
+            return build_graph(L, campaign_id)
+
+    @app.get('/api/campaigns/{campaign_id}/intervention')
+    def intervention_campaign(campaign_id: str):
+        from translucent.intervention import records as intervention_records
+        from translucent.intervention_export import projection
+        with ledger() as L:
+            get_campaign(L,campaign_id)
+            if not intervention_records(L,campaign_id,'protocol'):raise HTTPException(404,'No intervention campaign')
+            return projection(L,campaign_id).model_dump(mode='json',exclude={'receipt'})
+
+    @app.get('/api/campaigns/{campaign_id}/intervention/{section}')
+    def intervention_section(campaign_id: str,section: str):
+        allowed={'trials','hypotheses','policies','decisions','scores','comparisons','updates','next_experiments','procedure','protocol'}
+        if section not in allowed:raise HTTPException(404,'No intervention section')
+        return intervention_campaign(campaign_id)[section]
+
+    @app.get("/api/findings/{claim_id}/evidence")
+    def finding_evidence(claim_id: str):
+        from translucent.verify import evidence
+        with ledger() as L:
+            if L.get("claim", claim_id) is None:
+                raise HTTPException(404, "Finding not found")
+            from translucent.advice import signoffs
+            out = evidence(L, claim_id)
+            out["status"] = L.claim_status(claim_id)
+            out["signoffs"] = signoffs(L, claim_id)
+            return out
+
+    @app.get("/api/compare")
+    def compare(a: str, b: str):
+        from translucent.diff import compare as diff
+        with ledger() as L:
+            try:
+                return diff(L, a, b)
+            except LookupError as e:
+                raise HTTPException(404, str(e)) from e
+            except ValueError as e:
+                raise HTTPException(400, str(e)) from e
+
     @app.get("/api/artifacts/{artifact_id:path}")
     def artifact(artifact_id: str):
         if not ARTIFACT_ID.fullmatch(artifact_id):
@@ -488,7 +581,23 @@ def create_app(ledger_dir=None, state_dir=None, *, campaigner_factory=None, poll
                     a.source.uri == "experiment:" + body.experiment_id))), None)
                 if video is None:
                     raise HTTPException(404, "Recorded experiment not found")
+                pre = None
+                if body.protocol is not None:
+                    from translucent.contracts import Metric, Predicate, Protocol
+                    from translucent.protocol import protocol_problems
+                    pre = Protocol(id=f"protocol_{uuid.uuid4().hex[:10]}", campaign_id="", author=body.protocol.author,
+                                   created_at=time.time(), metrics=[
+                                       Metric(id=m.id or f"metric_{n}", name=m.name, quantities=m.quantities,
+                                              unit=m.unit, min_methods=m.min_methods,
+                                              needs_verification=m.needs_verification,
+                                              predicate=Predicate(type=m.test.type, params=m.test.params,
+                                                                  measurement_ids=[]))
+                                       for n, m in enumerate(body.protocol.metrics, 1)])
+                    if problems := protocol_problems(pre):
+                        raise HTTPException(422, "; ".join(problems))
                 c = new_campaign(L, body.objective, body.objective[:90], [video.id], budget_usd=body.budget)
+                if pre is not None:   # fixed before the campaign is queued, so before it starts
+                    L.add(pre.model_copy(update={"campaign_id": c.id}))
             job = Job(campaign_id=c.id, status="queued", profile=body.profile or _profile(),
                       created_at=time.time(), updated_at=time.time())
             save(job)
@@ -585,7 +694,7 @@ def create_app(ledger_dir=None, state_dir=None, *, campaigner_factory=None, poll
         try:
             with ledger() as L:
                 try:
-                    video = experiments.register(L, body.manifest, folder)
+                    video = experiments.register(L, experiments.scrubbed(body.manifest), folder)
                 except ValueError as e:  # includes pydantic's ValidationError: the person's input, said plainly
                     raise HTTPException(422, _plain(e)) from e  # files stay (until they expire) to retry the manifest
                 entry = next(x for x in experiments.list_experiments(L) if x["video_id"] == video.id)
@@ -593,6 +702,29 @@ def create_app(ledger_dir=None, state_dir=None, *, campaigner_factory=None, poll
             register_mutex.release()
         shutil.rmtree(folder, ignore_errors=True)
         return entry
+
+    def once(request: Request, body: BaseModel, status: int, act):
+        """A person's write with an Idempotency-Key header runs once: the same key and body again returns the first
+        response; the same key with a different body is a 409. Keys are per token, method and path."""
+        key = request.headers.get("Idempotency-Key")
+        if key is None:
+            return act()
+        if not re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", key):
+            raise HTTPException(400, "Idempotency-Key must be 1-128 letters, digits or _.:-")
+        principal = hashlib.sha256(request.headers.get("Authorization", "").encode("utf-8")).hexdigest()
+        slot = hashlib.sha256(json.dumps([principal, request.method, request.url.path, key]).encode()).hexdigest()
+        digest = hashlib.sha256(body.model_dump_json().encode("utf-8")).hexdigest()
+        path = replies_dir / f"{slot}.json"
+        with replies_mutex:
+            if path.exists():
+                saved = json.loads(path.read_text(encoding="utf-8"))
+                if saved["body"] != digest:
+                    raise HTTPException(409, "This Idempotency-Key was already used with a different request")
+                return JSONResponse(saved["response"], status_code=saved["status"])
+            result = jsonable_encoder(act())
+            replies_dir.mkdir(parents=True, exist_ok=True)
+            _atomic_json(path, {"body": digest, "status": status, "response": result})
+            return result
 
     @app.get("/api/campaigns/{campaign_id}/people")
     def people(campaign_id: str):
@@ -605,53 +737,162 @@ def create_app(ledger_dir=None, state_dir=None, *, campaigner_factory=None, poll
             return {"questions": list(questions(L, campaign_id).values()), "notes": notes, "reviews": reviews}
 
     @app.post("/api/campaigns/{campaign_id}/notes", status_code=201, dependencies=[Depends(_authorize_person)])
-    def post_note(campaign_id: str, body: NoteRequest):
-        with ledger() as L:
-            get_campaign(L, campaign_id)
-            require_active(L, campaign_id)
-            ev = L.emit(campaign_id, "human.note", "person:" + body.author, f"{body.author} left a note",
-                        detail=body.text, data={"text": body.text, "author": body.author})
-        return {"event": ev.model_dump(mode="json")}
+    def post_note(campaign_id: str, body: NoteRequest, request: Request):
+        def act():
+            text = scrub(body.text)
+            with ledger() as L:
+                get_campaign(L, campaign_id)
+                require_active(L, campaign_id)
+                ev = L.emit(campaign_id, "human.note", "person:" + body.author, f"{body.author} left a note",
+                            detail=text, data={"text": text, "author": body.author})
+            return {"event": ev.model_dump(mode="json")}
+        return once(request, body, 201, act)
 
     @app.post("/api/campaigns/{campaign_id}/answers", status_code=201, dependencies=[Depends(_authorize_person)])
-    def post_answer(campaign_id: str, body: AnswerRequest):
-        with people_mutex, ledger() as L:
-            get_campaign(L, campaign_id)
-            q = questions(L, campaign_id).get(body.question_id)
-            if q is None:
-                raise HTTPException(404, "Question not found")
-            if q["status"] != "open":
-                raise HTTPException(409, f"The question is no longer open ({q['status']})")
-            ev = L.emit(campaign_id, "question.answered", "person:" + body.author,
-                        f"{body.author} answered: {body.text}", detail=body.text,
-                        data={"question_id": body.question_id, "text": body.text, "author": body.author})
-        return {"event": ev.model_dump(mode="json")}
+    def post_answer(campaign_id: str, body: AnswerRequest, request: Request):
+        def act():
+            text = scrub(body.text)
+            with people_mutex, ledger() as L:
+                get_campaign(L, campaign_id)
+                q = questions(L, campaign_id).get(body.question_id)
+                if q is None:
+                    raise HTTPException(404, "Question not found")
+                if q["status"] != "open":
+                    raise HTTPException(409, f"The question is no longer open ({q['status']})")
+                ev = L.emit(campaign_id, "question.answered", "person:" + body.author,
+                            f"{body.author} answered: {text}", detail=text,
+                            data={"question_id": body.question_id, "text": text, "author": body.author})
+            return {"event": ev.model_dump(mode="json")}
+        return once(request, body, 201, act)
 
     @app.post("/api/campaigns/{campaign_id}/reviews", status_code=201, dependencies=[Depends(_authorize_person)])
-    def post_review(campaign_id: str, body: ReviewRequest):
+    def post_review(campaign_id: str, body: ReviewRequest, request: Request):
         agree = body.verdict == "agree"
-        with ledger() as L:
-            get_campaign(L, campaign_id)
-            claim = L.get("claim", body.claim_id)
-            if claim is None or claim.campaign_id != campaign_id:
-                raise HTTPException(404, "Finding not found in this campaign")
-            rv = L.add(Review(id=f"rev_{uuid.uuid4().hex[:12]}", claim_id=claim.id, reviewer="human",
-                              verdict="supported" if agree else "refuted", author=body.author, created_at=time.time(),
-                              reason=body.reason or f"{body.author} agrees with this finding."))
-            L.emit(campaign_id, "claim.reviewed", "person:" + body.author,
-                   f"{body.author} {'agreed with' if agree else 'challenged'} a finding", detail=rv.reason,
-                   refs=[claim.id, rv.id], data={"review": rv.model_dump()})
-        return {"review": rv.model_dump(mode="json")}
+
+        def act():
+            with ledger() as L:
+                get_campaign(L, campaign_id)
+                claim = L.get("claim", body.claim_id)
+                if claim is None or claim.campaign_id != campaign_id:
+                    raise HTTPException(404, "Finding not found in this campaign")
+                rv = L.add(Review(id=f"rev_{uuid.uuid4().hex[:12]}", claim_id=claim.id, reviewer="human",
+                                  verdict="supported" if agree else "refuted", author=body.author,
+                                  created_at=time.time(),
+                                  reason=scrub(body.reason) or f"{body.author} agrees with this finding."))
+                L.emit(campaign_id, "claim.reviewed", "person:" + body.author,
+                       f"{body.author} {'agreed with' if agree else 'challenged'} a finding", detail=rv.reason,
+                       refs=[claim.id, rv.id], data={"review": rv.model_dump()})
+            return {"review": rv.model_dump(mode="json")}
+        return once(request, body, 201, act)
 
     @app.post("/api/campaigns/{campaign_id}/control", status_code=202, dependencies=[Depends(_authorize_person)])
-    def post_control(campaign_id: str, body: ControlRequest):
+    def post_control(campaign_id: str, body: ControlRequest, request: Request):
+        def act():
+            with ledger() as L:
+                get_campaign(L, campaign_id)
+                require_active(L, campaign_id)
+                ev = L.emit(campaign_id, "campaign.control", "person:" + body.author,
+                            f"{body.author} asked to {body.action} the campaign",
+                            data={"action": body.action, "author": body.author})
+            return {"event": ev.model_dump(mode="json")}
+        return once(request, body, 202, act)
+
+    def branch_view(L, fork):
+        state = next((e.data for e in reversed(L.events(fork.campaign_id)) if e.type == "campaign.finished"), None)
+        job = load_job(fork.campaign_id)
+        return {"fork": fork.model_dump(mode="json"), "branch": L.get("campaign", fork.campaign_id).model_dump(),
+                "status": (state or {}).get("status") or (job.status if job else "running"),
+                "reason": (state or {}).get("reason"), "job": job.model_dump() if job else None,
+                "findings": [{**k.model_dump(mode="json"), "status": L.claim_status(k.id)}
+                             for k in L.list("claim", campaign_id=fork.campaign_id)]}
+
+    @app.get("/api/campaigns/{campaign_id}/next")
+    def campaign_next(campaign_id: str):
+        from translucent.advice import next_steps, untraced_numbers
         with ledger() as L:
             get_campaign(L, campaign_id)
-            require_active(L, campaign_id)
-            ev = L.emit(campaign_id, "campaign.control", "person:" + body.author,
-                        f"{body.author} asked to {body.action} the campaign",
-                        data={"action": body.action, "author": body.author})
-        return {"event": ev.model_dump(mode="json")}
+            return {"advice": next_steps(L, campaign_id), "answer": untraced_numbers(L, campaign_id)}
+
+    @app.get("/api/campaigns/{campaign_id}/protocol")
+    def campaign_protocol(campaign_id: str):
+        from translucent.protocol import board
+        with ledger() as L:
+            get_campaign(L, campaign_id)
+            return board(L, campaign_id)
+
+    @app.get("/api/campaigns/{campaign_id}/forks")
+    def list_forks(campaign_id: str):
+        with ledger() as L:
+            get_campaign(L, campaign_id)
+            return [branch_view(L, f) for f in L.list("fork") if f.parent_campaign_id == campaign_id]
+
+    @app.get("/api/findings/{claim_id}/branches")
+    def finding_branches(claim_id: str):
+        from translucent.rerun import branches
+        with ledger() as L:
+            try:
+                return branches(L, claim_id)
+            except LookupError as e:
+                raise HTTPException(404, str(e)) from e
+
+    @app.post("/api/campaigns/{campaign_id}/forks", status_code=201, dependencies=[Depends(_authorize_person)])
+    def post_fork(campaign_id: str, body: ForkRequest, request: Request):
+        return once(request, body, 201, lambda: make_fork(campaign_id, body.model_copy(
+            update={"reason": scrub(body.reason)}), request))
+
+    def make_fork(campaign_id: str, body: ForkRequest, request: Request):
+        """A person's what-if. "rerun": re-run only what the changed assumption reaches, with no model calls; a short,
+        strictly local rerun runs now, one that reaches the remote sandbox (or is long) is a queued job with the same
+        rules as a live campaign. "agent": queue the agent on the branch (a paid run). Queued work needs the
+        administrator token, live opt-in and a budget."""
+        from translucent import rerun
+
+        def validate(L):
+            get_campaign(L, campaign_id)
+            try:
+                _, claim, overrides = rerun.check(L, campaign_id, body.claim_id, body.overrides)
+            except LookupError as e:
+                raise HTTPException(404, str(e)) from e
+            except ValueError as e:
+                raise HTTPException(422, str(e)) from e
+            if len(L.list("fork", ref=claim.id)) >= rerun.MAX_FORKS_PER_CLAIM:
+                raise HTTPException(429, f"This finding already has {rerun.MAX_FORKS_PER_CLAIM} what-ifs")
+            return claim, overrides
+
+        def record(L):
+            validate(L)
+            return rerun.create_fork(L, campaign_id, author=body.author, reason=body.reason,
+                                     overrides=body.overrides, claim_id=body.claim_id)
+
+        with ledger() as L:
+            claim, overrides = validate(L)
+            why = rerun.needs_job(L, claim, overrides) if body.mode == "rerun" else "it runs the agent"
+        if why is None:
+            with people_mutex, ledger() as L:
+                fork = record(L)
+                rerun.rerun(L, fork.id)
+                return branch_view(L, fork)
+        _authorize(request)
+        if body.budget is None:
+            raise HTTPException(422, f"This what-if needs a budget: {why}")
+        with mutex:
+            if any(job.status in ACTIVE for job in jobs()):
+                raise HTTPException(409, "A live campaign is already queued, running or paused")
+            with ledger() as L:
+                fork = record(L)
+                if body.mode == "agent":
+                    rerun.declare(L, fork)
+                view_ = branch_view(L, fork)
+            job = Job(campaign_id=fork.campaign_id, status="queued", profile=body.profile or _profile(),
+                      created_at=time.time(), updated_at=time.time(), budget=body.budget,
+                      rerun=fork.id if body.mode == "rerun" else None)
+            save(job)
+            try:
+                start(fork.campaign_id)
+            except Exception as exc:
+                save(job, status="failed", error=f"Worker startup failed: {type(exc).__name__}")
+                raise HTTPException(503, "Campaign worker unavailable") from exc
+            return {**view_, "job": job.model_dump(), "status": "queued"}
 
     @app.post("/api/campaigns/{campaign_id}/resume", status_code=202, dependencies=[Depends(_authorize)])
     def post_resume(campaign_id: str, body: ResumeRequest):

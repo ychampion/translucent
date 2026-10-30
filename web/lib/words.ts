@@ -129,7 +129,7 @@ export function measurementLine(m: Measurement, subjects: string[]): string | nu
   return `${label}: ${valueWord(m)}`;
 }
 
-/** A failed tool, in plain words. */
+/** What a failed tool is called on screen. */
 export const FAILED_WORD = "didn’t work";
 
 // ---------------------------------------------------------------- checks and reasons
@@ -347,7 +347,7 @@ export function valueWord(m: Measurement | undefined): string {
   return `${fmt(m.value)} ${unitWord(m.unit)}`;
 }
 
-/** Uncertainty in plain words. */
+/** Uncertainty, as a reader sees it. */
 export function uncertaintyWord(m: Measurement | undefined): string | null {
   if (!m) return "Not measured yet";
   const u = m.uncertainty;
@@ -428,4 +428,28 @@ export function roleOf(actor: string): string | null {
   if (actor === "gate") return "Checker";
   if (actor === "critic") return "Second opinion";
   return null;
+}
+
+// ---------------------------------------------------------------- running time
+
+/** A pause longer than this between two events is time the campaign was stopped, not running. */
+export const STOPPED_S = 600;
+
+/** Running seconds across ordered event times, leaving out gaps where the campaign was stopped. */
+export function activeSeconds(ts: number[]): number {
+  let s = 0;
+  for (let i = 1; i < ts.length; i++) {
+    const d = ts[i] - ts[i - 1];
+    if (d > 0 && d <= STOPPED_S) s += d;
+  }
+  return s;
+}
+
+/** "40 s", "3 min", "1 h 5 min". */
+export function durationWord(s: number): string {
+  if (s < 60) return `${Math.max(1, Math.round(s))} s`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60), r = m % 60;
+  return r ? `${h} h ${r} min` : `${h} h`;
 }

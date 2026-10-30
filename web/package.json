@@ -3,7 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "split": "bun scripts/split-intervention.ts",
+    "predev": "bun scripts/split-intervention.ts",
     "dev": "next dev",
+    "prebuild": "bun scripts/split-intervention.ts",
     "build": "next build",
     "start": "bunx serve out"
   },

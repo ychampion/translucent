@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "campaign_id": "cmp_bda7c582c0",
+  "files": [
+    {
+      "path": "bundle.json",
+      "sha256": "ca4cf1a26be0bcc1cf6d1ce7eb71da8f6435ec905202a054fd40371bd95e7c8c",
+      "bytes": 322641
+    },
+    {
+      "path": "movie.mp4",
+      "sha256": "cfeb342cdcbd1272d422896185e0d80f7365b39d2fdf9793a5cdf7b46b41d3e0",
+      "bytes": 11670141
+    },
+    {
+      "path": "verification/ledger.sqlite",
+      "sha256": "4a5679eb0f94063fcc11dcd811a8e58093beda70b8846a344c76f5fbbaf8511d",
+      "bytes": 81920
+    },
+    {
+      "path": "verification/blobs/cf/cfeb342cdcbd1272d422896185e0d80f7365b39d2fdf9793a5cdf7b46b41d3e0",
+      "sha256": "cfeb342cdcbd1272d422896185e0d80f7365b39d2fdf9793a5cdf7b46b41d3e0",
+      "bytes": 11670141
+    },
+    {
+      "path": "verification/blobs/bb/bb43e9101e0f62620f809e8a5f08da3afcf9a5b113dc5818d9b6185263434da5",
+      "sha256": "bb43e9101e0f62620f809e8a5f08da3afcf9a5b113dc5818d9b6185263434da5",
+      "bytes": 938
+    }
+  ]
+}

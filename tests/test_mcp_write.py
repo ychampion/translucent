@@ -20,7 +20,7 @@ from translucent.verify import read_ledger, verify
 ROOT = Path(__file__).resolve().parents[1]
 EXPERIMENT = "reisecker2023/movie4"
 CLIENT = {"name": "pytest-agent", "version": "1.2.3"}
-READ = {"list_campaigns", "list_findings", "get_evidence", "verify"}
+READ = {"list_campaigns", "list_findings", "get_evidence", "verify", "list_branches"}
 WRITE = {"list_experiments", "open_campaign", "list_tools", "run_tool", "propose_finding",
          "record_lesson", "finish_campaign"}
 

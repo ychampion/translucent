@@ -1,99 +1,105 @@
 # Translucent
 
-**The fact-checker that makes AI lab assistants show their receipts.**
+Translucent is a research agent for recorded battery experiments. It checks microscopy measurements and tests
+intervention strategies on NIST heating-interruption records. Scientists and the agent work on the same evidence
+record. The agent plans tests, measures the recording and proposes findings. A deterministic rulebook,
+implemented in code with no model, decides which findings are proven. People steer the work, answer questions and
+sign off or challenge findings. Their reviews remain beside the rulebook's verdict.
 
-In 2023, lithium-ion battery fires killed 18 people in New York City alone. The batteries meant to replace
-today's, solid-state cells that Toyota aims to put in cars in 2027–28, still fail in the lab when lithium filaments
-grow straight through them and short them out. Scientists film that failure under a microscope and turn the footage
-into numbers. Here is the trap: in one published movie, each captured image is 6.9 seconds of lab time but only 0.4
-seconds of playback. A normal analysis pipeline that trusts the playback clock reports the lithium growing 18×
-faster than it did, and gives no warning.
+Each microscopy finding links to its frames, lab clock, voltage data and analysis code. This evidence page,
+called a receipt, can be shared and checked offline with one command. Translucent checks the analysis of recorded
+experiments. It does not establish that a battery is safe.
 
-Translucent stops numbers like that. An AI assistant built on Meta's models works through a recorded experiment
-(the video, the lab's own clock and scale bar, and the battery's voltage log) and proposes findings. A finding is
-shown as proven only when plain, checkable code can trace it back to that recorded data, with an honest error bar.
-Every finding comes with a receipt: the frames, the clock, the voltage and the code behind it, which anyone can
-re-check offline with one command. Translucent analyses recorded lab experiments; it does not make batteries safe by
-itself. It makes the numbers people build on harder to get wrong.
+The [microscopy campaigns](#evaluation) measure filament growth and check short timing against voltage records.
+The [NIST benchmark](#nist-heating-interruption) tests interventions after heater-off. No agent strategy beats
+always-escalate after correction. Both demonstrations produce receipts that anyone can check offline.
 
-## Why it matters
+## Battery research
 
-- **Battery failures are costly and dangerous.** Lithium-ion battery fires killed 18 people in New York City in
-  2023. Samsung recalled 3.1 million Galaxy Note 7 phones over faulty batteries, at an estimated $5.3 billion. GM
-  recalled all 143,000 Chevy Bolts in a battery recall costing about $2 billion.
-- **Solid-state batteries are the industry's big next bet** (Toyota targets 2027–28). They replace the flammable
-  liquid inside today's cells, but in the lab they "invariably fail" when lithium filaments grow through the solid
-  and short the cell (Reisecker et al., Nature Communications 2023).
-- **Fast charging is held back by the same metal.** Researchers call lithium plating "the major degradation
-  mechanism that impairs the safety and fast charge capabilities" of car batteries (Lu et al., Nature
-  Communications 2023).
+In 2023, lithium-ion battery fires killed 18 people in New York City alone. Samsung recalled 3.1 million Galaxy
+Note 7 phones over faulty batteries, at an estimated $5.3 billion. GM recalled all 143,000 Chevy Bolts in a battery
+recall costing about $2 billion.
 
-These failures are studied by filming them. Turning that footage into numbers is where mistakes slip in quietly:
-the wrong clock, a scale bar taken from another experiment, two movies mixed up, an outline drawn around the whole
-sample instead of the filament. AI assistants make the analysis fast, and they make those mistakes fast too, with
-total confidence. Translucent is built so that a number like that can't reach you.
+Solid-state cells replace the flammable liquid in today's batteries. Toyota aims to put them in cars in 2027–28.
+In the lab, these cells still "invariably fail" when lithium filaments grow through the solid and short the cell
+(Reisecker et al., Nature Communications 2023). Lithium plating also limits fast charging. Researchers call it
+"the major degradation mechanism that impairs the safety and fast charge capabilities" of car batteries
+(Lu et al., Nature Communications 2023).
 
-## What it does, in plain words
+Scientists film these processes under a microscope and measure the footage. Errors can enter through a playback
+clock used as lab time, a scale bar from another experiment, swapped movies or an outline around the whole sample.
+In one published movie, each captured image is 6.9 seconds of lab time but 0.4 seconds of playback. An analysis
+that trusts the playback clock reports the filaments growing 18× faster than they did, with no warning. An agent
+can carry errors like that into a finding. Translucent checks whether each measurement uses the recorded
+clock and calibration, and whether the evidence supports the proposed finding.
 
-1. **You ask a question** about a recorded experiment: "How fast do the lithium filaments grow, does the battery
+## Research workflow
+
+1. A scientist asks about a recorded experiment: "How fast do the lithium filaments grow, does the battery
    short when they bridge it, and does it recover when they retract?"
-2. **A Muse model plans the tests, a Muse model points at objects in the frame, and SAM 3.1 outlines them.**
-3. **Code measures, not the model.** Lengths, speeds and times come from fixed code that uses the lab's own clock
-   and scale bar, never the video's playback speed.
-4. **A rulebook decides.** Fixed code with no AI in it re-computes every proposed finding from the recorded
-   measurements. It answers proven, disproven, not settled by this data, or not enough evidence yet, and it gives a
-   plain reason.
-5. **When a finding is turned down, the assistant reads why** and runs the test that would settle it.
-6. **Every finding has a receipt** you can click down to the frames and code, share as a link or QR code, and
-   re-check offline.
+2. A Muse model plans tests. A Muse model locates objects in the frame, and SAM 3.1 outlines them.
+3. Fixed code measures lengths, speeds and times using the lab's clock and scale bar. Playback speed is never
+   used as lab time.
+4. The rulebook re-computes each proposed finding from its recorded measurements. It returns proven, disproven,
+   not settled by this data, or not enough evidence yet, with a reason.
+5. When a finding is rejected, the agent reads the reason and runs the test needed to resolve it.
+6. People inspect the evidence down to the frames and code. They can share a link or QR code and re-check it
+   offline.
 
-## Working with it: people, agents and the checker
+## Working together
 
-Scientists stay in charge. The agent measures and proposes; the checker alone decides; people steer and sign.
+Scientists can leave a note while the agent runs, pause it or stop it. A note such as "check both onset definitions"
+reaches the agent before its next step. The agent asks people for information the records cannot supply, such as
+the cell identity or the scale-bar length. If nobody answers in time, it continues with the available records.
 
-- **Steer while it runs.** Leave the agent a note ("check both onset definitions"), pause it, or stop it. Notes
-  reach the agent before its next step.
-- **It asks when only a person knows.** Which cell, how long the scale bar is, what the lab meant. If nobody answers
-  in time, it carries on with what the records show.
-- **Sign off or challenge each finding.** A sign-off or a challenge is recorded with your name beside the checker's
-  verdict. It never overrules the checker. A challenge goes back to the agent, which must re-examine the finding.
-- **Bring your own recording.** Upload a video with its lab records (scale, a clock, a voltage log), each with
-  where it came from. The video's frame rate is never used as a clock. See [docs/BRING-YOUR-OWN.md](docs/BRING-YOUR-OWN.md).
-- **Your own agent, same rules.** Claude Code, Codex or any MCP client can run Translucent's measurement tools and
-  propose findings over MCP. It cannot write a number or a verdict directly, and it gets the same plain refusals.
-  See [docs/AGENTS.md](docs/AGENTS.md).
-- **Interruptions are survivable.** Model hiccups are retried and metered; a stopped or interrupted campaign resumes
-  from its evidence.
+A sign-off or challenge is recorded with the person's name beside the checker's verdict. Neither changes that
+verdict. A challenge sends the finding back to the agent for re-examination. Failed model calls are retried
+and metered. A stopped or interrupted campaign resumes from its evidence.
 
-The Movie 4 demo campaign ran this way, live on Meta's models, with two people working beside the agent over the
-HTTP API: a note before the first step, a sign-off, and a challenge the agent answered with a narrower finding that
-the checker then proved (see "The Movie 4 campaign, with people in the loop" below).
+Scientists can upload a video with its scale, clock and voltage log, recording the source of each. The video's
+frame rate is never used as a clock. See [docs/BRING-YOUR-OWN.md](docs/BRING-YOUR-OWN.md).
 
-## Proof
+Claude Code or any MCP client can run Translucent's measurement tools and propose findings over MCP. The client
+cannot write a measurement number or verdict directly. The same checks and rejection reasons apply. See
+[docs/AGENTS.md](docs/AGENTS.md).
 
-**Planted mistakes.** We planted the ordinary mistakes of video analysis, one per test: a wrong scale, the playback
-clock, a swapped video, junk outlines, a voltage log that doesn't back up a short. Each test then proposes exactly
-what the faulty data shows, so only a check that notices the mistake can stop it.
+The Movie 4 campaign below records this collaboration over the HTTP API, live on Meta's models. Ana supplied a
+note and signed off a finding. Ben challenged another, and the agent returned a narrower finding that the checker
+proved.
+
+## Evaluation
+
+### Planted mistakes
+
+Each test plants one mistake, then proposes the finding implied by the faulty data. The cases include a wrong
+scale, playback timing, swapped video, invalid outlines and a voltage log that does not support a short. A check
+must detect the faulty evidence to reject the finding.
 
 | | Translucent | Normal pipeline (SAM + fixed measurement code) |
 |---|---|---|
 | Planted data mistakes caught | **24 of 24** | 1 of 24 |
 | All planted faults, including faked or retracted records | **38 of 38** | 1 of 38 |
 
-The normal pipeline catches a mistake only if it crashes; its one catch is a length with no scale, which raised an
-error. That is how a script behaves: it has no notion of whether its inputs belong together. The other 14 faults
-(made-up measurement records, numbers typed into analysis code, evidence withdrawn after the fact, an over-eager
-second opinion) have no equivalent in a plain script, so we report them separately.
+The normal pipeline catches a mistake only if it crashes. Its one catch was a length with no scale, which raised
+an error. It does not check whether its inputs belong together. The other 14 faults concern fabricated
+measurement records, numbers typed into analysis code, withdrawn evidence and an overreaching second opinion.
+These have no equivalent in the baseline script, so they are reported separately.
 
-**Why not just ask the model to double-check?** We asked Muse Spark Open, the model that gives our second opinion,
-to double-check each finding the planted mistakes produced, 3 times each (120 real calls, $0.95). Given a finding and
-its numbers, the way a reviewer usually sees them, it let **5 of 18** planted mistakes through
-(4 of 11 data mistakes) and turned down 1 of 2 correct findings. Given Translucent's full evidence record as text,
-it caught all 18 and accepted both. The record is what makes checking possible, and the rulebook runs that check on
-every finding, the same way every time, at no cost. The other 20 planted mistakes never became a finding to judge,
-because Translucent stopped them earlier.
+### Model double-check
 
-**The 18× mistake, measured.** On a test filament growing at a known speed over Movie 4's real clock and scale:
+We asked Muse Spark Open, the model used for the second opinion, to check each finding produced by the planted
+mistakes, 3 times each (120 real calls, $0.95). Given a finding and its numbers, it accepted **5 of 18** planted
+mistakes (4 of 11 data mistakes) and rejected 1 of 2 correct findings. Given the full evidence record as text, it
+caught all 18 and accepted both correct findings.
+
+This experiment shows that the evidence supplied to the reviewer affects the result. The rulebook checks that
+record for every finding without a model call. The other 20 planted mistakes were stopped before they produced a
+finding for the model to judge.
+
+### The 18× timing error
+
+A test filament grows at a known speed using Movie 4's recorded clock and scale. Timing the same images by
+playback produces the following error:
 
 | | Speed |
 |---|---|
@@ -101,88 +107,154 @@ because Translucent stopped them earlier.
 | Translucent | **6.200 ± 0.018 µm/s** (95% interval), proven |
 | Normal pipeline | 112.82 µm/s, 18.2× too fast: it timed playback frames (each image is 6.9 s of lab time, 0.4 s of playback) |
 
-**It agrees with the published paper.** On the real Movie 4 voltage log, Translucent measures the first short at
-89.6 ± 3.5 s and the second at 351 ± 7 s. The paper's own voltage data puts them at 86–93 s and 345–358 s
-(Reisecker et al., Nature Communications 2023). Both measured windows overlap the paper's.
+### Agreement with the paper
 
-**The Movie 4 campaign, with people in the loop.** Muse Wonder planned, Muse Spark pointed and SAM 3.1 outlined the
-filament lanes live, while two people worked beside the agent:
+On the real Movie 4 voltage log, Translucent measures the first short at 89.6 ± 3.5 s and the second at 351 ± 7 s.
+The paper's voltage data puts them at 86–93 s and 345–358 s (Reisecker et al., Nature Communications 2023).
+Both measured windows overlap the paper's.
 
-- **Ana left a note from the bench** before the first step: where the electrodes are and the five lanes the
-  filaments grow in. The agent outlined those lanes.
-- **From the voltage log,** the rulebook proved the first short at 89.6 ± 3.5 s, the recovery at 215 s and a second
-  short at 351 ± 7 s. Ana signed off the first short: "Matches the voltage log I recorded."
-- **From the outlines,** on the lab's clock and scale, it proved the filaments grew at 55–72 µm/s (63.7 ± 4.0) and
-  shrank back at 48–73 µm/s, and that their typical length stayed near 1440 µm (1439 ± 38).
-- **Ben challenged the growth speed:** "Is this speed from the growing phase only, before the short at 90 s?" The
-  agent went back, computed the speed from points before the short only, and the rulebook proved that narrower
-  finding too.
-- **It did not prove the filaments bridge the gap.** It saved a lesson instead: a length measured from one electrode
-  can include an outline merged with the far one, so check the tip against both electrode edges first.
+### Movie 4 team campaign
 
-12 findings; `translucent verify` re-checks 12 of 12 offline. Every analysis number passed the input check described
-next.
+Muse Wonder planned the tests. Muse Spark located the filament lanes, and SAM 3.1 outlined them live. Ana left a
+note before the first step describing the electrodes and the five lanes where the filaments grow. The agent
+outlined those lanes.
 
-**We caught our own agent typing numbers in.** The first Meta run of Movie 4 also "proved" a growth speed, a filament
-length and an electrode gap. Its receipts showed the planner's sandboxed code had copied numbers from earlier tool
-output and picked its own error bars instead of reading the recorded measurements it declared. Analysis code now runs a second time on
-inputs moved by a fraction of a percent, and any output or error bar that doesn't move with them is refused. It is
-a planted mistake in the evals now. That run is kept only as evidence: we re-ran both demo campaigns with the check
-in place.
+From the voltage log, the rulebook proved the first short at 89.6 ± 3.5 s, recovery at 215 s and a second short at
+351 ± 7 s. Ana signed off the first short: "Matches the voltage log I recorded."
 
-**A second battery.** On graphite during fast charging (Lu et al. 2023), the rulebook proved that the cell voltage
-first fell below 0 V after about 7.4 hours, 2.6 ± 0.7 hours before the paper's stated plating onset of 10 hours.
-Whether plating is visible earlier in the movie stayed unproven. The run started with Movie 4's lessons loaded and
-saved a new one: the gold colour of lithiated graphite can be mistaken for plating.
+Using the outlines with the lab's clock and scale, it proved growth at 55–72 µm/s (63.7 ± 4.0) and retraction at
+48–73 µm/s. It also proved that the typical filament length stayed near 1440 µm (1439 ± 38).
 
-**A second opinion that knows its limits.** A vision model looks at one evidence image per proven finding. Tested
-on 16 seeded cases, 3 times each (48 real calls, $0.21), it never agreed with a wrong finding (0 of 33), but it
-missed a correct one 20% of the time, so it advises and can't overrule the rulebook.
+Ben challenged the growth speed: "Is this speed from the growing phase only, before the short at 90 s?" The agent
+computed the speed using only points before the short. The rulebook proved that narrower finding too.
 
-**Cost.** On Meta's models, the Movie 4 campaign with the team cost $3.00 in model calls and the graphite one $0.88.
+The campaign did not prove that the filaments bridge the gap. It recorded a lesson: an outline measured from one
+electrode can merge with the far electrode. The tip must be checked against both electrode edges first.
 
-**Known weak spots,** kept in the open:
-- Without a recorded clock, repeated images are not removed. The rulebook still refuses those speeds.
-- The second opinion is only asked after the rulebook says "proven", so a fault the rulebook missed would reach it
-  with nothing behind it.
-- Lessons don't yet make the next campaign better. In a real memory test (Muse Spark Open, 3 repeats per arm,
-  $0.37), a lesson about bridging pulled the agent into video work it didn't need for a short-timing question: 11
-  steps instead of 6, the same 3 findings. Every lesson is loaded whatever the question; loading only relevant ones
-  comes next. See [evals/MEMORY.md](evals/MEMORY.md).
+The campaign produced 12 findings; `translucent verify` re-checks 12 of 12 offline. Every analysis number passed
+the input check described below.
+
+### Detecting numbers typed by our own agent
+
+The first Meta run of Movie 4 also "proved" a growth speed, a filament length and an electrode gap. Inspection of
+the evidence showed that the planner's sandboxed code had copied numbers from earlier tool output and chosen its
+own error bars. It had not read the recorded measurements it declared as inputs.
+
+Analysis code now runs a second time with inputs changed by a fraction of a percent. Any output or error bar that
+does not change with them is rejected. This failure is now a planted mistake in the evals. The earlier run remains
+as evidence of the failure. Both microscopy campaigns were re-run with the check in place.
+
+### Graphite during fast charging
+
+On graphite during fast charging (Lu et al. 2023), the rulebook proved that cell voltage first fell below 0 V after
+about 7.4 hours, 2.6 ± 0.7 hours before the paper's stated plating onset of 10 hours. The campaign did not prove
+whether plating was visible earlier in the movie. It started with Movie 4's lessons loaded and recorded another:
+the gold colour of lithiated graphite can be mistaken for plating.
+
+### Visual second opinion
+
+A vision model reviews one evidence image per proven finding. In 16 seeded cases tested 3 times each (48 real
+calls, $0.21), it never agreed with a wrong finding (0 of 33). It missed a correct finding 20% of the time. This
+review is advisory and cannot overrule the rulebook.
+
+### Cost
+
+On Meta's models, model calls for the Movie 4 team campaign cost $3.00. The graphite campaign cost $0.88.
+
+### Known limits
+
+- Without a recorded clock, repeated images are not removed. The rulebook still refuses the resulting speeds.
+- The visual second opinion runs only after the rulebook returns "proven". A fault the rulebook misses gets only
+  that one advisory review.
+- Loading lessons has not improved the next campaign in the tested task. In a real memory test (Muse Spark Open,
+  3 repeats per arm, $0.37), a lesson about bridging led the agent into unnecessary video analysis for a question
+  about short timing. It took 11 steps instead of 6 and produced the same 3 findings. Every lesson is loaded
+  regardless of the question. Selecting relevant lessons remains future work. See [evals/MEMORY.md](evals/MEMORY.md).
+
+## NIST heating-interruption
+
+When a lab or battery management system cuts the heat to a cell under thermal abuse, it must decide whether
+stopping the heat is enough. NIST's heating-interruption experiments (Tam et al., Applied Thermal Engineering)
+recorded cells that ignited after their surface temperature had fallen. In nine 21700 trials the surface cooled at
+least 2 °C after heater-off and the cell still ignited; in Exp 81 it fell 14.6 °C over 182 s and the cell ignited
+297 s after heater-off. Translucent tests decisions at that recorded heater-off point.
+
+The agent records competing mechanistic hypotheses and proposes executable strategies. Each combines a world
+model with a cost-based decision rule. It screens strategies on training folds only, then commits to stand down,
+escalate, or pay to watch 30 or 60 s before the controller reveals the outcome. Outcomes are sealed as hashes.
+The agent labels all forecasts simulated. Leave one condition out is the primary split; leave one format out
+and prequential evaluation test transfer and sequential updates.
+
+The registered costs are fixed before scoring: unsafe stand-down costs 100, ignition during a watch costs 100,
+unnecessary escalation costs 10, and watching costs 0.05 per second. Escalating on a trial that ignites costs 0;
+the experiments did not observe whether escalation would have helped. The seals establish the record's internal
+order; the public dataset had already been studied.
+
+`translucent verify` recomputes every fit, every decision, every score and every gate verdict offline without
+keys. It rejects forged ledgers from an independent review with specific reasons: edited ignition times fail
+the outcome checks, a fit trained on held-out labels fails the refit checks, and Muse decisions without receipts
+fail the model-request checks. The 1500-decision scripted receipt verifies in about one minute.
+
+No agent strategy beats always-escalate after Holm correction. On the 50-trial primary split, the best scripted
+agent costs 3.72 per trial against 3.80 for always-escalate (Holm p = 1). These are mean registered costs;
+they do not measure the effectiveness of an actual rescue.
+
+Across two live Muse Wonder planner campaigns, costing about $4 each, the best strategies recorded 0 unsafe
+stand-downs and 2–4 fewer missed rescues than always-escalate. The differences were never significant
+(raw p = 0.125–0.5, Holm p = 1). A missed rescue here means escalating on a trial that did not ignite.
+
+The deterministic gate refused the agent's own claim that it beat always-escalate at 3.4 versus 3.8 mean cost
+(p = 0.5, Holm p = 1). The operating procedure the agent then wrote cites only supported claims.
+On the same trials, Muse Wonder deciding alone made 4 and then 6 unsafe stand-downs; every procedure the agent
+wrote through the harness made none. The pattern held in both campaigns, but it was not a registered comparison
+and does not survive the correction (raw p = 0.125 and 0.031).
+
+The gate records wins over the fixed 170 °C rule and the two physics models. Those wins reflect a decision-rule
+asymmetry and baselines that never discriminate under their classification rules. The temperature cut is
+illustrative and unsourced. Applying the common cost rule removes the fixed-temperature advantage; no
+condition-clustered comparison survives correction. Post hoc, a 155 °C threshold picked on these same trials
+costs 2.4. That is a descriptive check on how little signal is available, not evidence for a selected policy.
+
+The agent runs from recorded observations through an executable model to committed interventions and sealed
+outcomes on real data. Anyone with the receipt can check every number. The system refused to overclaim its result.
+
+See [the intervention protocol](docs/INTERVENTION.md) and [benchmark results](evals/INTERVENE.md).
+The exported [scripted receipt](web/public/fixtures/nist-bench.json) contains the evidence for offline checking.
+[Run the benchmark or estimate a live campaign](#nist-interventions).
 
 ## Meta's models
 
-Both demo campaigns ran on the Meta Model API, and each replay shows which model played each role. The live server
-runs the same setup (`TRANSLUCENT_PROFILE=meta`).
+Both microscopy campaigns ran on the Meta Model API. Each replay names the model used for each role. The live
+server uses the same configuration (`TRANSLUCENT_PROFILE=meta`).
 
-| Role | Model (`meta` profile, used in the demo campaigns) |
+| Role | Model (`meta` profile, used in the microscopy campaigns) |
 |---|---|
-| Planner: chooses the next test, reads why a finding was turned down, asks people when only they know | **Muse Wonder** (Meta Model API) |
-| Pointer: looks at a gridded frame and returns pixel points on filaments or electrodes | **Muse Spark** (Meta Model API) |
-| Outliner: turns points and boxes into outlines and tracks them | **SAM 3.1** (Meta Model API), live, every call recorded |
-| Second opinion on one evidence image, advisory | Muse Spark Open, Meta's open model (Fireworks) |
+| Planner: selects tests, reads rejection reasons and asks people for missing information | Muse Wonder (Meta Model API) |
+| Pointer: reads a gridded frame and returns pixel points on filaments or electrodes | Muse Spark (Meta Model API) |
+| Outliner: converts points and boxes to outlines and tracks them | SAM 3.1 (Meta Model API), live, every call recorded |
+| Second opinion: reviews one evidence image; advisory | Muse Spark Open, Meta's open model (Fireworks) |
 
-The `dev` profile runs every role on Muse Spark Open through Fireworks and replays recorded SAM 3.1 calls, which
-keeps tests and evals free.
+The `dev` profile runs every role on Muse Spark Open through Fireworks and replays recorded SAM 3.1 calls. Tests
+and evals use these recordings without paid calls.
 
-## Notes on the models
+## Model observations
 
-- **SAM 3.1 text prompts find nothing on battery microscopy.** Prompts such as "dendrite" or "thin dark line"
-  returned no frames. **Point and box prompts work:** on Movie 1, SAM's filament tip agrees with a classical tip
-  detector to a median of 4.5 px. So a Muse model points and SAM outlines.
-- **Video tracking runs forward only.** Backward and both-direction tracking failed on the server side.
-- **Fast growth between captured images breaks tracking.** On Movie 4 the filament jumps too far between images, so
-  we re-point SAM on every captured image at fixed roots, at $0.0025 per image.
-- **SAM output varies from run to run.** Every call is recorded and replays re-use the recording; the default
-  `TRANSLUCENT_SAM=strict` mode never re-calls SAM and never substitutes a near-match.
-- **Muse tool calling needs `tool_choice: "auto"`,** and Muse Spark Open sometimes writes a tool call as plain
-  chat-template text or invents measurement ids. The runtime hides the first and asks again, and refuses the second.
-- **The Meta Model API rejects some ordinary JSON-schema regexes** (a Python `\Z` gave "400 Invalid JSON schema").
-  Tool schemas now use the portable subset, and a refused request ends a campaign cleanly with a plain reason.
-- **Vision models need the frame's layout.** Movie 4's frames put the paper's plot beside the microscope, and the
-  pointer once outlined the plot. Frames now arrive with the recorded layout and a grid in source-video pixels.
+- SAM 3.1 text prompts such as "dendrite" or "thin dark line" returned no frames on battery microscopy. Point and
+  box prompts worked. On Movie 1, SAM's filament tip agreed with a classical tip detector to a median of 4.5 px.
+  The Muse model therefore supplies points for SAM to outline.
+- Video tracking worked forward only. Backward and both-direction tracking failed on the server side.
+- In Movie 4, rapid growth between captured images broke tracking. We re-point SAM on every captured image at
+  fixed roots, at $0.0025 per image.
+- SAM output varies between runs. Every call is recorded, and replays use that recording. The default
+  `TRANSLUCENT_SAM=strict` mode never re-calls SAM or substitutes a near-match.
+- Muse tool calling requires `tool_choice: "auto"`. Muse Spark Open sometimes emits a tool call as chat-template
+  text or invents measurement ids. The runtime hides the text and retries. It rejects invented ids.
+- The Meta Model API rejected some JSON-schema regexes: a Python `\Z` gave "400 Invalid JSON schema". Tool schemas
+  now use the portable subset. A rejected request ends a campaign with a recorded reason.
+- The pointer once outlined the paper's plot beside the microscopy image in Movie 4. Frames now include the
+  recorded layout and a grid in source-video pixels.
 
-## How it works (technical)
+## Measurement and evidence
 
 ```mermaid
 flowchart LR
@@ -197,33 +269,31 @@ flowchart LR
     L --> G
     G -->|proven| C[Second opinion<br/>vision model, advisory]
     G -->|turned down: reason| O
-    C --> F[Proven finding<br/>with a receipt]
+    C --> F[Proven finding<br/>linked evidence]
     F --> M[Lessons<br/>carried to the next campaign]
     M --> O
 ```
 
-Precise terms, each with a plain gloss:
+The planner runs the campaign and calls tools. The pointer only locates objects in one frame. Measurements use
+decoded source frames and a stored frame-to-lab-time mapping. Repeated playback frames are collapsed into captured
+images when a recorded clock is available. Operando microscopy records the battery as it charges and discharges.
 
-- **Orchestrator / worker** (the planner and the pointer above). The orchestrator model plans the campaign and calls
-  tools; the worker model only answers "where is it?" on one frame.
-- **Insert-only evidence ledger** (a record you can add to but never edit). SQLite plus content-addressed files.
-  Every measurement carries its run, input/output/code/prompt hashes, calibration, cost and uncertainty. Status
-  changes are new events. Withdrawing a run marks every finding that depends on it as stale, following lineage.
-- **Deterministic checker, `translucent/gate.py`** (the rulebook: same input, same answer, no model). It
-  re-computes the finding from the cited measurements and checks that each traces to a successful run, the units
-  are right, a length rests on a recorded scale and a speed on a recorded clock from the same recording, and that
-  required **corroboration** (an independent second signal, such as the voltage collapse for a short) is present.
-  It returns one of four outcomes: supported, refuted, **inconclusive** (the data can't tell the answers apart),
-  or **not enough evidence** (a needed measurement is missing). A tool failure never refutes the science, and a test
-  too loose to tell values apart is never "supported".
-- **Time base** (which clock a frame belongs to). Measurements run on decoded source frames with a stored
-  frame-to-lab-time mapping; repeated playback frames are collapsed into captured images.
-- **Operando microscopy** (filming a battery while it charges and discharges).
-- **Second opinion (critic).** A vision model reviews one evidence image after the checker supports a finding. It is
-  advisory and can never override the checker.
-- **Memory.** Lessons are recorded with their evidence and loaded at the start of the next campaign.
-- **Instrument interface.** Experiments are recorded and replayed through the same interface a live microscope
-  would implement.
+The evidence ledger uses SQLite and content-addressed files. Records can be added but never edited. Each
+measurement stores its run, input/output/code/prompt hashes, calibration, cost and uncertainty. Status changes are
+new events. Withdrawing a run marks dependent findings as stale through their evidence lineage.
+
+The deterministic checker in `translucent/gate.py` re-computes each finding from its cited measurements. It checks
+that they trace to successful runs and have the correct units. A length requires a recorded scale; a speed
+requires a recorded clock from the same recording. Findings that need independent corroboration must include it,
+such as voltage collapse for a short.
+
+The checker returns one of four outcomes: supported, refuted, inconclusive or not enough evidence. Inconclusive
+means the data cannot distinguish the answers. Not enough evidence means a required measurement is missing.
+A tool failure never refutes the science. A test too imprecise to distinguish values cannot return supported.
+
+After the checker supports a finding, the vision model reviews one evidence image. This advisory second opinion cannot
+override the checker. Lessons are stored with their evidence and loaded at the next campaign's start. Experiments
+are recorded and replayed through the same instrument interface a live microscope would implement.
 
 ## Run it
 
@@ -234,7 +304,7 @@ Browsing, replaying and verifying need no provider keys.
 uv sync --group dev
 ```
 
-**CLI**
+### CLI
 
 ```sh
 # Run a campaign on a recorded movie (paid, metered calls; --profile dev = Muse Spark Open on Fireworks,
@@ -248,15 +318,37 @@ uv run translucent export <campaign-id> <out-dir> --ledger <ledger-dir>
 uv run translucent budget
 ```
 
-**Verify a ledger or an exported bundle offline.** This re-checks every recorded finding with the checker, along
-with evidence file hashes and event order. It exits 0 only if everything matches. Otherwise it prints one plain
-line per problem.
+### NIST interventions
+
+These commands make no provider calls. Use a fresh output directory to preserve published reports.
+
+```sh
+# Rebuild the scripted benchmark across the registered splits and sensitivities
+uv run translucent bench nist --out runs/nist-benchmark
+
+# Verify the self-contained receipt without keys
+uv run translucent verify web/public/fixtures/nist-bench.json
+
+# Estimate a Muse Wonder planner campaign without contacting a provider
+uv run translucent intervene nist --profile meta --budget 25 --split loco --dry-run
+```
+
+To replay a recorded planner campaign, use `--replay <recordings-dir>` with its original profile, budget, split
+and step cap, and a fresh ledger directory. See
+[the replay instructions](docs/API.md#nist-live-planner-and-recorded-replay).
+
+### Offline verification
+
+Verification re-checks every recorded finding in a ledger or exported bundle, including evidence file hashes and
+event order. It exits 0 only if everything matches. Otherwise it prints one line per problem.
 
 ```sh
 uv run --group dev translucent verify <ledger-dir | export-dir>   # optional: --campaign <id>
 ```
 
-**Add your own recording** (no provider calls; see [docs/BRING-YOUR-OWN.md](docs/BRING-YOUR-OWN.md)):
+### Add a recording
+
+Importing a recording needs no provider calls. See [docs/BRING-YOUR-OWN.md](docs/BRING-YOUR-OWN.md).
 
 ```sh
 uv run translucent add-experiment --id cell-042 --video cell042.mp4 --title "Cell 042" --citation "Notebook p. 42"   --licence "Internal" --author "Ana" --scale-bar-px 100 --scale-bar-um 50 --scale-source "Calibration slide"   --timestamps frames.csv --clock-source "Acquisition log"
@@ -264,10 +356,14 @@ uv run translucent experiments                     # list
 uv run translucent resume <campaign-id> --budget 0.5   # continue a stopped or interrupted campaign (paid)
 ```
 
-**Plug in your own agent** over MCP: `claude mcp add translucent -- uv run python -m translucent.mcp_server
+### Agent access
+
+To connect an agent over MCP, use `claude mcp add translucent -- uv run python -m translucent.mcp_server
 --ledger <dir> --write` ([docs/AGENTS.md](docs/AGENTS.md)).
 
-**API server.** Read-only by default. People's actions (notes, answers, sign-offs, uploads) need
+### API server
+
+The API is read-only by default. People's actions, including notes, answers, sign-offs and uploads, need
 `TRANSLUCENT_TEAM_TOKEN`. Starting campaigns over HTTP requires `TRANSLUCENT_LIVE=1` and an admin token.
 
 ```sh
@@ -276,7 +372,9 @@ uv run translucent serve --ledger <ledger-dir> --state <state-dir>   # http://12
 
 A container recipe is in [`deploy/README.md`](deploy/README.md). Endpoints are in [docs/API.md](docs/API.md).
 
-**Web demo.** This is a static Next.js app that replays exported campaigns from `web/public/fixtures/`.
+### Web demo
+
+The static Next.js app replays exported campaigns from `web/public/fixtures/`.
 
 ```sh
 cd web
@@ -285,22 +383,25 @@ bun run dev        # http://localhost:3000
 bun run build      # static export to web/out; `bun run start` serves it
 ```
 
-`m4-team` and `lu-live` are exported from real paid campaigns on Meta's models, run over the HTTP API (Oct 29), and
-they are the recordings the home screen offers. The thread marks each as a replay of a recorded run and names the
-model behind each role. `m4-meta` and `lu-meta` are the earlier Meta runs from before the analysis code check, kept
-as evidence; the Fireworks exports, `m4-dev` and `lu-dev`, are kept for comparison.
-The `m1` and `lu` fixtures are hand-authored design narratives over real data, kept for UI development only and not
-offered on the start screen.
+The home screen offers `m4-team` and `lu-live`, exported from real paid campaigns on Meta's models over the HTTP API
+(Oct 29). The thread labels each as a recorded replay and names the model used for each role. The earlier Meta
+runs, `m4-meta` and `lu-meta`, predate the analysis code check and remain as evidence. The Fireworks exports,
+`m4-dev` and `lu-dev`, remain for comparison.
 
-**MCP server.** This is a read-only server for Claude Code or any stdio MCP client. Its tools are
-`list_campaigns`, `list_findings`, `get_evidence` and `verify`. It never starts a campaign or contacts a provider.
+The `m1` and `lu` fixtures are hand-authored design narratives over real data. They are used only for UI
+development and are not offered on the start screen.
+
+### Read-only MCP server
+
+The read-only server supports Claude Code or any stdio MCP client. Its tools are `list_campaigns`, `list_findings`,
+`get_evidence` and `verify`. It never starts a campaign or contacts a provider.
 
 ```sh
 claude mcp add --transport stdio translucent -- uv run --directory /absolute/path/to/translucent --no-sync \
   python -m translucent.mcp_server --ledger /absolute/path/to/ledger
 ```
 
-**Evals**
+### Evals
 
 ```sh
 uv run python -m evals.run            # fault injection vs plain pipeline, offline -> evals/REPORT.md
@@ -316,22 +417,27 @@ Every paid call is metered against hard provider caps (`translucent/budget.py`, 
 translucent/      runtime (runtime.py), checker (gate.py), ledger (ledger.py), tools (tools.py),
                   SAM recording/replay (recordings.py), outline QC (qc.py), sandboxed analysis (analysis.py),
                   offline verify (verify.py), API (server.py), MCP (mcp_server.py), CLI (cli.py)
+                  NIST intervention controller, executable world models and cost-based decision rules
 evals/            fault injection, plain-pipeline baseline, critic eval, model double-check, memory test;
                   REPORT.md, CRITIC.md, LLM_JUDGE.md, MEMORY.md
+                  NIST intervention benchmark (INTERVENE.md), generated results and ledgers
 data/groundtruth/ published numbers digitised from the papers, with provenance (README.md)
 web/              Next.js app (app/, components/, lib/)
+                  scripted NIST receipt (public/fixtures/nist-bench.json)
 scripts/          campaign runner, SAM recording, time bases; groundtruth/ derives the lab records from the papers
 runs/             recorded campaign ledgers used by evals and the container
+state/            live intervention ledgers and private planner recordings (git-ignored)
 tests/            pytest suite
 deploy/           API and web containers
 docs/             API, agents over MCP, bringing your own recording, replay-bundle schema
+                  intervention protocol (INTERVENTION.md), intervention bundle contract (CONTRACTS.md)
 ```
 
 ## Data and licences
 
-The experiments come from two open-access papers. Their articles and supplementary movies are published under
-[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). The videos are used unchanged, and the
-overlays and measurements are ours.
+The microscopy experiments come from two open-access papers. Their articles and supplementary movies are
+published under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). The videos are used unchanged.
+The overlays and measurements are ours.
 
 - Reisecker, V., Flatscher, F., Porz, L., et al. *Effect of pulse-current-based protocols on the lithium dendrite
   formation and evolution in all-solid-state batteries.* Nat. Commun. 14, 2432 (2023).

@@ -1,9 +1,11 @@
 "use client";
 // Home: one question, the composer, and a chip per experiment. Recorded runs replay from here; with the team server
 // switched on, the same composer starts a live campaign, and "+" adds a lab's own recording.
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { EXPERIMENTS } from "@/lib/campaigns";
+import { INTERVENTION_NAV, interventionHref } from "@/lib/intervention";
 import { identity, keyForExperiment, peopleApi, PeopleError, type RecordedExperiment } from "@/lib/people";
 import { remember } from "@/lib/recents";
 import { apiConfigured } from "@/lib/sources";
@@ -191,6 +193,12 @@ export function Home() {
       </div>
       <div className="home-dock">
         {(error || notice) && <p className={`dock-note ${error ? "is-error" : ""}`} role="status">{error || notice}</p>}
+        {!q && INTERVENTION_NAV.map((x) => (
+          <Link key={x.key} href={interventionHref(x.key)} className="home-feature">
+            <span className="home-feature-top"><span className="home-feature-title">{x.name}</span><span className="home-feature-kind">{x.source === "live" ? "Live run" : "Scripted benchmark"}</span></span>
+            <span className="home-feature-line">{x.line}</span>
+          </Link>
+        ))}
         {!q && suggestion && (
           <div className="suggestions">
             {EXPERIMENTS.map((x) => (

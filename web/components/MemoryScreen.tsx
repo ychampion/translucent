@@ -2,10 +2,10 @@
 import Link from "next/link";
 import { useEffect } from "react";
 import { experiment, lessonSource, type LessonSource } from "@/lib/campaigns";
-import { useCampaign } from "@/lib/useCampaign";
+import { useCampaignLoad } from "@/lib/useCampaign";
 import { clean } from "@/lib/words";
 import { PageHeader } from "./Shell";
-import { Spinner } from "./Icons";
+import { LoadState } from "./Status";
 
 /** "It starts with ...": what was loaded, and from where when that is one place. */
 function leadLine(n: number, sources: LessonSource[]) {
@@ -18,7 +18,7 @@ function leadLine(n: number, sources: LessonSource[]) {
 
 /** The calm moment at the start of a campaign: what it already knows, and where it learned it. */
 export function MemoryScreen({ campaignKey }: { campaignKey: string }) {
-  const c = useCampaign(campaignKey);
+  const { c, error, retry } = useCampaignLoad(campaignKey);
   const ex = experiment(campaignKey);
   // Show the campaign up to the moment its memory is loaded.
   useEffect(() => {
@@ -26,7 +26,7 @@ export function MemoryScreen({ campaignKey }: { campaignKey: string }) {
     const i = Array.from({ length: c.store.total }, (_, k) => c.store.eventAt(k)).findIndex((e) => e.type === "memory.loaded");
     if (i >= 0 && c.store.index <= i) c.store.showUpTo(i + 1);
   }, [c]);
-  if (!c) return <div className="screen loading"><div className="center-spin"><Spinner size={22} /></div></div>;
+  if (!c) return <div className="screen loading"><PageHeader /><LoadState error={error} onRetry={retry} /></div>;
   const { view, store } = c;
   const lessons = view.lessonsLoaded ?? [];
   const sources = [...new Map(lessons.map(lessonSource).filter((s): s is LessonSource => !!s).map((s) => [s.label, s])).values()];

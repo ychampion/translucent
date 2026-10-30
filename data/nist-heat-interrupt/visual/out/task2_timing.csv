@@ -1,0 +1,11 @@
+clip,exp,event,video_marker,video_s,video_unc_s,trace_s,trace_marker,trace_unc_s,trace_minus_video_s,offset_unc_s
+S3,33,power-on,red lamp lights,0.114,0.102,0,trace t=0 (assumed power-on),0.5,-0.11,0.51
+S3,33,SVB,start of 'Normal (SVB)' segment (editorial),247.01,0.529,251,t_svb_implied (= t_off - paper delay),1.0,3.99,1.13
+S3,33,power-off,red lamp goes out,545.044,0.102,552,raw trace slope break (t_off_det_raw),1.0,6.96,1.01
+S3,33,power-off,start of 'Normal (Power Off)' segment (editorial),542.11,0.529,552,raw trace slope break (t_off_det_raw),1.0,9.89,1.13
+S3,33,ignition,SAM 3.1 (box prompt) flame area onset,615.845,0.102,618,trace first |dT|>20 C in 2 s (t_ign),2.0,2.15,2.0
+S4,81,power-on,red lamp lights,0.546,0.333,0,trace t=0 (assumed power-on),0.5,-0.55,0.6
+S4,81,SVB,start of 'Normal (SVB)' segment (editorial),614.13,0.77,614,t_svb_implied (= t_off - paper delay),1.0,-0.13,1.26
+S4,81,power-off,red lamp goes out,630.318,0.333,636,raw trace slope break (t_off_det_raw),1.0,5.68,1.05
+S4,81,power-off,start of 'Normal (Power Off)' segment (editorial),627.03,0.77,636,raw trace slope break (t_off_det_raw),1.0,8.97,1.26
+S4,81,ignition,SAM 3.1 (box prompt) flame area onset,919.59,0.333,923,trace first |dT|>20 C in 2 s (t_ign),2.0,3.41,2.03

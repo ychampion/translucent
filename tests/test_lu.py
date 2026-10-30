@@ -210,12 +210,12 @@ def test_lu_sam_without_recordings_fails_closed(shared):
     assert seg and all(r.status == "tool_failure" for r in seg) and not any(r.measurement_ids for r in seg)
 
 
-def test_lu_campaign_loads_movie4_lesson(shared):
+def test_lu_campaign_does_not_load_a_lesson_scoped_to_another_source(shared):
     L, c4, c, _ = shared
     lessons = [x for x in L.list("lesson") if x.learned_in == c4.id]
-    assert lessons
+    assert lessons and all(x.scope == "source:reisecker2023" for x in lessons)
     loaded = {r for e in L.events(c.id) if e.type == "memory.loaded" for r in e.refs}
-    assert {x.id for x in lessons} <= loaded
+    assert not {x.id for x in lessons} & loaded
 
 
 def test_run_campaign_script_accepts_lu(tmp_path, monkeypatch):
@@ -234,7 +234,7 @@ def test_run_campaign_script_accepts_lu(tmp_path, monkeypatch):
     L.db.close()
 
 
-def test_offline_runner_keeps_movie_option_and_shares_lessons(tmp_path):
+def test_offline_runner_keeps_movie_option_and_scopes_lessons(tmp_path):
     spec = importlib.util.spec_from_file_location("run_campaign", ROOT / "scripts/run_campaign.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
@@ -247,6 +247,6 @@ def test_offline_runner_keeps_movie_option_and_shares_lessons(tmp_path):
     second = next(c for c in campaigns if "graphite" in c.title)
     lessons = {x.id for x in L.list("lesson") if x.learned_in == first.id}
     loaded = {r for e in L.events(second.id) if e.type == "memory.loaded" for r in e.refs}
-    assert lessons and lessons <= loaded
+    assert lessons and not lessons & loaded            # learned on another paper's movie: not this campaign's
     assert {"inconclusive", "refuted"} <= set(_verdicts(L, second).values())
     L.db.close()

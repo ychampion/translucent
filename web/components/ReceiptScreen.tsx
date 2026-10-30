@@ -6,8 +6,8 @@ import { VideoClock } from "@/lib/clock";
 import { findingUrl } from "@/lib/share";
 import { STATE_WORD, checkLabel, groupChecks, keepUnits, plainReason } from "@/lib/words";
 import { CheckGlyph, StateMark, findingHref } from "./Findings";
-import { Spinner } from "./Icons";
-import { findingEvidence, useFindingPage } from "./FindingScreen";
+import { LoadState } from "./Status";
+import { Know, findingEvidence, useFindingPage } from "./FindingScreen";
 import { FrameStrip } from "./FrameStrip";
 import { QrCode } from "./QrCode";
 import { SignalPanel, isSynced } from "./SignalPanel";
@@ -23,13 +23,13 @@ function spread(frames: number[], n: number) {
 
 /** One printable page for one finding: what it says, its state, the evidence, the checks, the paper, the re-check. */
 export function ReceiptScreen({ campaignKey }: { campaignKey: string }) {
-  const { c, findingId } = useFindingPage(campaignKey);
+  const { c, findingId, error, retry } = useFindingPage(campaignKey);
   const ex = experiment(campaignKey);
   const still = useMemo(() => new VideoClock(), []);
   const [url, setUrl] = useState("");
   useEffect(() => { if (findingId) setUrl(findingUrl(campaignKey, findingId)); }, [campaignKey, findingId]);
 
-  if (!c || findingId == null) return <div className="screen loading"><div className="center-spin"><Spinner size={22} /></div></div>;
+  if (!c || findingId == null) return <div className="screen loading"><LoadState error={error} onRetry={retry} what="this receipt" /></div>;
   const { view, store } = c;
   const f = view.findings.find((x) => x.claim.id === findingId);
   if (!f) {
@@ -112,6 +112,8 @@ export function ReceiptScreen({ campaignKey }: { campaignKey: string }) {
             </ul>
           </section>
         )}
+
+        <Know store={store} view={view} f={f} campaignKey={campaignKey} frames={frames} compact />
 
         {media.citation && <p className="receipt-source">{media.citation}</p>}
 

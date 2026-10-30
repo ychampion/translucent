@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { paperMatch, type Experiment } from "@/lib/campaigns";
+import { reducedMotion } from "@/lib/motion";
 import type { Measurement } from "@/lib/contracts";
 import { momentKind, type Catalog, type Finding, type FindingState } from "@/lib/store";
 import { STATE_WORD, checkLabel, groupChecks, keepUnits, momentSeconds, plainReason } from "@/lib/words";
@@ -41,7 +42,7 @@ function useReveal(f: Finding, fresh: boolean): { shown: number; state: FindingS
   const [shown, setShown] = useState(fresh ? 0 : n);
   useEffect(() => {
     if (!fresh || !f.review) { setShown(n); return; }
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) { setShown(n); return; }
+    if (reducedMotion()) { setShown(n); return; }
     setShown(0);
     let i = 0;
     const id = setInterval(() => { i += 1; setShown(i); if (i >= n) clearInterval(id); }, STEP_MS);

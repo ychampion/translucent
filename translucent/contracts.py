@@ -1,6 +1,7 @@
-"""Frozen contracts (v1, 2026-10-28). Shared by the ledger, tools, agents, API, replay bundles and the web UI.
+"""Frozen contracts (v2, 2026-10-29). Shared by the ledger, tools, agents, API, replay bundles and the web UI.
 
-Changing a field here is a contract change: bump CONTRACT_VERSION, update docs/CONTRACTS.md and the fixtures.
+Changing a field here is a contract change: bump CONTRACT_VERSION and update docs/CONTRACTS.md and
+docs/replay-bundle.schema.json. New fields are optional with defaults, so bundles exported before them still load.
 
 The ledger is insert-only. Status changes are Events (and, for claims, a new Review); nothing is updated in place.
 Every Event carries a plain-language `title` written for a non-specialist viewer; technical detail goes in
@@ -12,7 +13,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-CONTRACT_VERSION = "1"
+CONTRACT_VERSION = "2"
 
 
 class _Frozen(BaseModel):
@@ -127,6 +128,7 @@ class Claim(_Frozen):
     statement: str                           # one plain sentence, rendered from the predicate
     supersedes: str | None = None
     created_at: float
+    metric_id: str | None = None             # the pre-registered metric this finding attempts (v2)
 
 
 class Check(_Frozen):
@@ -157,6 +159,77 @@ class Lesson(_Frozen):
     evidence_ids: list[str]                  # runs / measurements / claims that taught it
     learned_in: str                          # campaign id
     created_at: float
+    contradicts: str | None = None           # a lesson this one's evidence speaks against (v2)
+
+
+# ---------------------------------------------------------------- what-if branches (v2)
+
+OverrideQuantity = Literal["spatial_scale", "time_base_interval", "voltage_offset_s", "short_threshold_v",
+                           "finding_window"]
+
+
+class Override(_Frozen):
+    """One assumption a person changes in a what-if branch."""
+    model_config = ConfigDict(frozen=True, extra="forbid", allow_inf_nan=False)
+    quantity: OverrideQuantity
+    value: float | list[float]               # finding_window: [lo, hi], or a tolerance
+    uncertainty: float = 0.0
+    unit: str                                # spatial_scale: "px/mm" or "um/px"; time_base_interval,
+                                             # voltage_offset_s: "s"; short_threshold_v: "V"; finding_window: the finding's
+    replaces: str | None = None              # the measurement it stands in for, when there is one
+
+
+class Fork(_Frozen):
+    """A person's what-if: campaign_id is the new branch, re-examining claim_id of the parent with overrides.
+    Forks are made by people, never by the agent; the parent's records are never changed."""
+    id: str                                  # "fork_<hex>"
+    campaign_id: str                         # the branch campaign
+    parent_campaign_id: str
+    claim_id: str | None = None              # the parent's finding being re-examined
+    author: str
+    reason: str
+    overrides: list[Override]
+    created_at: float
+
+
+# ---------------------------------------------------------------- pre-registered metrics and decisions (v2)
+
+class Metric(_Frozen):
+    """A success metric fixed before the agent starts: which quantities count, in which unit, under which test."""
+    model_config = ConfigDict(frozen=True, extra="forbid", allow_inf_nan=False)
+    id: str                                  # "metric_<hex>" or a short slug
+    name: str                                # "Growth speed before the first short"
+    quantities: list[str]                    # accepted measurement quantities; "derived:*" accepts any computed one
+    unit: str
+    predicate: Predicate                     # fixed type and params (lo/hi, tol, direction); measurement_ids = []
+    min_methods: int = 2                     # distinct methods to attempt before a winner
+    needs_verification: bool = True          # a winner needs an independent re-derivation
+
+
+class Protocol(_Frozen):
+    """Pre-registration: recorded before the campaign starts, and cited by its campaign.started event."""
+    id: str                                  # "protocol_<hex>"
+    campaign_id: str
+    author: str
+    metrics: list[Metric]
+    created_at: float
+
+
+DecisionOutcome = Literal["winner", "tie", "tradeoff", "insufficient_evidence"]
+
+
+class Decision(_Frozen):
+    """The outcome of declaring a winner for one metric; recorded whether it passed or not."""
+    id: str                                  # "decision_<hex>"
+    campaign_id: str
+    metric_id: str
+    outcome: DecisionOutcome
+    winner_claim_id: str | None = None
+    verification_claim_id: str | None = None
+    attempt_claim_ids: list[str] = []        # every attempt at the metric, on protocol or not, refused or not
+    replication_run_ids: list[str] = []      # every replication of the winner, failed ones included
+    checks: list[Check]
+    created_at: float
 
 
 # ---------------------------------------------------------------- campaign + event stream
@@ -181,6 +254,8 @@ EventType = Literal[
     "cost.updated",
     "human.note", "question.asked", "question.answered", "question.expired",   # people in the loop
     "campaign.control", "campaign.paused", "campaign.resumed", "campaign.retry",
+    "fork.created",                          # a person's what-if branch (in the branch and the parent)
+    "intervention.recorded",                 # new intervention records only; old event meanings unchanged
 ]
 
 
@@ -194,6 +269,33 @@ class Event(_Frozen):
     detail: str | None = None                # one or two sentences, shown on expand
     refs: list[str] = []                     # ids of artifacts / measurements / claims / runs / lessons
     data: dict[str, Any] = {}                # typed payload; for *.reviewed includes the full Review
+
+
+# ---------------------------------------------------------------- the recorded experiment (v2)
+
+class SetupFact(_Frozen):
+    """One fact about how the experiment was recorded, or why it is not on record."""
+    status: Literal["available", "unavailable"]
+    value: str | None = None                 # plain statement, e.g. "161.2 ± 4 px/mm"
+    source: str | None = None                # where it comes from (a figure, a log, a manifest)
+    method: str | None = None
+    declared_by: str | None = None           # the person who declared it, for a lab's own manifest
+    reason: str | None = None                # why it is unavailable
+
+
+class ExperimentRecord(_Frozen):
+    """What the lab recorded alongside the video, as the bundle's single description of the experiment."""
+    id: str                                  # "reisecker2023/movie4" or "user/<id>"
+    title: str | None = None
+    citation: str | None = None
+    licence: str | None = None
+    author: str | None = None
+    scale: SetupFact
+    clock: SetupFact
+    voltage: SetupFact
+    layout: str | None = None                # where the sample sits in the frame
+    notes: str | None = None
+    files: dict[str, str] = {}               # recorded file name -> sha256
 
 
 # ---------------------------------------------------------------- replay bundle (what the web UI loads)
@@ -217,6 +319,41 @@ class Series(_Frozen):
     frame_of_t: list[int] | None = None      # mapping to video frames when known
 
 
+class EmbeddedEvidenceFile(_Frozen):
+    sha256: str
+    bytes: int
+    encoding: Literal['gzip+base64'] = 'gzip+base64'
+    data: str
+
+
+class InterventionReceipt(_Frozen):
+    version: Literal[1] = 1
+    campaign_id: str
+    ledger: EmbeddedEvidenceFile
+    blobs: dict[str, EmbeddedEvidenceFile]
+
+
+class InterventionBundle(_Frozen):
+    """Optional v2 extension. Numeric projections are re-derived from the receipt."""
+    system: dict[str, Any]
+    protocol: dict[str, Any]
+    trials: list[dict[str, Any]]
+    hypotheses: list[dict[str, Any]]
+    policies: list[dict[str, Any]]
+    decisions: list[dict[str, Any]]
+    scores: list[dict[str, Any]]
+    comparisons: list[dict[str, Any]]
+    procedure: dict[str, Any] | None = None
+    next_experiments: list[dict[str, Any]] = []
+    updates: list[dict[str, Any]] = []
+    folds: list[dict[str, Any]] = []
+    claims: list[dict[str, Any]] = []
+    reviews: list[dict[str, Any]] = []
+    references: list[dict[str, Any]] = []
+    physics_priors: list[dict[str, Any]] = []
+    receipt: InterventionReceipt | None = None
+
+
 class ReplayBundle(_Frozen):
     contract_version: str = CONTRACT_VERSION
     campaign: Campaign
@@ -232,3 +369,9 @@ class ReplayBundle(_Frozen):
     claims: list[Claim] = []
     reviews: list[Review] = []
     lessons: list[Lesson] = []
+    runs: list[Run] = []                     # tool runs behind the bundled evidence (v2)
+    forks: list[Fork] = []                   # this campaign's own fork record, and forks made from it (v2)
+    protocol: Protocol | None = None         # the campaign's pre-registered metrics (v2)
+    decisions: list[Decision] = []           # declared winners and "no winner yet" outcomes (v2)
+    experiment: ExperimentRecord | None = None   # the recorded experiment's metadata (v2)
+    intervention: InterventionBundle | None = None  # sealed decision/outcome campaigns (optional v2)

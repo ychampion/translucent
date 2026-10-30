@@ -294,6 +294,21 @@ def voltage(experiment: str) -> dict | None:
             "notes": manifest.notes or ""}
 
 
+TEXT_FIELDS = ("title", "citation", "licence", "author", "notes")
+
+
+def scrubbed(manifest: dict) -> dict:
+    """A manifest's free-text fields with secret-looking strings removed (file names are left alone)."""
+    from translucent.scrub import scrub
+    if not isinstance(manifest, dict):
+        return manifest
+    out = {k: scrub(v) if k in TEXT_FIELDS and isinstance(v, str) else v for k, v in manifest.items()}
+    for part in ("scale", "clock", "voltage"):
+        if isinstance(out.get(part), dict) and isinstance(out[part].get("source"), str):
+            out[part] = {**out[part], "source": scrub(out[part]["source"])}
+    return out
+
+
 def register(ledger: Ledger, manifest_path_or_dict, files=None):
     """Register a JSON manifest and local files (name -> path, or a directory); return its imported video Artifact."""
     from translucent import tools
@@ -301,12 +316,12 @@ def register(ledger: Ledger, manifest_path_or_dict, files=None):
     if isinstance(manifest_path_or_dict, Manifest):
         manifest = manifest_path_or_dict
     elif isinstance(manifest_path_or_dict, dict):
-        manifest = Manifest.model_validate(manifest_path_or_dict)
+        manifest = Manifest.model_validate(scrubbed(manifest_path_or_dict))
     else:
         path = Path(manifest_path_or_dict)
         base = path.resolve().parent
         try:
-            manifest = Manifest.model_validate_json(path.read_text(encoding="utf-8"))
+            manifest = Manifest.model_validate(scrubbed(json.loads(path.read_text(encoding="utf-8"))))
         except UnicodeError as e:
             raise ValueError("the manifest must be a UTF-8 JSON file") from e
     if files is None or isinstance(files, (str, Path)):

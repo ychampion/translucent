@@ -4,7 +4,7 @@ import { useEffect, useMemo } from "react";
 import { experiment } from "@/lib/campaigns";
 import { VideoClock } from "@/lib/clock";
 import { momentsOf } from "@/lib/store";
-import { useCampaign } from "@/lib/useCampaign";
+import { useCampaignLoad } from "@/lib/useCampaign";
 import {
   SECOND_WORD, answerParts, clean, disagreedLine, framesWord, isLong, keepUnits, modelName, plainReason, timeOn,
 } from "@/lib/words";
@@ -15,16 +15,16 @@ import { StateMark, findingHref, measurementsOf, paperFor } from "./Findings";
 import { FrameStrip } from "./FrameStrip";
 import { SignalPanel, isSynced } from "./SignalPanel";
 import { PageHeader } from "./Shell";
-import { Spinner } from "./Icons";
+import { LoadState } from "./Status";
 
 export function SummaryScreen({ campaignKey }: { campaignKey: string }) {
-  const c = useCampaign(campaignKey);
+  const { c, error, retry } = useCampaignLoad(campaignKey);
   const ex = experiment(campaignKey);
   const still = useMemo(() => new VideoClock(), []);
   useEffect(() => {
     if (c && c.store.index < c.store.total && !c.view.finished) c.store.showUpTo(c.store.total);
   }, [c]);
-  if (!c) return <div className="screen loading"><div className="center-spin"><Spinner size={22} /></div></div>;
+  if (!c) return <div className="screen loading"><PageHeader /><LoadState error={error} onRetry={retry} /></div>;
   const { view, store } = c;
   const media = store.media;
   const earned = view.findings.filter((f) => f.state === "earned");

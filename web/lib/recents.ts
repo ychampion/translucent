@@ -59,3 +59,39 @@ export function setRunning(href: string | null) {
 }
 export const useRunning = () =>
   useSyncExternalStore((l) => { runListeners.add(l); return () => { runListeners.delete(l); }; }, () => running, () => null);
+
+// ---------------------------------------------------------------- what needs this person (sidebar badges)
+
+/** Per-href count of open questions and findings to sign off, from the campaign open on this page. */
+let attention: Record<string, number> = {};
+const attentionListeners = new Set<() => void>();
+export function setAttention(href: string, n: number) {
+  if ((attention[href] ?? 0) === n) return;
+  attention = { ...attention, [href]: n };
+  attentionListeners.forEach((l) => l());
+}
+export const useAttention = () =>
+  useSyncExternalStore((l) => { attentionListeners.add(l); return () => { attentionListeners.delete(l); }; }, () => attention, () => attention);
+
+/** Live runs that finished while their page was hidden, until they are opened again. Kept in localStorage. */
+const UNREAD_KEY = "translucent.unread";
+let unread: string[] | null = null;
+const unreadListeners = new Set<() => void>();
+function readUnread(): string[] {
+  if (unread) return unread;
+  try {
+    const v = JSON.parse(localStorage.getItem(UNREAD_KEY) ?? "[]");
+    unread = Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+  } catch { unread = []; }
+  return unread;
+}
+function writeUnread(next: string[]) {
+  unread = next;
+  try { localStorage.setItem(UNREAD_KEY, JSON.stringify(next)); } catch { /* kept in memory */ }
+  unreadListeners.forEach((l) => l());
+}
+export function markUnread(href: string) { if (!readUnread().includes(href)) writeUnread([...readUnread(), href]); }
+export function markRead(href: string) { if (readUnread().includes(href)) writeUnread(readUnread().filter((h) => h !== href)); }
+const NO_UNREAD: string[] = [];
+export const useUnread = () =>
+  useSyncExternalStore((l) => { unreadListeners.add(l); return () => { unreadListeners.delete(l); }; }, readUnread, () => NO_UNREAD);

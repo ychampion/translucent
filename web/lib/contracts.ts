@@ -207,4 +207,6 @@ export interface ReplayBundle {
   claims?: Claim[];
   reviews?: Review[];
   lessons?: Lesson[];
+  /** Every tool run behind the bundle's measurements and tool events. Older bundles omit it (derived from events). */
+  runs?: Run[];
 }

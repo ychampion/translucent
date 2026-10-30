@@ -1,0 +1,106 @@
+{
+ "web/public/fixtures/lu-dev": {
+  "summary": "4 findings re-checked, 4 match; 13 files intact",
+  "problems": []
+ },
+ "web/public/fixtures/lu-live": {
+  "summary": "6 findings re-checked, 6 match; 189 files intact",
+  "problems": []
+ },
+ "web/public/fixtures/lu-meta": {
+  "summary": "6 findings re-checked, 6 match; 78 files intact",
+  "problems": []
+ },
+ "web/public/fixtures/m4-dev": {
+  "summary": "6 findings re-checked, 6 match; 16 files intact",
+  "problems": []
+ },
+ "web/public/fixtures/m4-fork-1": {
+  "summary": "1 findings re-checked, 1 match; 5 files intact",
+  "problems": []
+ },
+ "web/public/fixtures/m4-fork-2": {
+  "summary": "1 findings re-checked, 1 match; 2 files intact",
+  "problems": []
+ },
+ "web/public/fixtures/m4-fork-3": {
+  "summary": "0 findings re-checked, 0 match; 4 files intact",
+  "problems": []
+ },
+ "web/public/fixtures/m4-meta": {
+  "summary": "21 findings re-checked, 19 match; 37 files intact",
+  "problems": [
+   "Finding claim_4acff4f6ca: recorded unsupported, re-check gives unsupported; verdict, checks or reason differ",
+   "Finding claim_6d23fcc864: recorded unsupported, re-check gives unsupported; verdict, checks or reason differ"
+  ]
+ },
+ "web/public/fixtures/m4-methods": {
+  "summary": "4 findings re-checked, 4 match; 11 files intact, 1 decisions re-checked",
+  "problems": []
+ },
+ "web/public/fixtures/m4-team": {
+  "summary": "12 findings re-checked, 12 match; 163 files intact",
+  "problems": []
+ },
+ "runs/dev-m4": {
+  "summary": "0 findings re-checked, 0 match; 4 files intact",
+  "problems": [
+   "Measurement event 2 in dev lacks its recorded value",
+   "Measurement event 5 in dev lacks its recorded value",
+   "Measurement event 2 in dev2 lacks its recorded value",
+   "Measurement event 5 in dev2 lacks its recorded value",
+   "Measurement event 10 in dev2 lacks its recorded value",
+   "Measurement event 11 in dev2 lacks its recorded value",
+   "Measurement event 12 in dev2 lacks its recorded value",
+   "Measurement event 13 in dev2 lacks its recorded value",
+   "Measurement event 14 in dev2 lacks its recorded value",
+   "Measurement event 15 in dev2 lacks its recorded value",
+   "Measurement event 16 in dev2 lacks its recorded value",
+   "Measurement event 17 in dev2 lacks its recorded value",
+   "Measurement event 18 in dev2 lacks its recorded value",
+   "Measurement event 21 in dev2 lacks its recorded value",
+   "Measurement event 22 in dev2 lacks its recorded value",
+   "Measurement event 23 in dev2 lacks its recorded value",
+   "Measurement event 24 in dev2 lacks its recorded value",
+   "Measurement event 25 in dev2 lacks its recorded value",
+   "Measurement event 26 in dev2 lacks its recorded value",
+   "Measurement event 27 in dev2 lacks its recorded value",
+   "Measurement event 2 in dev3 lacks its recorded value",
+   "Measurement event 5 in dev3 lacks its recorded value",
+   "Measurement m_fcc452e8be28 from run run_10f52ef932fb has no recorded event",
+   "Measurement m_9bbeed83fdd2 from run run_bc6bfa8ed24a has no recorded event",
+   "Measurement m_d3b4f920fc5a from run run_0797cc539245 has no recorded event",
+   "Measurement m_7f01233c1d08 from run run_664ad5b50f66 has no recorded event",
+   "Measurement m_9feb78cfd5e7 from run run_40d1bc0299aa has no recorded event",
+   "Measurement m_d553247ef74e from run run_40d1bc0299aa has no recorded event",
+   "Measurement m_6140ad23bb89 from run run_40d1bc0299aa has no recorded event",
+   "Measurement m_eacf58f68071 from run run_40d1bc0299aa has no recorded event",
+   "Measurement m_eebeb4219756 from run run_40d1bc0299aa has no recorded event",
+   "Measurement m_b2c5c1bb4963 from run run_40d1bc0299aa has no recorded event",
+   "Measurement m_3d4f51718755 from run run_40d1bc0299aa has no recorded event",
+   "Measurement m_ce6f44716df0 from run run_40d1bc0299aa has no recorded event",
+   "Measurement m_ec856c80c671 from run run_40d1bc0299aa has no recorded event",
+   "Measurement m_8a5b39da9335 from run run_6b4f04bf9bd4 has no recorded event",
+   "Measurement m_3623c057bcb1 from run run_6b4f04bf9bd4 has no recorded event",
+   "Measurement m_c252922687ea from run run_6b4f04bf9bd4 has no recorded event",
+   "Measurement m_6ab189af0e45 from run run_6b4f04bf9bd4 has no recorded event",
+   "Measurement m_0d146948dec2 from run run_6b4f04bf9bd4 has no recorded event",
+   "Measurement m_6215be07ce0f from run run_6b4f04bf9bd4 has no recorded event",
+   "Measurement m_f54fc2e7498c from run run_6b4f04bf9bd4 has no recorded event",
+   "Measurement m_ed77be3c12ab from run run_a16c379efb8b has no recorded event",
+   "Measurement m_7116e2f46b9e from run run_365d953c75c8 has no recorded event"
+  ]
+ },
+ "runs/fw-chain6": {
+  "summary": "12 findings re-checked, 11 match; 16 files intact",
+  "problems": [
+   "Finding claim_336515bdae: recorded supported, re-check gives inconclusive; verdict, checks or reason differ"
+  ]
+ },
+ "runs/fw-chain8": {
+  "summary": "15 findings re-checked, 14 match; 13 files intact",
+  "problems": [
+   "Finding claim_8fe798b4f9: recorded unsupported, re-check gives unsupported; verdict, checks or reason differ"
+  ]
+ }
+}

@@ -2,11 +2,14 @@
 // The app frame: a slim icon rail, a collapsible sidebar (new campaign, experiments, recent campaigns) and the page.
 // On a phone the rail and sidebar fold into a drawer opened from the page header.
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { EXPERIMENTS } from "@/lib/campaigns";
-import { useRecents, useRunning } from "@/lib/recents";
+import { INTERVENTION_NAV, interventionHref } from "@/lib/intervention";
+import { dispatchKey, useCommands } from "@/lib/commands";
+import { useAttention, useRecents, useRunning, useUnread } from "@/lib/recents";
 import { IconChats, IconClose, IconFlask, IconMemory, IconMoon, IconNew, IconProof, IconSidebar, IconSun } from "./Icons";
+import { Palette, ShortcutSheet } from "./Palette";
 
 type Theme = "dark" | "light";
 const THEME_KEY = "translucent.theme";
@@ -53,9 +56,33 @@ export function Shell({ children }: { children: ReactNode }) {
   }, []);
   const key = keyIn(path);
   const memoryKey = key && key !== "own" ? key : "lu";
+  const router = useRouter();
+  const recents = useRecents();
+  const [palette, setPalette] = useState(false);
+  const [keysSheet, setKeysSheet] = useState(false);
+
+  // Every shortcut goes through the command registry.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { dispatchKey(e); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  useCommands("shell", () => [
+    { id: "palette", label: "Search findings and commands", group: "Help", keys: ["Ctrl+K"], inFields: true, quiet: true, run: () => { setKeysSheet(false); setPalette((p) => !p); } },
+    { id: "keys", label: "Keyboard shortcuts", group: "Help", keys: ["?", "Ctrl+/"], run: () => { setPalette(false); setKeysSheet((k) => !k); } },
+    { id: "new", label: "New campaign", group: "Navigate", run: () => router.push("/") },
+    { id: "memory", label: "Memory", group: "Navigate", run: () => router.push(`/c/${memoryKey}/memory/`) },
+    { id: "proof", label: "How it’s checked", group: "Navigate", run: () => router.push("/proof/") },
+    { id: "compare", label: "Compare two runs of Movie 4", hint: "With the team vs the earlier run with typed-in numbers", group: "Compare", run: () => router.push("/compare/?a=m4-team&b=m4-meta") },
+    ...INTERVENTION_NAV.map((x) => ({ id: `intervention:${x.key}`, label: x.name, hint: "Stand down, escalate or watch: scored on recorded trials", group: "Navigate" as const, run: () => router.push(interventionHref(x.key)) })),
+    { id: "theme", label: theme === "dark" ? "Light theme" : "Dark theme", group: "Navigate", run: toggleTheme },
+    { id: "sidebar", label: sidebar ? "Hide the sidebar" : "Show the sidebar", group: "Navigate", run: toggleSidebar },
+    ...recents.slice(0, 8).map((r) => ({ id: `recent:${r.href}`, label: r.title, hint: "Recent campaign", group: "Navigate" as const, run: () => router.push(r.href) })),
+  ], [theme, sidebar, recents, memoryKey]);
 
   return (
     <ShellContext.Provider value={{ openDrawer: () => setDrawer(true), toggleSidebar, sidebar }}>
+      <a className="skip-link" href="#main">Skip to content</a>
       <div className={`app ${sidebar ? "" : "no-sidebar"} ${drawer ? "drawer-open" : ""}`}>
         <nav className="rail" aria-label="Main">
           <RailLink href="/" label="New campaign" on={path === "/"}><IconNew /></RailLink>
@@ -78,8 +105,10 @@ export function Shell({ children }: { children: ReactNode }) {
         </aside>
         <div className="scrim" onClick={() => setDrawer(false)} aria-hidden />
 
-        <div className="main">{children}</div>
+        <div className="main" id="main" tabIndex={-1}>{children}</div>
       </div>
+      {palette && <Palette onClose={() => setPalette(false)} />}
+      {keysSheet && <ShortcutSheet onClose={() => setKeysSheet(false)} />}
     </ShellContext.Provider>
   );
 }
@@ -98,6 +127,8 @@ const SHORT: Record<string, string> = { m4: "Movie 4", lu: "Graphite" };
 function Sidebar({ path, onClose, theme, toggleTheme }: { path: string; onClose(): void; theme: Theme; toggleTheme(): void }) {
   const recents = useRecents();
   const running = useRunning();
+  const attention = useAttention();
+  const unread = useUnread();
   const [search, setSearch] = useState("");
   useEffect(() => { setSearch(window.location.search); }, [path]);
   const here = (href: string) => {
@@ -121,6 +152,9 @@ function Sidebar({ path, onClose, theme, toggleTheme }: { path: string; onClose(
       <Link href="/" className={`side-row is-new ${path === "/" ? "is-on" : ""}`}><IconNew size={16} />New campaign</Link>
 
       <p className="side-label" id="side-experiments" tabIndex={-1}>Experiments</p>
+      {INTERVENTION_NAV.map((x) => (
+        <Link key={x.key} href={interventionHref(x.key)} className={`side-row ${path === `/i/${x.key}` ? "is-on" : ""}`}>{x.name}</Link>
+      ))}
       {EXPERIMENTS.map((x) => (
         <Link key={x.key} href={`/?x=${x.key}`} className="side-row">{SHORT[x.key] ?? x.name}</Link>
       ))}
@@ -131,6 +165,10 @@ function Sidebar({ path, onClose, theme, toggleTheme }: { path: string; onClose(
         {recents.map((r) => (
           <Link key={r.href} href={r.href} className={`side-row ${here(r.href) ? "is-on" : ""}`} title={r.title}>
             <span className="side-title">{r.title}</span>
+            {(attention[r.href] ?? 0) > 0 && (
+              <span className="side-badge num" aria-label={`${attention[r.href]} waiting for you`}>{attention[r.href]}</span>
+            )}
+            {unread.includes(r.href) && <span className="unread-dot" aria-label="Finished while you were away" />}
             {running === r.href ? <span className="live-dot" aria-label="Running" /> : r.live && <span className="side-tag">Live</span>}
           </Link>
         ))}

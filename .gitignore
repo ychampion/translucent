@@ -28,3 +28,5 @@ web/out/
 data/groundtruth/lu2023/.test-*/
 # deploy runtime state (ledger copy, API jobs)
 deploy/state/
+evals/runs/
+evals/sealed/

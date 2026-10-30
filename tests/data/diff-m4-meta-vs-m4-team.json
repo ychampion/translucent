@@ -1,0 +1,460 @@
+{
+ "kind": "campaign",
+ "a": "cmp_326e542943",
+ "b": "cmp_63ea5905a8",
+ "models": {
+  "a": {},
+  "b": {
+   "planner": "muse-wonder-1.0",
+   "pointer": "muse-spark-1.3",
+   "second_opinion": "accounts/fireworks/models/muse-spark-open"
+  }
+ },
+ "tool_calls": {
+  "a": 71,
+  "b": 78,
+  "same_first_calls": 7,
+  "a_next": "inspect_video",
+  "b_next": "segment_images"
+ },
+ "cost_usd": {
+  "a": 1.743449,
+  "b": 2.997779
+ },
+ "lessons_loaded": {
+  "a": [
+   "lesson_ae40c68c1a"
+  ],
+  "b": [
+   "lesson_ae40c68c1a",
+   "lesson_293488885d",
+   "lesson_dbfd856444"
+  ]
+ },
+ "findings": [
+  {
+   "a": "claim_c68e45faba",
+   "b": "claim_9ba2645dd7",
+   "a_statement": "The lower long filament grows longer during the early part of the experiment.",
+   "b_statement": "One filament grew longer over time before levelling off.",
+   "a_verdict": "inconclusive",
+   "b_verdict": "inconclusive",
+   "sentences": [
+    "Length of object 4: 23 values in um in both.",
+    "Time of each image, object 4: 23 values in s in both.",
+    "Verdict: inconclusive in both."
+   ],
+   "changes": [
+    {
+     "field": "measurement",
+     "a": "m_22b4b0aae502",
+     "b": "m_7b86fac91290",
+     "a_value": "23 values in um",
+     "b_value": "23 values in um"
+    },
+    {
+     "field": "measurement",
+     "a": "m_8bcf41769d6c",
+     "b": "m_3f02407419e1",
+     "a_value": "23 values in s",
+     "b_value": "23 values in s"
+    }
+   ]
+  },
+  {
+   "a": "claim_1c7db9617f",
+   "b": "claim_633e60443c",
+   "a_statement": "The battery short starts between 85 and 95 seconds into the experiment.",
+   "b_statement": "The cell first shorted, with its voltage collapsing, at about ninety seconds.",
+   "a_verdict": "supported",
+   "b_verdict": "supported",
+   "sentences": [
+    "Accepted range: [85, 95] vs [80, 100] s.",
+    "Battery shorts: 89.55 ± 3.5 s in both.",
+    "Verdict: supported in both."
+   ],
+   "changes": [
+    {
+     "field": "params",
+     "a": {
+      "lo": 85,
+      "hi": 95,
+      "unit": "s"
+     },
+     "b": {
+      "lo": 80,
+      "hi": 100,
+      "unit": "s"
+     }
+    },
+    {
+     "field": "measurement",
+     "a": "m_c14dc18efee8",
+     "b": "m_87834279f7e0",
+     "a_value": "89.55 ± 3.5 s",
+     "b_value": "89.55 ± 3.5 s"
+    }
+   ]
+  },
+  {
+   "a": "claim_ec16ffe96c",
+   "b": "claim_510a28ffb9",
+   "a_statement": "The battery recovers from the first short between 210 and 220 seconds into the experiment.",
+   "b_statement": "The cell recovered from the first short at about two hundred and fifteen seconds.",
+   "a_verdict": "supported",
+   "b_verdict": "supported",
+   "sentences": [
+    "Accepted range: [210, 220] vs [205, 225] s.",
+    "Battery recovers: 214.9 ± 3.5 s in both.",
+    "Verdict: supported in both."
+   ],
+   "changes": [
+    {
+     "field": "params",
+     "a": {
+      "lo": 210,
+      "hi": 220,
+      "unit": "s"
+     },
+     "b": {
+      "lo": 205,
+      "hi": 225,
+      "unit": "s"
+     }
+    },
+    {
+     "field": "measurement",
+     "a": "m_db24e41dfa80",
+     "b": "m_8556b1d4384e",
+     "a_value": "214.9 ± 3.5 s",
+     "b_value": "214.9 ± 3.5 s"
+    }
+   ]
+  },
+  {
+   "a": "claim_16c27288cc",
+   "b": "claim_9303d5bb90",
+   "a_statement": "A second battery short starts between 340 and 365 seconds into the experiment.",
+   "b_statement": "The cell shorted a second time at about three hundred and fifty seconds.",
+   "a_verdict": "supported",
+   "b_verdict": "supported",
+   "sentences": [
+    "Accepted range: [340, 365] vs [340, 362] s.",
+    "Battery shorts: 351.3 ± 6.7 s in both.",
+    "Verdict: supported in both."
+   ],
+   "changes": [
+    {
+     "field": "params",
+     "a": {
+      "lo": 340,
+      "hi": 365,
+      "unit": "s"
+     },
+     "b": {
+      "lo": 340,
+      "hi": 362,
+      "unit": "s"
+     }
+    },
+    {
+     "field": "measurement",
+     "a": "m_168d17852595",
+     "b": "m_e544111ca84f",
+     "a_value": "351.3 ± 6.7 s",
+     "b_value": "351.3 ± 6.7 s"
+    }
+   ]
+  },
+  {
+   "a": "claim_9785a1981c",
+   "b": "claim_655cd82a20",
+   "a_statement": "The lower long lithium filament grows at roughly 30 to 70 micrometres per second during its early growth from about 72 to 93 seconds.",
+   "b_statement": "Before the first short, while it first shot out, the filament grew at about fifty-five to seventy-two micrometres per second.",
+   "a_verdict": "inconclusive",
+   "b_verdict": "supported",
+   "sentences": [
+    "Accepted range: [30, 70] vs [55, 72] um/s.",
+    "Early speed using only points before short time: 49.11 ± 7.5 um/s -> 63.75 ± 4 um/s.",
+    "Verdict: inconclusive -> supported (A: range is specific: 49.11 ± 15 um/s vs [30, 70]: range too wide to say anything)."
+   ],
+   "changes": [
+    {
+     "field": "params",
+     "a": {
+      "lo": 30,
+      "hi": 70,
+      "unit": "um/s"
+     },
+     "b": {
+      "lo": 55,
+      "hi": 72,
+      "unit": "um/s"
+     }
+    },
+    {
+     "field": "measurement",
+     "a": "m_1c87fabff196",
+     "b": "m_1a9fcddde962",
+     "a_value": "49.11 ± 7.5 um/s",
+     "b_value": "63.75 ± 4 um/s"
+    },
+    {
+     "field": "verdict",
+     "a": "inconclusive",
+     "b": "supported"
+    }
+   ]
+  },
+  {
+   "a": "claim_917cafa9a3",
+   "b": "claim_0b7fc04b7d",
+   "a_statement": "The lower long lithium filament grows at roughly 40 to 60 micrometres per second during its early growth from about 72 to 93 seconds.",
+   "b_statement": "The filament grew at about fifty-five to seventy-two micrometres per second when it first shot out.",
+   "a_verdict": "unsupported",
+   "b_verdict": "supported",
+   "sentences": [
+    "Accepted range: [40, 60] vs [55, 72] um/s.",
+    "Window slope s2c first3: 49.05 ± 5 um/s -> 63.75 ± 4 um/s.",
+    "Verdict: unsupported -> supported (A: scale and timing recorded: Lower filament endpoint rate 72-93 s in um/s: no recorded time_base)."
+   ],
+   "changes": [
+    {
+     "field": "params",
+     "a": {
+      "lo": 40,
+      "hi": 60,
+      "unit": "um/s"
+     },
+     "b": {
+      "lo": 55,
+      "hi": 72,
+      "unit": "um/s"
+     }
+    },
+    {
+     "field": "measurement",
+     "a": "m_103ede1af296",
+     "b": "m_95887e17e445",
+     "a_value": "49.05 ± 5 um/s",
+     "b_value": "63.75 ± 4 um/s"
+    },
+    {
+     "field": "verdict",
+     "a": "unsupported",
+     "b": "supported"
+    },
+    {
+     "field": "checks",
+     "flipped": [
+      {
+       "check": "scale and timing recorded",
+       "a_passed": false,
+       "b_passed": true,
+       "a_detail": "Lower filament endpoint rate 72-93 s in um/s: no recorded time_base",
+       "b_detail": "Window slope s2c first3 in um/s: calibration on record"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "a": "claim_c206d621d3",
+   "b": "claim_ce13ad5a2d",
+   "a_statement": "The lower long lithium filament grows at about 42 to 57 micrometres per second during its early growth from about 72 to 93 seconds.",
+   "b_statement": "The filament grew at about thirty-five to fifty-five micrometres per second when it first shot out.",
+   "a_verdict": "inconclusive",
+   "b_verdict": "inconclusive",
+   "sentences": [
+    "Accepted range: [42, 57] vs [35, 55] um/s.",
+    "Early growth speed lane y467 tight box: 49.11 ± 7.5 um/s -> 44.78 ± 6.8 um/s.",
+    "Verdict: inconclusive in both."
+   ],
+   "changes": [
+    {
+     "field": "params",
+     "a": {
+      "lo": 42,
+      "hi": 57,
+      "unit": "um/s"
+     },
+     "b": {
+      "lo": 35,
+      "hi": 55,
+      "unit": "um/s"
+     }
+    },
+    {
+     "field": "measurement",
+     "a": "m_1c87fabff196",
+     "b": "m_95e2654bae32",
+     "a_value": "49.11 ± 7.5 um/s",
+     "b_value": "44.78 ± 6.8 um/s"
+    }
+   ]
+  },
+  {
+   "a": "claim_0dd7e9315c",
+   "b": "claim_ce868eb48b",
+   "a_statement": "The lower long lithium filament grows at about 34 to 65 micrometres per second during its early growth from about 72 to 93 seconds.",
+   "b_statement": "The filament grew at roughly twenty to sixty micrometres per second when it first shot out.",
+   "a_verdict": "supported",
+   "b_verdict": "inconclusive",
+   "sentences": [
+    "Accepted range: [34, 65] vs [20, 60] um/s.",
+    "Early growth speed lane y467 tight box: 49.11 ± 7.5 um/s -> 44.78 ± 6.8 um/s.",
+    "Verdict: supported -> inconclusive (B: range is specific: 44.78 ± 14 um/s vs [20, 60]: range too wide to say anything)."
+   ],
+   "changes": [
+    {
+     "field": "params",
+     "a": {
+      "lo": 34,
+      "hi": 65,
+      "unit": "um/s"
+     },
+     "b": {
+      "lo": 20,
+      "hi": 60,
+      "unit": "um/s"
+     }
+    },
+    {
+     "field": "measurement",
+     "a": "m_1c87fabff196",
+     "b": "m_95e2654bae32",
+     "a_value": "49.11 ± 7.5 um/s",
+     "b_value": "44.78 ± 6.8 um/s"
+    },
+    {
+     "field": "verdict",
+     "a": "supported",
+     "b": "inconclusive"
+    }
+   ]
+  },
+  {
+   "a": "claim_3ded2bd21c",
+   "b": "claim_eba4881434",
+   "a_statement": "The long filament's full length is about 1300 to 1510 micrometres.",
+   "b_statement": "The filament's typical length stayed at about thirteen hundred to fifteen hundred micrometres, well short of spanning the whole gap.",
+   "a_verdict": "supported",
+   "b_verdict": "supported",
+   "sentences": [
+    "Accepted range: [1300, 1510] vs [1300, 1550] um.",
+    "Median filament length new lane y467 outline: 1402 ± 50 um -> 1439 ± 38 um.",
+    "Verdict: supported in both."
+   ],
+   "changes": [
+    {
+     "field": "params",
+     "a": {
+      "lo": 1300,
+      "hi": 1510,
+      "unit": "um"
+     },
+     "b": {
+      "lo": 1300,
+      "hi": 1550,
+      "unit": "um"
+     }
+    },
+    {
+     "field": "measurement",
+     "a": "m_8dede87d87c6",
+     "b": "m_e29af4d4bca7",
+     "a_value": "1402 ± 50 um",
+     "b_value": "1439 ± 38 um"
+    }
+   ]
+  }
+ ],
+ "only_a": [
+  {
+   "id": "claim_c3c71990a5",
+   "statement": "Dark lithium filaments grow leftward from the right electrode across the solid electrolyte.",
+   "verdict": "unsupported"
+  },
+  {
+   "id": "claim_64f8d2b799",
+   "statement": "The cell voltage collapses to a short at about the time the long filaments reach their full length, and recovers at about the time they retract.",
+   "verdict": "unsupported"
+  },
+  {
+   "id": "claim_4acff4f6ca",
+   "statement": "The cell short starts at about the same time the filaments finish growing to full length.",
+   "verdict": "unsupported"
+  },
+  {
+   "id": "claim_72f01213cf",
+   "statement": "The lower long filament length stays roughly steady while the cell is shorted, after its early growth.",
+   "verdict": "inconclusive"
+  },
+  {
+   "id": "claim_6d23fcc864",
+   "statement": "The cell recovers from the first short at about the same time the long filaments retract.",
+   "verdict": "unsupported"
+  },
+  {
+   "id": "claim_6bfb4523ea",
+   "statement": "The cell first shorts at about the same time the long filament reaches its near-full length.",
+   "verdict": "supported"
+  },
+  {
+   "id": "claim_618e19a42f",
+   "statement": "The cell recovers from the first short at about the same time the long filament length first drops after staying full-length.",
+   "verdict": "supported"
+  },
+  {
+   "id": "claim_8816e324d7",
+   "statement": "The lower long lithium filament grows at about 35 to 65 micrometres per second during its early growth from about 72 to 93 seconds.",
+   "verdict": "inconclusive"
+  },
+  {
+   "id": "claim_ceacda2f27",
+   "statement": "The electrode gap is about 2450 to 2580 micrometres wide.",
+   "verdict": "inconclusive"
+  },
+  {
+   "id": "claim_afae2f5a76",
+   "statement": "The long filament's full length is about 1350 to 1450 micrometres, well short of the full electrode gap.",
+   "verdict": "inconclusive"
+  },
+  {
+   "id": "claim_0e773bcf6c",
+   "statement": "Two independent ways of measuring the filament growth speed agree with each other.",
+   "verdict": "inconclusive"
+  },
+  {
+   "id": "claim_2b72038c61",
+   "statement": "The electrode gap is about 2390 to 2640 micrometres wide.",
+   "verdict": "supported"
+  }
+ ],
+ "only_b": [
+  {
+   "id": "claim_d1b2c97a0a",
+   "statement": "The filament grew at roughly twenty to sixty micrometres per second when it first shot out.",
+   "verdict": "unsupported"
+  },
+  {
+   "id": "claim_93256f326d",
+   "statement": "The filament later shrank back at about forty-eight to seventy-two micrometres per second.",
+   "verdict": "inconclusive"
+  },
+  {
+   "id": "claim_973724b8e2",
+   "statement": "The filament later shrank back at about forty-eight to seventy-three micrometres per second.",
+   "verdict": "supported"
+  }
+ ],
+ "sentences": [
+  "Planner: not recorded vs muse-wonder-1.0.",
+  "Pointer: not recorded vs muse-spark-1.3.",
+  "Second opinion: not recorded vs accounts/fireworks/models/muse-spark-open.",
+  "Both began with the same 7 tool calls; then A called inspect_video and B called segment_images.",
+  "Tool calls: 71 vs 78. Model cost: $1.74 vs $3.00.",
+  "Lessons loaded at the start: 1 vs 3.",
+  "Findings: 21 proposed, 8 supported vs 12 proposed, 7 supported."
+ ]
+}

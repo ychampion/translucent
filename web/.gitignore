@@ -3,3 +3,7 @@ node_modules/
 out/
 next-env.d.ts
 *.tsbuildinfo
+# split from public/fixtures/<key>.json at build time (scripts/split-intervention.ts)
+public/fixtures/nist-bench/
+public/fixtures/nist-live/
+public/fixtures/nist-muse-only/

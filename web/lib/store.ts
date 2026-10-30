@@ -1,7 +1,7 @@
 // One store per campaign. Replay (static bundle) and live (Server-Sent Events) both call `ingest(event)`;
 // everything the UI shows is derived from the events received so far plus the bundle's lookup tables.
 import type {
-  Campaign, Claim, Event, Lesson, Measurement, ReplayBundle, Review, Series, Track,
+  Artifact, Campaign, Claim, Event, Lesson, Measurement, ReplayBundle, Review, Run, Series, Track,
 } from "./contracts";
 import {
   FAILED_WORD, isMoment, isRuntimeTool, measurementLine, momentSeconds, momentsLine, plainLabel, planLine, toolLine,
@@ -92,13 +92,20 @@ export interface CampaignView {
   /** Which model played each role (planner, pointer, second_opinion), as the run recorded it; null for older runs. */
   models: Record<string, string> | null;
   replay: { playing: boolean; index: number; total: number };
+  /** A live event stream's health: "retrying" while the browser reconnects, "lost" once it gave up. */
+  stream: StreamState;
 }
+
+export type StreamState = "ok" | "retrying" | "lost";
 
 export interface Catalog {
   measurements: Map<string, Measurement>;
   claims: Map<string, Claim>;
   reviews: Map<string, Review>;
   lessons: Map<string, Lesson>;
+  /** Tool runs as the bundle recorded them (newer exports); empty for older ones. */
+  runs: Map<string, Run>;
+  artifacts: Map<string, Artifact>;
 }
 
 export interface Media {
@@ -124,6 +131,8 @@ export function catalogFrom(b: Partial<ReplayBundle>): Catalog {
     claims: indexBy(b.claims),
     reviews: indexBy(b.reviews),
     lessons: indexBy(b.lessons),
+    runs: indexBy(b.runs),
+    artifacts: indexBy(b.artifacts),
   };
 }
 
@@ -179,7 +188,7 @@ function addPersonReview(f: Finding, r: Review) {
 }
 
 /** Pure derivation: catalog + ordered events -> what the screen shows. */
-export function derive(catalog: Catalog, events: Event[], ctx: DeriveContext = {}): Omit<CampaignView, "replay" | "ready"> {
+export function derive(catalog: Catalog, events: Event[], ctx: DeriveContext = {}): Omit<CampaignView, "replay" | "ready" | "stream"> {
   let campaign: Campaign | undefined = ctx.campaign;
   const subjects = (ctx.media?.tracks ?? []).map((t) => t.subject);
   const story: StoryLine[] = [];
@@ -518,7 +527,7 @@ export class CampaignStore {
     this.catalog = catalog;
     this.media = media;
     this.initialCampaign = initialCampaign;
-    this.view = { ...derive(catalog, [], this.ctx()), ready: true, replay: EMPTY_REPLAY };
+    this.view = { ...derive(catalog, [], this.ctx()), ready: true, replay: EMPTY_REPLAY, stream: "ok" };
   }
 
   private ctx(): DeriveContext { return { media: this.media, campaign: this.initialCampaign, extraReviews: this.localReviews }; }
@@ -566,6 +575,15 @@ export class CampaignStore {
   }
 
   setPlaying(p: boolean) { this.playing = p; this.emit(); }
+
+  private stream: StreamState = "ok";
+  /** Live: the event stream's health, set by the source. */
+  setStream(s: StreamState) {
+    if (s === this.stream) return;
+    this.stream = s;
+    this.view = { ...this.view, stream: s };
+    this.listeners.forEach((l) => l());
+  }
   get total() { return this.received.length; }
   get index() { return this.shown; }
   eventAt(i: number) { return this.received[i]; }
@@ -576,6 +594,7 @@ export class CampaignStore {
       ...derived,
       ready: true,
       replay: { playing: this.playing, index: this.shown, total: this.received.length },
+      stream: this.stream,
     };
     this.listeners.forEach((l) => l());
   }

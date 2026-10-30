@@ -14,6 +14,9 @@ import sys
 
 from translucent.verify import evidence, snapshot, verify
 from translucent.ledger import Ledger, TABLES
+from translucent.intervention_gate import install as _install_intervention_gate
+
+_install_intervention_gate()
 
 VERSIONS = ("2024-11-05", "2025-03-26", "2025-06-18")
 PAGE = {"limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50},
@@ -39,10 +42,13 @@ TOOLS = [
                              "description": "Number of samples already read in each measurement."}}, ["claim_id"]),
     _tool("verify", "Re-check a campaign or the configured ledger offline without changing its files.",
           {"campaign_or_ledger": {"type": "string"}}, ["campaign_or_ledger"]),
+    _tool("list_branches", "A finding's alternatives: the findings that replace it or that it replaces, people's "
+          "what-if branches made from it with their verdicts, and findings elsewhere testing the same quantity. "
+          "Read-only: only a person can make a what-if branch.", {"claim_id": {"type": "string"}}, ["claim_id"]),
 ]
 
 
-EXCLUDED = {"propose_finding", "record_lesson", "run_analysis_code"}
+EXCLUDED = {"propose_finding", "record_lesson", "run_analysis_code", "declare_winner"}
 CAMPAIGN = {"campaign_id": {"type": "string", "minLength": 1}}
 
 
@@ -170,6 +176,12 @@ def call(root, name, arguments):
                 raise ValueError("Campaign not found")
             return [_finding(ledger, c)
                     for c in _records(ledger, "claim", limit, cursor, campaign_id=cid)]
+        if name == "list_branches":
+            from translucent.rerun import branches
+            try:
+                return branches(ledger, arguments["claim_id"])
+            except LookupError as e:
+                raise ValueError(str(e)) from e
         if name == "get_evidence":
             claim_id = arguments["claim_id"]
             chain = evidence(ledger, claim_id)
@@ -272,11 +284,25 @@ class Protocol:
                 if name == "list_experiments":
                     return _experiments(ledger)
                 self._campaign(ledger, arguments["campaign_id"])
+                from translucent.intervention import records as intervention_records
+                if intervention_records(ledger,arguments['campaign_id'],'protocol'):
+                    from translucent.intervention_runtime import tool_schemas
+                    return [{k:v for k,v in t.items() if k!='read_only'} for t in tool_schemas()]
                 return [{"name": n, "description": s["schema"]["function"]["description"], "inputSchema": _schema(n)}
                         for n, s in tools.REGISTRY.items() if n not in EXCLUDED]
         with _writer(self.root) as ledger:
             actor = "agent:" + self.client_info["name"]
             if name == "open_campaign":
+                if arguments['experiment'].split(':')[0]=='nist':
+                    from translucent.intervention_runtime import open_intervention
+                    parts=arguments['experiment'].split(':')
+                    split=parts[1] if len(parts)>1 else 'loco'
+                    if split not in ('loco','lofo','prequential'):raise ValueError('Choose nist:loco, nist:lofo or nist:prequential')
+                    campaign,fold,_=open_intervention(ledger,self.root.parent/(self.root.name+'-sealed'),split=split)
+                    ledger.emit(campaign.id,'human.note',actor,'MCP intervention session opened',
+                                data={'via':'mcp','clientInfo':self.client_info,'fold_id':fold.id})
+                    self.owned.add(campaign.id)
+                    return {**campaign.model_dump(mode='json'),'fold_id':fold.id}
                 videos = [v for v in _experiments(ledger) if v["experiment"] == arguments["experiment"]]
                 if not videos:
                     raise ValueError("Experiment not found; choose an experiment from list_experiments")
@@ -287,6 +313,13 @@ class Protocol:
                 self.owned.add(campaign.id)
                 return campaign.model_dump(mode="json")
             campaign = self._campaign(ledger, arguments["campaign_id"], writing=True)
+            from translucent.intervention import records as intervention_records
+            if intervention_records(ledger,campaign.id,'protocol'):
+                if name!='run_tool':raise ValueError('Use list_tools and run_tool for this intervention campaign; finish through supported write_procedure')
+                from translucent.intervention_runtime import InterventionTools
+                folds=intervention_records(ledger,campaign.id,'fold')
+                service=InterventionTools(ledger,campaign.id,folds[-1].id,self.root.parent/(self.root.name+'-sealed'))
+                return service.call(arguments['tool'],arguments['arguments'])
             if name == "finish_campaign":
                 data = {"status": "finished", "answer": arguments["answer"], "not_proven": arguments["not_proven"]}
                 ledger.emit(campaign.id, "campaign.finished", actor, "Campaign finished", detail=data["answer"], data=data)

@@ -5,6 +5,10 @@ import argparse
 import json
 from pathlib import Path
 
+from translucent.intervention_gate import install as _install_intervention_gate
+
+_install_intervention_gate()
+
 HERO = ("How fast do the lithium filaments grow across the solid electrolyte, does the battery short when they "
         "bridge it, and does it recover when they retract?")
 
@@ -84,6 +88,27 @@ def _add_experiment(args, parser):
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="translucent")
     commands = parser.add_subparsers(dest="command", required=True)
+    intervene = commands.add_parser("intervene", help="Run or replay a metered intervention planner")
+    intervene.add_argument("system", choices=["nist"])
+    intervene.add_argument("--profile", choices=["meta", "dev"], default="meta")
+    intervene.add_argument("--budget", type=float, required=True)
+    intervene.add_argument("--split", choices=["loco", "prequential", "lofo"], default="loco")
+    intervene.add_argument("--ledger", type=Path)
+    intervene.add_argument("--recordings", type=Path, help="Private request and response recording directory")
+    intervene.add_argument("--replay", type=Path, help="Replay recorded requests exactly, without provider keys")
+    intervene.add_argument("--muse-only", action="store_true", help="Run the no-tool model comparator")
+    intervene.add_argument("--dry-run", action="store_true", help="Print call and cost estimates without a provider")
+    intervene.add_argument("--steps", type=int, default=120, help="Tool calls per fold (default: 120)")
+    bench = commands.add_parser('bench',help='Reproduce offline intervention benchmarks')
+    bench.add_argument('system',choices=['nist'])
+    bench.add_argument('--split',choices=['loco','lofo','prequential'])
+    bench.add_argument('--lag-s','--lag',dest='lag_s',type=int,choices=[7,10],help='Select one registered heater-off lag sensitivity')
+    bench.add_argument('--unsafe-ratio',type=int,choices=[5,10,20],help='Select one registered unsafe:escalation cost ratio')
+    sensitivity=bench.add_mutually_exclusive_group()
+    sensitivity.add_argument('--with-inferred',dest='inferred',action='store_true')
+    sensitivity.add_argument('--without-inferred',dest='inferred',action='store_false')
+    bench.set_defaults(inferred=None)
+    bench.add_argument('--out',type=Path,default=Path('evals'))
     run = commands.add_parser("run", help="Run a campaign on a recorded movie (uses metered providers)")
     run.add_argument("--ledger", default="state/ledger")
     run.add_argument("--movie", type=int, default=4)
@@ -133,6 +158,36 @@ def main(argv=None):
     experiments = commands.add_parser("experiments", help="List recordings imported into the ledger (offline)")
     experiments.add_argument("--ledger", type=Path, default=Path("state/ledger"))
     args = parser.parse_args(argv)
+    if args.command == "intervene":
+        import math
+        import time
+        from translucent.intervention_chat import Settings
+        from translucent.intervention_session import dry_run, run_intervention
+
+        if not math.isfinite(args.budget) or args.budget <= 0 or args.steps < 1:
+            intervene.error("budget must be positive and finite; steps must be positive")
+        if args.recordings is not None and args.replay is not None:
+            intervene.error("use either --recordings or --replay")
+        settings = Settings(profile=args.profile, budget_usd=args.budget, step_cap=args.steps)
+        if args.dry_run:
+            print(json.dumps(dry_run(settings, split=args.split, muse_only=args.muse_only), indent=2))
+            return 0
+        ledger_path = args.ledger or Path("state") / (
+            "intervene-" + time.strftime("%Y%m%dT%H%M%S", time.gmtime()) + f"-{time.time_ns() % 1000000000:09d}"
+        )
+        try:
+            result = run_intervention(
+                ledger_path, settings, split=args.split, muse_only=args.muse_only,
+                recordings=args.recordings, replay=args.replay,
+            )
+        except (ValueError, OSError) as exc:
+            intervene.error(str(exc))
+        print(json.dumps(result, indent=2))
+        return 0 if result.get("status") in ("finished", "complete", "completed") else 2
+    if args.command=='bench':
+        from translucent.intervention_bench import benchmark
+        benchmark(args.out,split=args.split,inferred=args.inferred,lag_s=args.lag_s,unsafe_ratio=args.unsafe_ratio)
+        return 0
     if args.command == "add-experiment":
         return _add_experiment(args, add)
     if args.command == "experiments":
@@ -154,6 +209,8 @@ def main(argv=None):
         print(result.summary())
         for problem in result.problems:
             print(problem)
+        for note in result.notes:
+            print(note)
         return 0 if result.ok else 1
     if args.command == "budget":
         from translucent.budget import balances

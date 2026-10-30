@@ -1,0 +1,68 @@
+Data Descriptions
+
+1.1 Experimental Setup
+The overall experimental setup is described in this paragraph. The setup consisted of an open-top enclosure with nominal dimensions of 2.4 m × 2.4 m × 2.4 m and an approximately 0.5 m-wide door. The enclosure frame was constructed from metal wall studs (6 cm × 3.2 cm) and enclosed with lightweight drywall panels, perforated metal sheets, and thin plexiglass walls. The top of the enclosure was covered with a metal mesh screen to prevent flaming debris from escaping while allowing adequate ventilation. The enclosure was located at the center of a 5 MW exhaust hood (6.1 m × 6.1 m) operating at an airflow rate of approximately 3.2 kg/s. Also, there were two 110/24-32 power converters and one data acquisition display located near the testing area. The power converters supplied a regulated 28 V DC output to the heating element (see the subsection below for descriptions) and the display provided real-time temperature monitoring. 
+
+The paragraph describes the front view of the setup. It has a wooden battery rack and a detector array positioned inside the enclosure. The battery rack could accommodate up to eight batteries at a time and it was mounted approximately 76 cm from the front plexiglass wall and approximately 74 cm above the floor which is roughly equivalent to standard table height. The detector array included two smoke/CO detectors, two heat detectors, and two explosive gas detectors. The video camera and the infrared camera were located outside of the enclosure and they were used to continuously capture thermal and visual data throughout each experiment. This configuration allows real-time monitoring of temperature distribution, ignition, and flame development during the experiments. 
+
+
+1.2 Li-ion Batteries with Heating Element and Temperature Measurement
+The paragraph describes the thermal abuse configuration for the 18650 and 21700 Li-ion batteries, each equipped with a heating element and thermocouple. The 18650 battery has a nominal voltage of 3.7 V and a capacity of 3500 mAh, with a lithium nickel cobalt aluminum oxide (NCA) cathode and a graphite anode. The 21700 battery has the same nominal voltage (3.7 V) and a nominal capacity of 5000 mAh using lithium nickel manganese cobalt oxide (NMC) as the cathode and graphite as the anode.
+
+Prior to testing, all batteries were conditioned to the desired state of charge (SOC) using a three-cycle constant-current/constant-voltage protocol. Each battery was discharged to 2.5 V at 0.2 C, then charged to 4.2 V at the same current. The constant-voltage step continued until the current decreased to 160 mA, followed by a one-hour rest period between cycles to ensure electrochemical stability. After the final charge, the cells were rested for 24 hours before testing. Table 1 summarizes the key parameters of both batteries. 
+
+Table 1. Summary of key parameters for the 18650 and 21700 batteries.
+Name				Unit		18650			21700
+Cathode				–		NCA			NMC
+Anode				–		Graphite		Graphite
+Dimension (diameter × height)	mm × mm		18 × 650		21 × 700
+Nominal capacity		mAh		3500			5000
+Nominal voltage			V		3.7			3.7
+Maximum cut-off voltage		V		4.2			4.2
+Minimum cut-off voltage		V		2.5			2.5
+Mass				g		48.2 ± 0.3		68.7 ± 0.5
+State of charge			%		25, 50, 75, 100		25, 50, 75, 100
+
+A flexible silicone heating pad with nominal dimensions of 100 mm × 40 mm × 0.25 mm was attached to the surface of each battery with the first resistive coil located near the cell’s lower end to ensure consistent placement. The heating pad had a resistance of 19.1 Ω ± 0.2 Ω. Powered by a voltage input of 28.0 V ± 0.1 V from the power converter, an electric power of 41 W ± 0.4 W was delivered and it was capable of producing a maximum temperature of approximately 250 °C. A thermocouple was positioned at the midpoint of the battery using high-temperature tape to measure the surface temperature. It should be noted that the thermocouples were not covered by the heating pad and temperature data were collected at a sampling frequency of 1 Hz. Type K, bare bead, 24 American Wire Gauge (AWG) thermocouples (TC) with a temperature range up to 1250 °C with a standard relative uncertainty value of ± 0.75 %, as reported by the manufacturer, were used for these experiments.
+
+
+1.3 Experimental Procedures
+Each experiment began by applying constant power (about 41 W) to the heating pad until the battery reached a surface temperature sufficient to induce safety valve breakage (SVB) and then ignition. Time stamps for the start of heating, safety valve breakage, and ignition were marked during the experiment. Two series of experiments were conducted: 1. Continuous heating experiments in which heating continued until ignition occurred to determine the time interval between SVB and ignition and 2. Interrupted heating experiments in which heating was stopped at various times after SVB to evaluate the safe intervention window and delayed ignition behavior.
+
+In total, 77 experiments were carried out and the complete test matrix for the two series of experiments is provided in Section 1.4. The unit of time is in seconds and the unit of temperature is in degrees Celsius. 
+
+ 
+1.4 Test Matrix for 18650 and 27100 Battery Experiments
+
+Table 2 summarizes the complete test matrix for the 18650 battery experiments. Experiments 1 - 14 correspond to the continuous heating tests, while Experiments 15 - 48 represent the interrupted heating tests. Experiments 18 - 20, 23, and 27 were intentionally excluded, as they were render-safe burns conducted solely to fully discharge and dismantle the batteries for post-test handling safety. In total, there are 43 experiments. It should be noted that the thermocouples malfunctioned during Exp 3 and Exp 17. 
+
+Table A1. Summary of experiments for 18650 Li-ion batteries.
+Experiment #				Exp 1	Exp 2	Exp 3	Exp 4	Exp 5	Exp 6	Exp 7	Exp 8	Exp 9	Exp 10	Exp 11
+SOC (%)					100	100	100	100	75	75	75	75	50	50	50
+Intervention Time Relative to SVB (s)	NA	NA	NA	NA	NA	NA	NA	NA	NA	NA	NA
+Experiment #				Exp 12	Exp 13	Exp 14	Exp 15	Exp 16	Exp 17	Exp 21	Exp 22	Exp 24	Exp 25	Exp 26
+SOC (%)					25	25	25	100	75	100	75	50	50	25	25
+Intervention Time Relative to SVB (s)	NA	NA	NA	120	134	180	201	149	224	157	235
+Experiment #				Exp 28	Exp 29	Exp 30	Exp 31	Exp 32	Exp 33	Exp 34	Exp 35	Exp 36	Exp 37	Exp 38
+SOC (%)					100	100	75	50	25	25	50	25	100	100	75
+Intervention Time Relative to SVB (s)	210	195	235	279	274	291	279	291	200	200	291
+Experiment #				Exp 39	Exp 40	Exp 41	Exp 42	Exp 43	Exp 44	Exp 45	Exp 46	Exp 47	Exp 48	
+SOC (%)					75	50	50	25	25	100	100	75	75	25	
+Intervention Time Relative to SVB (s)	268	279	265	274	259	193	185	258	243	259
+	
+Table A2 summarizes the complete test matrix for the 21700 battery experiments. Experiments 49 - 60 correspond to the continuous heating tests, while Experiments 61 - 82 represent the interrupted heating tests. In total, there are 34 experiments.
+
+Table A2. Summary of experiments for 21700 Li-ion batteries.
+Experiment #				Exp 49	Exp 50	Exp 51	Exp 52	Exp 53	Exp 54	Exp 55	Exp 56	Exp 57	Exp 58	Exp 59
+SOC (%)					100	100	100	75	75	75	50	50	50	25	25
+Intervention Time Relative to SVB (s)	NA	NA	NA	NA	NA	NA	NA	NA	NA	NA	NA
+Experiment #				Exp 60	Exp 61	Exp 62	Exp 63	Exp 64	Exp 65	Exp 66	Exp 67	Exp 68	Exp 69	Exp 70
+SOC (%)					25	100	100	75	75	50	50	25	100	100	75
+Intervention Time Relative to SVB (s)	NA	43	33	48	37	30	40	50	20	20	25
+Experiment #				Exp 71	Exp 72	Exp 73	Exp 74	Exp 75	Exp 76	Exp 77	Exp 78	Exp 79	Exp 80	Exp 81
+SOC (%)					75	50	50	25	25	25	25	25	50	50	75
+Intervention Time Relative to SVB (s)	25	40	40	65	101	89	89	100	50	50	12
+Experiment #				Exp 82	Exp19	Exp 20	 	 	 	 	 	 	 	 
+SOC (%)					100	100	75								
+Intervention Time Relative to SVB (s)	10	NA	NA	 	 	 	 	 	 	 	 
+

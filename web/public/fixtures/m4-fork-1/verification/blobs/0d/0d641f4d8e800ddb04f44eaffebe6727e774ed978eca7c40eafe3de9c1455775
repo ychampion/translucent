@@ -1,0 +1,47 @@
+import json, os, math
+base='/work/inputs'
+with open(os.path.join(base,'inputs.json')) as f:
+    mapping=json.load(f)
+def load_full(mid):
+    fn=mapping[mid]
+    path=fn if os.path.isabs(fn) else os.path.join(base,fn)
+    with open(path) as f:
+        return json.load(f)
+def load(mid):
+    d=load_full(mid)
+    return d['value'] if isinstance(d,dict) and 'value' in d else d
+lengths=load('m_c1f9e3aca4d6')
+times=load('m_02dcc8bdecae')
+short_full=load_full('m_87834279f7e0')
+short_val=short_full['value'] if isinstance(short_full,dict) else short_full
+pairs=sorted(zip(times,lengths))
+first3=pairs[:3]
+def ols(x,y):
+    n=len(x); mx=sum(x)/n; my=sum(y)/n
+    sxx=sum((a-mx)**2 for a in x)
+    sxy=sum((a-mx)*(b-my) for a,b in zip(x,y))
+    slope=sxy/sxx; inter=my-slope*mx
+    resid=[b-(inter+slope*a) for a,b in zip(x,y)]
+    s2=sum(r*r for r in resid)/(n-2) if n>2 else 0.0
+    se=math.sqrt(s2/sxx) if sxx>0 and n>2 else 0.0
+    return slope,se
+slope,se=ols([p[0] for p in first3],[p[1] for p in first3])
+# points strictly before short value
+before=[p for p in pairs if p[0] < short_val]
+slope_b,se_b=ols([p[0] for p in before],[p[1] for p in before]) if len(before)>=3 else (slope,se)
+os.makedirs('/work/outputs',exist_ok=True)
+outs={
+ 'win_first3_start': (first3[0][0],'recorded time of first point in early window'),
+ 'win_first3_end': (first3[-1][0],'recorded time of last point in early window'),
+ 'speed_first3_recheck': (slope,'OLS slope over first three points'),
+ 'speed_before_short': (slope_b,'OLS slope over points with time before the recorded short time'),
+ 'count_before_short_time': (before[-1][0] if before else first3[-1][0],'recorded time of last point before the short'),
+}
+for name,(val,method) in outs.items():
+    unc_val=se if 'speed_first3' in name else (se_b if 'speed_before' in name else None)
+    if unc_val is None:
+        unc={'value':None,'kind':'none','method':method}
+    else:
+        unc={'value':unc_val,'kind':'std','method':method}
+    with open(f'/work/outputs/{name}.json','w') as f:
+        json.dump({'value':val,'uncertainty':unc},f)

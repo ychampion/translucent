@@ -14,7 +14,7 @@ from pathlib import Path
 from meta_sam_parser import CompletedOutcome, decode_mask_to_svg_path, video_segmentation_format
 
 from translucent import instruments
-from translucent.contracts import ReplayBundle, Series, Track
+from translucent.contracts import ExperimentRecord, ReplayBundle, Series, Track
 from translucent.ledger import Ledger
 from translucent.tools import _boxes, _experiment, _flag, _video_meta
 
@@ -57,9 +57,12 @@ def _svg_masks(text: str, frame: int | None, allowed=None) -> dict[int, dict[str
 
 
 def _tracks(L: Ledger, campaign_id: str) -> list[Track]:
-    """Outlines from the campaign's last successful SAM run."""
+    """Outlines from the campaign's last successful SAM run (a what-if branch shows its parent's)."""
     runs = [r for r in L.list("run", campaign_id=campaign_id)
             if r.tool in ("segment_images", "track_objects") and r.status == "ok"]
+    parent = next((f.parent_campaign_id for f in L.list("fork", campaign_id=campaign_id)), None)
+    if not runs and parent:
+        return _tracks(L, parent)
     if not runs:
         return []
     run = runs[-1]
@@ -102,7 +105,97 @@ def _tracks(L: Ledger, campaign_id: str) -> list[Track]:
     return tracks
 
 
-def export(L: Ledger, campaign_id: str, out: Path, *, include_verification=True) -> ReplayBundle:
+def closure(L: Ledger, campaign_id: str, claims=None, events=None, reviews=None) -> dict[str, set[str]]:
+    """Ids of the records a campaign's bundle carries: everything its events cite, the full evidence behind every
+    finding (which may sit in another campaign, e.g. a branch citing its parent's outlines), the runs that made
+    any of it, and the files those runs read or wrote."""
+    from translucent.verify import evidence
+    claims = L.list("claim", campaign_id=campaign_id) if claims is None else claims
+    events = L.events(campaign_id) if events is None else events
+    reviews = [r for k in claims for r in L.list("review", ref=k.id)] if reviews is None else reviews
+    refs = {r for e in events for r in e.refs}
+    ids = {k: set() for k in ("artifact", "measurement", "run", "lesson")}
+    for r in refs:
+        kind = L.kind_of(r)
+        if kind in ids:
+            ids[kind].add(r)
+    forked = [f.claim_id for f in L.list("fork", campaign_id=campaign_id) if f.claim_id]
+    for k in list(claims) + [L.get("claim", c) for c in forked]:   # a branch also carries the finding it re-examines
+        ev = evidence(L, k.id)
+        for kind, key in (("measurement", "measurements"), ("run", "runs"), ("artifact", "artifacts")):
+            ids[kind] |= {x["id"] for x in ev[key]}
+    ids["artifact"] |= {a for r in reviews for a in r.artifact_ids}
+    for mid in list(ids["measurement"]):
+        m = L.get("measurement", mid)
+        ids["run"].add(m.run_id)
+        ids["artifact"] |= set(m.artifact_ids)
+    for rid in list(ids["run"]):
+        run = L.get("run", rid)
+        ids["artifact"] |= {i for i in run.input_ids + run.output_ids if L.kind_of(i) == "artifact"}
+    return ids
+
+
+def extra(L: Ledger, campaign_id: str) -> dict:
+    """Bundle fields added after v1: the campaign's own fork record (when it is a what-if branch), forks made from
+    it, its pre-registered protocol and its decisions."""
+    return {"forks": [f for f in L.list("fork") if campaign_id in (f.campaign_id, f.parent_campaign_id)],
+            "protocol": next(iter(L.list("protocol", campaign_id=campaign_id)), None),
+            "decisions": L.list("decision", campaign_id=campaign_id)}
+
+
+def evidence_records(L: Ledger, campaign_id: str) -> set[str]:
+    """Every record id a campaign's evidence needs, for a receipt that holds only this campaign: its own records,
+    the evidence closure (wherever recorded), the campaigns those records belong to, and every file in the lineage."""
+    ids = closure(L, campaign_id)
+    out = {campaign_id} | ids["lesson"]
+    for kind in ("run", "claim", "fork", "protocol", "decision"):
+        out |= {r.id for r in L.list(kind, campaign_id=campaign_id)}
+    claims = list(L.list("claim", campaign_id=campaign_id))
+    claims += [L.get("claim", f.claim_id) for f in L.list("fork", campaign_id=campaign_id) if f.claim_id]
+    for f in extra(L, campaign_id)["forks"]:
+        out |= {f.id, f.parent_campaign_id, f.campaign_id}
+    out |= {k.id for k in claims}
+    out |= {r.id for k in claims for r in L.list("review", ref=k.id)}
+    todo = list(ids["measurement"] | ids["run"] | ids["artifact"] | set(L.get("campaign", campaign_id).inputs))
+    todo += [m.id for r in L.list("run", campaign_id=campaign_id) for m in L.list("measurement", ref=r.id)]
+    todo += [a for k in claims for r in L.list("review", ref=k.id) for a in r.artifact_ids]
+    while todo:
+        rid = todo.pop()
+        if rid in out:
+            continue
+        kind = L.kind_of(rid)
+        if kind is None:
+            continue
+        out.add(rid)
+        rec = L.get(kind, rid)
+        if kind == "measurement":
+            todo += [rec.run_id] + rec.calibration_ids + rec.artifact_ids
+        elif kind == "run":
+            out.add(rec.campaign_id)
+            todo += rec.input_ids + rec.output_ids
+        elif kind == "artifact" and rec.transform:
+            todo += rec.transform.parent_ids
+    for rid in list(out):
+        if L.kind_of(rid) == "claim":
+            out.add(L.get("claim", rid).campaign_id)
+    return out
+
+
+def _record(experiment: str) -> ExperimentRecord | None:
+    try:
+        return ExperimentRecord.model_validate(instruments.record(experiment))
+    except (ValueError, OSError, KeyError):   # records missing or changed since registration: say nothing
+        return None
+
+
+def export(L: Ledger, campaign_id: str, out: Path, *, include_verification=True,
+           evidence_only=False) -> ReplayBundle:
+    """Write bundle.json, movie.mp4 and (by default) the verification receipt. evidence_only: the receipt's ledger
+    holds only what this campaign's evidence needs instead of the whole ledger."""
+    from translucent.intervention import records as intervention_records
+    if intervention_records(L,campaign_id,'protocol'):
+        from translucent.intervention_export import export as export_intervention
+        return export_intervention(L,campaign_id,out,include_verification=include_verification)
     c = L.get("campaign", campaign_id)
     out.mkdir(parents=True, exist_ok=True)
     video_id = c.inputs[0]
@@ -135,18 +228,20 @@ def export(L: Ledger, campaign_id: str, out: Path, *, include_verification=True)
             series.append(Series(name="Cell voltage", unit="V", t=v["t"], y=v["v"], frame_of_t=list(range(len(v["t"])))))
     claims = L.list("claim", campaign_id=campaign_id)
     events = L.events(campaign_id)
-    refs = {r for e in events for r in e.refs}
+    reviews = [r for k in claims for r in L.list("review", ref=k.id)]
+    ids = closure(L, campaign_id, claims, events, reviews)
     bundle = ReplayBundle(
         campaign=c, video="movie.mp4", video_size=(meta["width"], meta["height"]), fps=meta["fps"],
         frame_time_s=frame_times, tracks=_tracks(L, campaign_id), series=series, events=events,
-        artifacts=[a for a in L.list("artifact") if a.id in refs or a.id == video_id],
-        measurements=[m for m in L.list("measurement") if m.id in refs],
-        claims=claims, reviews=[r for k in claims for r in L.list("review", ref=k.id)],
-        lessons=[x for x in L.list("lesson") if x.learned_in == campaign_id or x.id in refs])
+        artifacts=[a for a in L.list("artifact") if a.id in ids["artifact"] or a.id == video_id],
+        measurements=[m for m in L.list("measurement") if m.id in ids["measurement"]],
+        claims=claims, reviews=reviews,
+        lessons=[x for x in L.list("lesson") if x.learned_in == campaign_id or x.id in ids["lesson"]],
+        runs=[r for r in L.list("run") if r.id in ids["run"]], experiment=_record(exp), **extra(L, campaign_id))
     (out / "bundle.json").write_text(bundle.model_dump_json(), encoding="utf-8")
     if include_verification:
         from translucent.verify import export_evidence
-        export_evidence(L, out)
+        export_evidence(L, out, evidence_records(L, campaign_id) if evidence_only else None)
     return bundle
 
 

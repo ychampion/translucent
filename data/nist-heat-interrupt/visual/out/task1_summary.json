@@ -1,0 +1,162 @@
+{
+ "calls": [
+  {
+   "image": "table_A1.png",
+   "request_digest": "1da73e691a6d59e784af77fd28be62c599efd9c9dfa2db6ed944a8c50dd5970f",
+   "cost_usd": 0.01351125,
+   "usage": {
+    "completion_tokens": 2490,
+    "prompt_tokens": 2343,
+    "total_tokens": 4833,
+    "completion_tokens_details": {
+     "accepted_prediction_tokens": null,
+     "audio_tokens": null,
+     "reasoning_tokens": 1705,
+     "rejected_prediction_tokens": null,
+     "text_tokens": null
+    },
+    "prompt_tokens_details": {
+     "audio_tokens": null,
+     "cache_write_tokens": null,
+     "cached_tokens": 0,
+     "image_tokens": null,
+     "text_tokens": null
+    }
+   }
+  },
+  {
+   "image": "table_A2.png",
+   "request_digest": "80ceadf7bf57d0ada8dc03034eddf67ecd431b3907a927e90b54549ef3002642",
+   "cost_usd": 0.01111825,
+   "usage": {
+    "completion_tokens": 1789,
+    "prompt_tokens": 2812,
+    "total_tokens": 4601,
+    "completion_tokens_details": {
+     "accepted_prediction_tokens": null,
+     "audio_tokens": null,
+     "reasoning_tokens": 1130,
+     "rejected_prediction_tokens": null,
+     "text_tokens": null
+    },
+    "prompt_tokens_details": {
+     "audio_tokens": null,
+     "cache_write_tokens": null,
+     "cached_tokens": 0,
+     "image_tokens": null,
+     "text_tokens": null
+    }
+   }
+  }
+ ],
+ "image_rows_returned": 79,
+ "experiments_77": 77,
+ "class_accuracy_all_77": "77/77",
+ "class_accuracy_51_interrupted": "51/51",
+ "delay_accuracy_51_interrupted": "51/51",
+ "class_disagreements": [],
+ "delay_disagreements": [],
+ "extra_image_rows": [
+  19,
+  20
+ ],
+ "shape_mismatches_(>=2C cooling vs black)": [
+  [
+   31,
+   "black",
+   "continued-rise",
+   0.0
+  ],
+  [
+   32,
+   "black",
+   "continued-rise",
+   0.0
+  ],
+  [
+   33,
+   "black",
+   "continued-rise",
+   1.9
+  ],
+  [
+   34,
+   "black",
+   "continued-rise",
+   0.0
+  ],
+  [
+   36,
+   "black",
+   "continued-rise",
+   0.2
+  ],
+  [
+   37,
+   "black",
+   "continued-rise",
+   0.2
+  ],
+  [
+   39,
+   "black",
+   "continued-rise",
+   0.1
+  ],
+  [
+   40,
+   "black",
+   "continued-rise",
+   0.0
+  ],
+  [
+   42,
+   "black",
+   "continued-rise",
+   0.0
+  ],
+  [
+   43,
+   "black",
+   "continued-rise",
+   0.0
+  ],
+  [
+   44,
+   "black",
+   "continued-rise",
+   1.2
+  ],
+  [
+   48,
+   "black",
+   "continued-rise",
+   0.0
+  ],
+  [
+   61,
+   "red",
+   "delayed(cooled)",
+   6.8
+  ],
+  [
+   68,
+   "black",
+   "continued-rise",
+   1.2
+  ],
+  [
+   69,
+   "black",
+   "continued-rise",
+   1.5
+  ],
+  [
+   70,
+   "black",
+   "continued-rise",
+   0.0
+  ]
+ ],
+ "three_way_disagreements": []
+}

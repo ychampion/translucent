@@ -20,12 +20,15 @@ import time
 from pathlib import Path
 from typing import Iterable
 
-from translucent.contracts import (Artifact, Campaign, Claim, Event, Lesson, Measurement, Review, Run, Source,
-                                   Transform)
+from translucent.contracts import (Artifact, Campaign, Claim, Decision, Event, Fork, Lesson, Measurement, Protocol,
+                                   Review, Run, Source, Transform)
+from translucent.intervention_records import InterventionRecord
 
+# Each kind is a `kind` value in the one record table: a new kind needs no new table or trigger.
 TABLES = {
     "campaign": Campaign, "artifact": Artifact, "run": Run, "measurement": Measurement,
-    "claim": Claim, "review": Review, "lesson": Lesson,
+    "claim": Claim, "review": Review, "lesson": Lesson, "fork": Fork, "protocol": Protocol, "decision": Decision,
+    "intervention": InterventionRecord,
 }
 
 SCHEMA = """
@@ -127,7 +130,10 @@ class Ledger:
 
     def add(self, rec):
         kind = next(k for k, cls in TABLES.items() if isinstance(rec, cls))
-        if kind == "run":
+        if kind == "intervention":
+            from translucent.intervention import admit
+            admit(self, rec)
+        elif kind == "run":
             self._require(rec.input_ids, ("artifact", "measurement"), "run input")
             self._require(rec.output_ids, ("artifact", "measurement"), "run output")
             self._require([rec.campaign_id], ("campaign",), "run campaign")
@@ -154,6 +160,32 @@ class Ledger:
             self._require(rec.artifact_ids, ("artifact",), "review evidence")
         elif kind == "lesson":
             self._require(rec.evidence_ids, ("run", "measurement", "claim"), "lesson evidence")
+            if rec.contradicts:
+                self._require([rec.contradicts], ("lesson",), "contradicted lesson")
+        elif kind == "protocol":
+            from translucent.protocol import protocol_problems
+            self._require([rec.campaign_id], ("campaign",), "protocol campaign")
+            if problems := protocol_problems(rec):
+                raise AdmissionError(f"protocol {rec.id}: {'; '.join(problems)}")
+            started = self.db.execute("SELECT COUNT(*) FROM event WHERE campaign_id=? AND body LIKE ?",
+                                      (rec.campaign_id, '%"type":"campaign.started"%')).fetchone()[0]
+            work = self.db.execute("SELECT COUNT(*) FROM record WHERE campaign_id=? AND kind NOT IN ('campaign')",
+                                   (rec.campaign_id,)).fetchone()[0]
+            if started or work:
+                raise AdmissionError(f"protocol {rec.id}: metrics are fixed before the campaign starts")
+        elif kind == "decision":
+            self._require([rec.campaign_id], ("campaign",), "decision campaign")
+            ids = [rec.winner_claim_id, rec.verification_claim_id, *rec.attempt_claim_ids]
+            self._require([i for i in ids if i], ("claim",), "decision finding")
+            self._require(rec.replication_run_ids, ("run",), "replication run")
+        elif kind == "fork":
+            self._require([rec.campaign_id, rec.parent_campaign_id], ("campaign",), "fork campaign")
+            if rec.campaign_id == rec.parent_campaign_id:
+                raise AdmissionError(f"fork {rec.id} branches a campaign from itself")
+            if rec.claim_id is not None:
+                claim = self.get("claim", rec.claim_id)
+                if claim is None or claim.campaign_id != rec.parent_campaign_id:
+                    raise AdmissionError(f"fork {rec.id} re-examines {rec.claim_id}, not a finding of its parent")
         self._insert(kind, rec)
         return rec
 
@@ -207,9 +239,11 @@ class Ledger:
     def _insert(self, kind, rec):
         campaign = getattr(rec, "campaign_id", None) or (rec.id if kind == "campaign" else None)
         ref = getattr(rec, "run_id", None) or getattr(rec, "claim_id", None)
+        identity = getattr(self, "intervention_identity", None)
+        inserted_at = identity.timestamp() if identity is not None else time.time()
         try:
             self.db.execute("INSERT INTO record VALUES (?,?,?,?,?,?)",
-                            (rec.id, kind, campaign, ref, rec.model_dump_json(), time.time()))
+                            (rec.id, kind, campaign, ref, rec.model_dump_json(), inserted_at))
         except sqlite3.IntegrityError as e:
             raise AdmissionError(f"{kind} {rec.id} already exists") from e
 
@@ -287,7 +321,9 @@ class Ledger:
         try:
             (last,) = self.db.execute("SELECT COALESCE(MAX(seq), 0) FROM event WHERE campaign_id=?",
                                       (campaign_id,)).fetchone()
-            ev = Event(seq=last + 1, campaign_id=campaign_id, t=time.time(), type=type, actor=actor, title=title,
+            identity = getattr(self, "intervention_identity", None)
+            event_time = identity.timestamp() if identity is not None else time.time()
+            ev = Event(seq=last + 1, campaign_id=campaign_id, t=event_time, type=type, actor=actor, title=title,
                        detail=detail, refs=list(refs), data=data or {})
             self.db.execute("INSERT INTO event VALUES (?,?,?)", (campaign_id, ev.seq, ev.model_dump_json()))
             self.db.execute("COMMIT")

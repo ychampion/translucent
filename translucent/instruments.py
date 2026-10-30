@@ -273,3 +273,46 @@ def voltage(experiment: str) -> dict | None:
     # resolution (0.05 V itself sits in the post-short noise: 0.057, 0.048, 0.051 V, and read the second short 25 s late)
     return {"t": t, "v": [float(r["voltage_V"]) for r in rows], "dt": dt, "short_threshold_v": 0.5,
             "method": "voltage read from the recorded voltage-vs-time panel at the moving marker, per frame"}
+
+
+def record(experiment: str) -> dict:
+    """The experiment's metadata for a bundle: title, citation, licence, and the scale, clock and voltage records with
+    where each came from (or why it is not on record). Shaped as contracts.ExperimentRecord."""
+    def fact(value, source=None, method=None, declared_by=None, missing="not on record"):
+        if value is None:
+            return {"status": "unavailable", "reason": missing}
+        return {"status": "available", "value": value, "source": source, "method": method, "declared_by": declared_by}
+
+    out = {"id": experiment, "layout": None, "notes": None, "files": {}}
+    author = None
+    if experiment.startswith("user/"):
+        from translucent import experiments
+        manifest, rec, _ = experiments.load(experiment)
+        author = manifest.author
+        out.update(title=manifest.title, citation=manifest.citation, licence=manifest.licence, author=author,
+                   notes=manifest.notes, files=dict(rec["sha256"]))
+    elif experiment in RECORDED_FILES:
+        meta = json.loads((GT / ("lu2023.json" if experiment == LU else "reisecker2023.json")).read_text(
+            encoding="utf-8"))
+        movie = meta["movie"] if experiment == LU else _reisecker()[_movie(experiment)]
+        out.update(title=movie.get("caption_verbatim"), citation=meta["source"].get("citation"),
+                   licence=meta["source"].get("licence"), files={"video": RECORDED_FILES[experiment]},
+                   layout=layout(experiment))
+    else:
+        out.update(title=None)
+    scale = spatial_scale(experiment)
+    out["scale"] = fact(scale and f"{scale['px_per_mm']:g} ± {scale['uncertainty']:g} px/mm",
+                        scale and scale.get("source"), scale and scale.get("method"), author if scale else None)
+    clock = time_base_source(experiment)
+    bound = frame_time_uncertainty(experiment)
+    times = frame_times(experiment)
+    out["clock"] = fact(clock and (f"{len(times)} frame times" if times else "recorded") +
+                        (f", bound ± {bound:g} s" if bound else ""), clock, None, author if clock else None,
+                        missing="no recorded clock: playback frame timing is not real time")
+    v = voltage(experiment)
+    src = (v or {}).get("source") or {}
+    out["voltage"] = fact(v and f"{len(v['t'])} readings", src.get("citation") or src.get("label"), v and v.get("method"),
+                          author if v else None, missing="no electrical record accompanies this video")
+    if v and v.get("notes") and not out["notes"]:
+        out["notes"] = v["notes"]
+    return out

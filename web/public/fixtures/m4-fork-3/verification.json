@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "campaign_id": "cmp_69d0ee4b60",
+  "files": [
+    {
+      "path": "bundle.json",
+      "sha256": "e8985082af797cd8c3556001d3d849b80462f49633854cbb88eae5b47a16ad52",
+      "bytes": 310368
+    },
+    {
+      "path": "movie.mp4",
+      "sha256": "cfeb342cdcbd1272d422896185e0d80f7365b39d2fdf9793a5cdf7b46b41d3e0",
+      "bytes": 11670141
+    },
+    {
+      "path": "verification/ledger.sqlite",
+      "sha256": "ffcac9acabc6af0ab3e7f8c1ffc20b2297b7550eb48b6c85b4252c8425fd8407",
+      "bytes": 69632
+    },
+    {
+      "path": "verification/blobs/cf/cfeb342cdcbd1272d422896185e0d80f7365b39d2fdf9793a5cdf7b46b41d3e0",
+      "sha256": "cfeb342cdcbd1272d422896185e0d80f7365b39d2fdf9793a5cdf7b46b41d3e0",
+      "bytes": 11670141
+    },
+    {
+      "path": "verification/blobs/ad/ada8a00887c913244e42923e1262679a32027bdf6b65769143e3b2b659ce15a4",
+      "sha256": "ada8a00887c913244e42923e1262679a32027bdf6b65769143e3b2b659ce15a4",
+      "bytes": 204544
+    },
+    {
+      "path": "verification/blobs/99/99f4bc0c49d7d4fe61adf7cc83092829142bec5ad1d375fdd048a387cb052ffe",
+      "sha256": "99f4bc0c49d7d4fe61adf7cc83092829142bec5ad1d375fdd048a387cb052ffe",
+      "bytes": 4405
+    },
+    {
+      "path": "verification/blobs/bb/bb43e9101e0f62620f809e8a5f08da3afcf9a5b113dc5818d9b6185263434da5",
+      "sha256": "bb43e9101e0f62620f809e8a5f08da3afcf9a5b113dc5818d9b6185263434da5",
+      "bytes": 938
+    }
+  ]
+}

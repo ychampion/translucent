@@ -1,18 +1,21 @@
 "use client";
-// The right-hand panel of a campaign: the recording (video, frames strip, cell voltage) and, when a finding is
-// opened, that finding with the video moved to its moment and a link to its receipt.
+// The right-hand panel of a campaign, in tabs. Recording: the video, frames strip and cell voltage and, when a finding
+// is opened, that finding with the video moved to its moment. The other tabs (the evidence trail, comparing runs)
+// appear only when the campaign has data for them. The selected finding is the context for every tab.
 import Link from "next/link";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { experiment } from "@/lib/campaigns";
 import { VideoClock, useClock } from "@/lib/clock";
 import type { Series } from "@/lib/contracts";
 import { momentsOf, type CampaignStore, type CampaignView, type Finding, type Moment } from "@/lib/store";
 import { STATE_WORD, isLong, keepUnits, momentSeconds, plainReason, timeOn } from "@/lib/words";
 import { StateMark, findingHref, receiptHref } from "./Findings";
-import { IconClose } from "./Icons";
+import { IconClose, IconWiden } from "./Icons";
 import { SignalPanel, isSynced, sampleAt, shortSpans } from "./SignalPanel";
 import { Stage } from "./Stage";
 import { Timeline, type Marker } from "./Timeline";
+import { TrailTab } from "./Trail";
+import { CompareTab, compareTargetFor } from "./CompareScreen";
 
 const TONE = { earned: "gold", checking: "steel", "not-proven": "grey", refused: "crimson" } as const;
 
@@ -47,18 +50,135 @@ export function findingFrame(f: Finding, store: CampaignStore): number | null {
   return null;
 }
 
-interface Props {
+export interface PanelProps {
   campaignKey: string;
   store: CampaignStore;
   view: CampaignView;
   clock: VideoClock;
   finding: Finding | null;
-  onClose(): void;
   /** Play the video on its own (a replay that is playing). */
   autoPlay: boolean;
+  /** Open a finding in the panel (from another tab). */
+  onOpenFinding?(id: string): void;
 }
 
-export function EvidencePanel({ campaignKey, store, view, clock, finding, onClose, autoPlay }: Props) {
+export type TabId = "recording" | "trail" | "branches" | "compare" | "methods";
+
+export interface PanelTab {
+  id: TabId;
+  label: string;
+  /** Whether this campaign has anything to show in the tab; tabs without data stay hidden. */
+  available(p: PanelProps): boolean;
+  render(p: PanelProps): ReactNode;
+}
+
+/** Every tab the panel knows, in order. Branches and methods have no data in any bundle yet, so they stay hidden. */
+export const PANEL_TABS: PanelTab[] = [
+  { id: "recording", label: "Recording", available: () => true, render: (p) => <RecordingTab {...p} /> },
+  { id: "trail", label: "Trail", available: (p) => p.view.findings.length > 0, render: (p) => <TrailTab store={p.store} view={p.view} finding={p.finding} campaignKey={p.campaignKey} /> },
+  { id: "branches", label: "Branches", available: () => false, render: () => null },
+  { id: "compare", label: "Compare", available: (p) => compareTargetFor(p.campaignKey) != null, render: (p) => <CompareTab campaignKey={p.campaignKey} campaignId={p.view.campaign?.id} /> },
+  { id: "methods", label: "Methods", available: () => false, render: () => null },
+];
+
+/** Per-campaign panel layout, kept in this browser: the open tab, its width in px, and whether it is widened. */
+export interface PanelLayout { tab: TabId; width: number | null; wide: boolean }
+const LAYOUT_KEY = (key: string) => `translucent.panel.${key}`;
+export function readLayout(key: string): PanelLayout {
+  try {
+    const v = JSON.parse(localStorage.getItem(LAYOUT_KEY(key)) ?? "null");
+    if (v && typeof v === "object") {
+      return {
+        tab: PANEL_TABS.some((t) => t.id === v.tab) ? v.tab : "recording",
+        width: typeof v.width === "number" && v.width >= 320 ? v.width : null,
+        wide: !!v.wide,
+      };
+    }
+  } catch { /* storage blocked or bad JSON */ }
+  return { tab: "recording", width: null, wide: false };
+}
+export function saveLayout(key: string, l: PanelLayout) {
+  try { localStorage.setItem(LAYOUT_KEY(key), JSON.stringify(l)); } catch { /* this tab only */ }
+}
+
+interface HostProps extends PanelProps {
+  layout: PanelLayout;
+  onLayout(l: PanelLayout): void;
+  onClose(): void;
+}
+
+/** The panel frame: tabs (a segmented control on a phone), a resize edge, widen and close. */
+export function EvidencePanel(props: HostProps) {
+  const { layout, onLayout, onClose } = props;
+  const tabs = PANEL_TABS.filter((t) => t.available(props));
+  const active = tabs.find((t) => t.id === layout.tab) ?? tabs[0];
+  const tabRefs = useRef(new Map<TabId, HTMLButtonElement | null>());
+  const onTabKey = (e: KeyboardEvent) => {
+    const i = tabs.indexOf(active);
+    const j = e.key === "ArrowRight" ? i + 1 : e.key === "ArrowLeft" ? i - 1 : e.key === "Home" ? 0 : e.key === "End" ? tabs.length - 1 : null;
+    if (j == null) return;
+    e.preventDefault();
+    const t = tabs[(j + tabs.length) % tabs.length];
+    onLayout({ ...layout, tab: t.id });
+    tabRefs.current.get(t.id)?.focus();
+  };
+
+  // Drag the left edge to resize; the width is kept per campaign.
+  const aside = useRef<HTMLElement>(null);
+  const startDrag = (e: ReactPointerEvent) => {
+    const right = aside.current?.getBoundingClientRect().right ?? window.innerWidth;
+    const el = e.currentTarget as HTMLElement;
+    el.setPointerCapture(e.pointerId);
+    let w = layout.width;
+    const move = (ev: PointerEvent) => {
+      w = Math.round(Math.min(window.innerWidth * 0.8, Math.max(340, right - ev.clientX)));
+      onLayout({ ...layout, width: w, wide: false });
+    };
+    const up = () => { el.removeEventListener("pointermove", move); el.removeEventListener("pointerup", up); };
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerup", up);
+  };
+  const nudge = (e: KeyboardEvent) => {
+    const step = e.key === "ArrowLeft" ? 24 : e.key === "ArrowRight" ? -24 : 0;
+    if (!step) return;
+    e.preventDefault();
+    const cur = aside.current?.getBoundingClientRect().width ?? 480;
+    onLayout({ ...layout, width: Math.round(Math.min(window.innerWidth * 0.8, Math.max(340, cur + step))), wide: false });
+  };
+
+  return (
+    <aside className="evidence" aria-label="Evidence" ref={aside}>
+      <div className="panel-edge" role="separator" aria-orientation="vertical" aria-label="Resize the panel" tabIndex={0}
+        onPointerDown={startDrag} onKeyDown={nudge} onDoubleClick={() => onLayout({ ...layout, width: null, wide: false })} />
+      <div className="evidence-head">
+        {tabs.length > 1 ? (
+          <div className="panel-tabs" role="tablist" aria-label="Panel" onKeyDown={onTabKey}>
+            {tabs.map((t) => (
+              <button key={t.id} ref={(el) => { tabRefs.current.set(t.id, el); }} type="button" role="tab" id={`tab-${t.id}`}
+                aria-selected={t === active} aria-controls="panel-body" tabIndex={t === active ? 0 : -1}
+                className={`panel-tab ${t === active ? "is-on" : ""}`} onClick={() => onLayout({ ...layout, tab: t.id })}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+        ) : <h2>{props.finding ? "Evidence" : active.label}</h2>}
+        <span className="evidence-tools">
+          <button className={`icon-btn only-wide ${layout.wide ? "is-on" : ""}`} onClick={() => onLayout({ ...layout, wide: !layout.wide })}
+            aria-label={layout.wide ? "Narrow the panel" : "Widen the panel"} aria-pressed={layout.wide} title={layout.wide ? "Narrow" : "Widen"}>
+            <IconWiden />
+          </button>
+          <button className="icon-btn" onClick={onClose} aria-label="Close the panel"><IconClose /></button>
+        </span>
+      </div>
+      <div className="evidence-body" id="panel-body" role={tabs.length > 1 ? "tabpanel" : undefined} aria-labelledby={tabs.length > 1 ? `tab-${active.id}` : undefined}>
+        {active.render(props)}
+      </div>
+    </aside>
+  );
+}
+
+/** The recording: video, timeline and voltage, with the opened finding on top. */
+function RecordingTab({ campaignKey, store, view, clock, finding, autoPlay }: PanelProps) {
   const ex = experiment(campaignKey);
   const media = store.media;
   const series = media.series.find((s) => /volt/i.test(s.name)) ?? media.series[0];
@@ -101,12 +221,7 @@ export function EvidencePanel({ campaignKey, store, view, clock, finding, onClos
   const why = finding ? (finding.review ? plainReason(finding.review, finding.claim) : finding.failed ? "The check couldn’t run." : null) : null;
 
   return (
-    <aside className="evidence" aria-label="Evidence">
-      <div className="evidence-head">
-        <h2>{finding ? "Evidence" : "Recording"}</h2>
-        <button className="icon-btn" onClick={onClose} aria-label="Close the panel"><IconClose /></button>
-      </div>
-      <div className="evidence-body">
+    <>
         {finding && (
           <section className={`evidence-finding state-${finding.state}`}>
             <p className="fcard-head"><StateMark state={finding.state} /><span className="fcard-state">{STATE_WORD[finding.state]}</span></p>
@@ -138,8 +253,7 @@ export function EvidencePanel({ campaignKey, store, view, clock, finding, onClos
           <Timeline clock={clock} distinct={view.distinctFrames} tracked={tracked} markers={markers} />
           <SignalPanel clock={clock} series={series} moments={moments} reference={ex.reference} focus={finding?.claim.id} />
         </div>
-      </div>
-    </aside>
+    </>
   );
 }
 

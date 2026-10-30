@@ -18,9 +18,10 @@ To pin the checkout and an API state directory:
 claude mcp add translucent -- uv run --directory /absolute/path/to/translucent python -m translucent.mcp_server --ledger /absolute/path/to/ledger --write --state /absolute/path/to/api-state
 ```
 
-## Codex
+## Other clients, including Muse Code
 
-Add this to `~/.codex/config.toml`, replacing the absolute paths:
+Use any MCP client that runs stdio servers. Configure the executable as `uv` with these arguments and environment,
+replacing the absolute paths. A client that reads a TOML server table takes them in this form:
 
 ```toml
 [mcp_servers.translucent]
@@ -29,9 +30,7 @@ args = ["run", "--directory", "/absolute/path/to/translucent", "python", "-m", "
 env = { TRANSLUCENT_SAM = "strict" }
 ```
 
-## Other clients, including Muse Code
-
-Use any MCP client that runs stdio servers. Configure the executable as `uv` and the arguments as in the Codex example. These are standard stdio instructions; Muse Code has not been tested. The server reads one JSON-RPC message per line and writes only JSON-RPC replies to stdout. Initialize with a `clientInfo` containing a nonempty `name` and `version`, then send `notifications/initialized` before calling tools. That client identity is recorded with `via: "mcp"` in `campaign.started`, whose actor is `agent:<name>`. It is a client-supplied identity, not authentication.
+These are standard stdio instructions; Muse Code has not been tested. The server reads one JSON-RPC message per line and writes only JSON-RPC replies to stdout. Initialize with a `clientInfo` containing a nonempty `name` and `version`, then send `notifications/initialized` before calling tools. That client identity is recorded with `via: "mcp"` in `campaign.started`, whose actor is `agent:<name>`. It is a client-supplied identity, not authentication.
 
 ## Available tools
 

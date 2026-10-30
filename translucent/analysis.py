@@ -194,6 +194,9 @@ def run_analysis_code(ctx, run_id, rec, code, inputs, outputs):
         if total > INPUT_LIMIT:
             raise ValueError("inputs exceed 32 MiB")
         files[filename], index[rid] = data, filename
+    # the code itself is evidence: stored with the run, so a receipt can show what computed each number
+    rec["inputs"].append(ctx.ledger.put_bytes(code.encode("utf-8"), suffix=".py", kind="code",
+                                              media_type="text/x-python", label="Analysis code").id)
     files["inputs.json"] = json.dumps(index).encode("utf-8")
     files["__outputs__.json"] = json.dumps(names).encode("utf-8")
     result = run_untrusted(code, files, timeout_s=120)
