@@ -94,7 +94,7 @@ def fig_nist(inv: list[dict], sheet: dict, out: Path):
     ax.set_xlim(0, 305)
     ax.grid(axis="x", color=GRID, linewidth=0.5)
     ax.axhline(3.5, color=MUTED, linewidth=0.5)
-    ax.set_title("(a) recorded action and outcome, 51 interrupted trials", fontsize=8, loc="left", color=INK)
+    ax.set_title("(a) action and outcome, 51 interrupted trials", fontsize=8, loc="left", color=INK)
     ax.legend(loc="lower right", fontsize=6.5, frameon=False, handletextpad=0.3)
     for s in ("top", "right"):
         ax.spines[s].set_visible(False)
@@ -140,7 +140,11 @@ def fig_nist(inv: list[dict], sheet: dict, out: Path):
     bx.grid(color=GRID, linewidth=0.5)
     bx.set_title(f"(b) 21700: {shown['ignited']} cooled then ignited, {shown['rescued']} rescued", fontsize=8,
                  loc="left", color=INK)
-    bx.legend(loc="upper right", fontsize=6.5, frameon=False)
+    # Below the axis: the ignited traces climb through every corner of the plot area.
+    legend = bx.legend(loc="upper center", bbox_to_anchor=(0.5, -0.24), ncol=2, fontsize=6.5, frameon=False,
+                       handlelength=1.8, columnspacing=1.2)
+    for line in legend.get_lines():
+        line.set_linewidth(1.8)
     for s in ("top", "right"):
         bx.spines[s].set_visible(False)
     fig.tight_layout()
@@ -154,20 +158,20 @@ def fig_loop(out: Path):
     ax.set_ylim(-3, 27)
     ax.axis("off")
     boxes = [
-        (0.5, "Observe", "Muse Spark\nreads frames, tables;\nSAM 3.1 outlines"),
+        (0.5, "Observe", "Muse Spark reads\nframes and tables;\nSAM 3.1 outlines"),
         (17.2, "Hypothesise", "Muse Wonder\nstates competing\nmechanisms"),
         (33.9, "Forecast", "world models give\nP(ignite | action),\nlabelled simulated"),
         (50.6, "Commit", "decision and p\nrecorded before\nthe reveal"),
-        (67.3, "Reveal, score", "sealed outcome\nopened, scored\nagainst baselines"),
+        (67.3, "Reveal, score", "sealed outcome\nopened, scored\nvs baselines"),
         (84.0, "Update", "after feedback,\nonly through\nthe update gate"),
     ]
-    w, h, y = 15.0, 16, 8
+    w, h, y = 14.6, 16, 8
     for x, title, body in boxes:
         ax.add_patch(FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.2,rounding_size=1.2",
                                     facecolor="white", edgecolor=INK, linewidth=0.7))
         ax.text(x + w / 2, y + h - 3.0, title, ha="center", va="center", fontsize=7.5, fontweight="bold",
                 color=INK)
-        ax.text(x + w / 2, y + h / 2 - 2.2, body, ha="center", va="center", fontsize=6.2, color=INK,
+        ax.text(x + w / 2, y + h / 2 - 2.2, body, ha="center", va="center", fontsize=5.6, color=INK,
                 linespacing=1.3)
     for i in range(len(boxes) - 1):
         ax.add_patch(FancyArrowPatch((boxes[i][0] + w + 0.3, y + h / 2), (boxes[i + 1][0] - 0.3, y + h / 2),
@@ -177,7 +181,7 @@ def fig_loop(out: Path):
                                  color=MUTED, linewidth=0.7))
     ax.text(50, -2.6, "insert-only ledger: every record content-addressed and sequenced; a deterministic gate "
                       "decides claims; translucent verify re-checks offline", ha="center", fontsize=6.2, color=MUTED)
-    fig.savefig(out / "fig_loop.pdf")
+    fig.savefig(out / "fig_loop.pdf", bbox_inches="tight", pad_inches=0.02)
     plt.close(fig)
 
 
