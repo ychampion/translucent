@@ -58,7 +58,10 @@ def artifact_ids(L, cid):
 
 def projection(L, cid):
     from translucent.intervention_bench import funnel_counts, observations
-    from translucent.systems.nist_heat import SYSTEM
+    from translucent import systems
+
+    nist = systems.get("nist-heat-interrupt")
+    SYSTEM = nist.metadata
 
     rs = records(L, cid)
     if not rs:
@@ -225,13 +228,13 @@ def bundle(L, cid):
     )
 
 
-def _pack(data):
+def _pack(data, level=9):
     if len(data) > MAX_FILE_BYTES:
         raise ValueError("Evidence file exceeds the embedded receipt limit")
     return EmbeddedEvidenceFile(
         sha256=hashlib.sha256(data).hexdigest(),
         bytes=len(data),
-        data=base64.b64encode(gzip.compress(data, mtime=0)).decode("ascii"),
+        data=base64.b64encode(gzip.compress(data, compresslevel=level, mtime=0)).decode("ascii"),
     )
 
 

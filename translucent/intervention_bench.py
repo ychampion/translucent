@@ -1585,7 +1585,10 @@ def funnel_counts(L, cid):
 
 def _passive_reference(L, cid):
     from translucent.contracts import Source
-    from translucent.systems.nist_heat import load_dataset, SYSTEM
+    from translucent import systems
+
+    nist = systems.get("nist-heat-interrupt")
+    load_dataset, SYSTEM = nist.load_trials, nist.metadata
 
     continuous = [t for t in load_dataset() if t["delay_after_vent_s"] is None]
     traces = []
@@ -1647,7 +1650,10 @@ def run_campaign(
         bootstrap_predict,
         muse_replay,
     )
-    from translucent.systems.nist_heat import load_dataset, ingest
+    from translucent import systems
+
+    nist = systems.get("nist-heat-interrupt")
+    load_dataset, ingest = nist.load_trials, nist.ingest
 
     c = create(
         L,
@@ -2327,7 +2333,10 @@ def _benchmark_variant(job):
             unsafe_ratio=ratio,
         )
         from translucent.intervention_sensitivity import sensitivities
-        from translucent.systems.nist_heat import load_dataset
+        from translucent import systems
+
+        nist = systems.get("nist-heat-interrupt")
+        load_dataset = nist.load_trials
 
         descriptive = sensitivities(L, c.id)
         inferred = [

@@ -17,6 +17,7 @@ import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
 
 from translucent.ledger import Ledger, sha256_file
+from translucent.workspace import device_name
 
 # a deployment keeps registered experiments on a volume next to its ledger
 ROOT = Path(os.environ.get("TRANSLUCENT_EXPERIMENTS_DIR") or Path(__file__).resolve().parents[1] / "data" / "experiments")
@@ -30,6 +31,8 @@ def _filename(value: str) -> str:
         raise ValueError("use a filename without folders; supply its location in files")
     if any(ord(c) < 32 for c in value):
         raise ValueError("filenames cannot contain control characters")
+    if device_name(value):
+        raise ValueError("this is a device name on Windows, not a file name; rename the file")
     return value
 
 

@@ -48,6 +48,21 @@ def scrub(text: str) -> str:
 _ABSOLUTE = re.compile(r"(?<![\w.])(?:[A-Za-z]:[\\/]|\\\\|/(?=[^/\s]+/))[^\s\"'<>|:]*")
 
 
+_NOT_TEXT = ("id", "ids", "sha256", "digest", "hash")
+
+
+def scrub_strings(value, key: str = ""):
+    """Every string in a JSON-like value scrubbed, wherever it sits, except under keys that name identifiers or
+    hashes (`id`, `*_id`, `*_ids`, `*_sha256`, `*_digest`, `*_hash`), which look random by design."""
+    if isinstance(value, dict):
+        return {k: scrub_strings(v, k) for k, v in value.items()}
+    if isinstance(value, list):
+        return [scrub_strings(v, key) for v in value]
+    if isinstance(value, str) and not (key == "id" or key.endswith(tuple("_" + x for x in _NOT_TEXT))):
+        return scrub(value)
+    return value
+
+
 def relative_paths(text: str) -> str:
     """Absolute paths rewritten: inside this checkout to repo-relative, elsewhere to the file name only."""
     roots = sorted({str(ROOT), ROOT.as_posix()}, key=len, reverse=True)

@@ -295,7 +295,11 @@ class Campaigner:
         cost, attempt = 0.0, 0
         try:
             while True:  # every attempt is a separately metered request (the clients never retry on their own)
-                before = client.ledger.balance()["committed_usd"]
+                metered = hasattr(client, "last_usd")
+                if metered:
+                    client.last_usd = 0.0       # set by the call itself once it reserves
+                else:
+                    before = client.ledger.balance()["committed_usd"]
                 try:
                     r = client.chat(model=model, messages=messages, max_tokens=self.s.max_tokens, **kw)
                     break
@@ -316,7 +320,12 @@ class Campaigner:
                                 detail=error, data={"role": role, "attempt": attempt, "error": error, "wait_s": wait})
                     time.sleep(wait)
                 finally:
-                    cost += client.ledger.balance()["committed_usd"] - before
+                    # A metered client states each call's own charge; the shared balance would also count other
+                    # campaigns' calls made meanwhile. A client without it is charged by the balance change.
+                    if metered:
+                        cost += client.last_usd
+                    else:
+                        cost += client.ledger.balance()["committed_usd"] - before
         except BaseException:
             self.spent += cost
             if cost:

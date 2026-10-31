@@ -6,7 +6,7 @@
     "split": "bun scripts/split-intervention.ts",
     "predev": "bun scripts/split-intervention.ts",
     "dev": "next dev",
-    "prebuild": "bun scripts/split-intervention.ts",
+    "prebuild": "bun scripts/split-intervention.ts --if-present",
     "build": "next build",
     "start": "bunx serve out"
   },

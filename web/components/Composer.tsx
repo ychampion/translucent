@@ -76,9 +76,10 @@ export function Composer({ value, onChange, onSubmit, placeholder, canSend, busy
   );
 
   return (
-    <form className="composer" onSubmit={(e) => { e.preventDefault(); submit(); }}>
+    <div className="composer">
+      {/* outside the form: the tray may hold its own form (Join), and HTML ignores a form nested in another */}
       {tray && <div className="composer-tray">{tray}</div>}
-      <div className="composer-box">
+      <form className="composer-box" onSubmit={(e) => { e.preventDefault(); submit(); }}>
         {progress != null && progress > 0 && progress < 1 && <span className="composer-progress" aria-hidden><span style={{ transform: `scaleX(${progress})` }} /></span>}
         <label className="visually-hidden" htmlFor="composer-field">{label}</label>
         <textarea
@@ -118,8 +119,8 @@ export function Composer({ value, onChange, onSubmit, placeholder, canSend, busy
           <div className="composer-right">{right}</div>
           {button}
         </div>
-      </div>
-    </form>
+      </form>
+    </div>
   );
 }
 

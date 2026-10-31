@@ -405,7 +405,8 @@
             "campaign.resumed",
             "campaign.retry",
             "fork.created",
-            "intervention.recorded"
+            "intervention.recorded",
+            "loop.recorded"
           ],
           "title": "Type",
           "type": "string"

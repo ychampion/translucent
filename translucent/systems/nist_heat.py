@@ -635,3 +635,140 @@ def ingest(
             f.write(canonical(payload))
         result.append(rec)
     return result
+
+
+class AlwaysEscalate:
+    """The registered frozen comparator that the agent strategies did not beat."""
+
+    name = "always-escalate"
+
+    def propose(self, history, remaining):
+        return [("escalate", {})] * max(remaining, 0)
+
+
+class NistHeatAdapter:
+    """NIST behind the system adapter boundary.
+
+    Every method delegates to the module functions above, so the intervention
+    engine's outputs are unchanged. Results are revealed from the sealed store,
+    never executed.
+    """
+
+    metadata = SYSTEM
+
+    def __init__(self):
+        from translucent.intervention_actions import DEFAULT_COSTS
+        from translucent.systems.base import (
+            ActionSpec,
+            Parameter,
+            Quantity,
+            SystemSpec,
+        )
+
+        self.costs = DEFAULT_COSTS
+
+        def action(name, label, parameters=()):
+            return ActionSpec(
+                name=name,
+                label=label,
+                executor="retrospective",
+                parameters=parameters,
+                produces=("temperature", "outcome", "t_ignition"),
+                deterministic=True,
+                destructive=False,
+            )
+
+        self.spec = SystemSpec(
+            id=SYSTEM["id"],
+            version="1",
+            title=SYSTEM["title"],
+            description=SYSTEM["decision_point"],
+            quantities=(
+                Quantity("temperature", "degC", kind="series", label=SYSTEM["sensor"]),
+                Quantity(
+                    "outcome",
+                    "",
+                    kind="category",
+                    categories=("rescued", "delayed_ignition", "ignited"),
+                ),
+                Quantity("t_ignition", "s", label="Estimated ignition time"),
+            ),
+            actions=(
+                action("stand_down", "Stand down: stopping heat is enough"),
+                action("escalate", "Escalate: suppress or evacuate"),
+                action("abstain", "Abstain: defer to a person"),
+                action(
+                    "observe",
+                    "Watch the trace, then decide",
+                    (Parameter("observe_s", "s", choices=(30, 60), integer=True),),
+                ),
+            ),
+            citation=SYSTEM["citation"],
+            licence=SYSTEM["licence"],
+        )
+
+    def code_digest(self):
+        from translucent.systems.base import file_digest
+
+        return file_digest(Path(__file__))
+
+    def check_params(self, action, params):
+        from translucent.systems.base import check_params
+
+        return check_params(self.spec, action, params)
+
+    def configuration(self, action, params):
+        return {"action": action, **{k: params[k] for k in sorted(params)}}
+
+    def estimate_cost(self, action, params):
+        """Protocol cost units of the action itself; outcome costs come from scoring."""
+        from translucent.systems.base import Cost
+
+        unit = {
+            "abstain": self.costs["abstain"],
+            "observe": self.costs["watch_per_second"] * params.get("observe_s", 0),
+        }.get(action, 0.0)
+        return Cost(other=(("decision_cost", float(unit)),))
+
+    def execute(self, action, params, workdir):
+        from translucent.systems.base import NotExecutable
+
+        raise NotExecutable("NIST outcomes are revealed from the sealed store")
+
+    def check_result(self, action, params, table):
+        outcome = table.scalars.get("outcome")
+        categories = self.spec.quantities[1].categories
+        if outcome is not None and outcome[0] not in categories:
+            return [f"outcome must be one of {list(categories)}"]
+        return []
+
+    def procedure(self, action, params):
+        return None
+
+    def baseline_policy(self):
+        return AlwaysEscalate()
+
+    def evidence_problems(self, ledger, campaign_id):
+        # Per-trial checks run inside intervention verify via outcome_evidence_problems.
+        return []
+
+    def load_trials(self, heater_off_lag_s=10):
+        return load_dataset(heater_off_lag_s=heater_off_lag_s)
+
+    def ingest(self, ledger, cid, sealed_store, **kw):
+        return ingest(ledger, cid, sealed_store, **kw)
+
+    def outcome_evidence_problems(self, ledger, trial, revealed, records):
+        return outcome_evidence_problems(ledger, trial, revealed, records)
+
+    def corroboration_rows(self, rows, real_experiments=None):
+        return corroboration_rows(rows, real_experiments)
+
+    def register_closing_evidence(self, ledger, cid):
+        return register_visual_evidence(ledger, cid)
+
+    def condition_grid(self):
+        return VENT_MEANS
+
+    def continuous_traces(self):
+        return [t for t in load_dataset() if t["delay_after_vent_s"] is None]

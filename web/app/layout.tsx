@@ -4,6 +4,7 @@ import { REDUCED_MOTION_SCRIPT } from "@/lib/motion";
 import "./globals.css";
 import "./pages.css";
 import "./intervention.css";
+import "./loop.css";
 
 export const metadata: Metadata = {
   title: "Translucent",

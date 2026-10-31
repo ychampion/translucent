@@ -1,0 +1,2 @@
+# instrument exports keep their exact bytes (CRLF, Windows-1252)
+* -text

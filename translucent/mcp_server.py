@@ -1,4 +1,17 @@
-"""MCP stdio server. Writes require --write; stdout contains JSON-RPC messages only."""
+"""MCP stdio server. Writes require --write; stdout contains JSON-RPC messages only.
+
+Loop campaigns (design §2.9): one tool for each capability of translucent.loop_service.CAPABILITIES that an agent or
+a person may call (LOOP_TOOLS), plus wait_for_request; the runner's and the comparator's capabilities have no tool.
+Reads are open to every session. Agent tools need --write and act as the client ("agent:<clientInfo name>"). Person
+tools (approve, reject, revise, submit a result, amend, note) exist only when the local operator started the server
+with --operator "<name>": the operator vouches for that name, as holding the team token does over HTTP, and records
+are written under it, never under the client's self-declared name. Files are read only under --import-root.
+
+Several writers may share a ledger: the API server, any number of MCP sessions and the CLI. Loop records are safe
+by construction (chain admission in one IMMEDIATE transaction). A legacy video or intervention campaign is written
+by one process at a time: an MCP session takes the campaign's lock for each write call (translucent.locks), and the
+API worker holds it while it runs the campaign.
+"""
 from __future__ import annotations
 
 import argparse
@@ -11,9 +24,11 @@ from pathlib import Path
 import re
 import sqlite3
 import sys
+import time
 
 from translucent.verify import evidence, snapshot, verify
 from translucent.ledger import Ledger, TABLES
+from translucent.locks import campaign_lock
 from translucent.intervention_gate import install as _install_intervention_gate
 
 _install_intervention_gate()
@@ -81,6 +96,96 @@ def _write_tools():
                         {**CAMPAIGN, "answer": {"type": "string"}, "not_proven": {"type": "string"}},
                         ["campaign_id", "answer", "not_proven"], read_only=False))
     return result
+
+
+# ------------------------------------------------------------ loop campaigns
+
+_KEY = {"idempotency_key": {"type": "string", "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+                            "description": "Optional. The same key and arguments again, in this session, return "
+                                           "the first result; a different call under a used key is refused. A "
+                                           "campaign another session opened is not this session's without --adopt."}}
+_TEXT = {"type": "string", "minLength": 1, "maxLength": 10000}
+_REQUEST = {**CAMPAIGN, "request_id": {"type": "string", "pattern": "^rq_[0-9a-f]{20}$"}}
+_HASH = {"type": "string", "pattern": "^[0-9a-f]{64}$",
+         "description": "The content_hash of the version you read (get_request, get_campaign_view)."}
+_FILES = {"type": "object", "description": "File name -> path, relative to (or under) the server's --import-root."}
+
+# capability -> (tool, what the tool adds to the capability's summary, properties, required). Who may call a tool,
+# and whether it writes, comes from CAPABILITIES; a capability missing here has no tool (the parity test fails).
+LOOP_TOOLS = {
+    "systems": ("list_systems", "", {}, ()),
+    "datasets": ("list_datasets", "", {}, ()),
+    "dataset": ("get_dataset", "", {"dataset_id": {"type": "string", "minLength": 1}}, ("dataset_id",)),
+    "campaigns": ("list_loop_campaigns", "Advance cursor to next_cursor.",
+                  {"limit": PAGE["limit"], "cursor": {"type": "integer", "minimum": 0, "default": 0}}, ()),
+    "view": ("get_campaign_view", "", CAMPAIGN, ("campaign_id",)),
+    "series": ("read_series", "ref is a request or result id, or dataset_id/record_id; t0 and t1 are seconds.",
+               {**CAMPAIGN, "ref": {"type": "string", "minLength": 1}, "quantity": {"type": "string", "minLength": 1},
+                "t0": {"type": "number"}, "t1": {"type": "number"},
+                "max_points": {"type": "integer", "minimum": 2, "maximum": 20000, "default": 2000}},
+               ("campaign_id", "ref", "quantity")),
+    "request": ("get_request", "", _REQUEST, ("campaign_id", "request_id")),
+    "import_dataset": ("import_dataset", "Send the manifest itself. files is a folder, or file name -> path, read "
+                       "only under the server's --import-root.",
+                       {"manifest": {"type": "object"}, "files": {"description": "A folder, or file name -> path, "
+                                                                                 "relative to --import-root."}},
+                       ("manifest",)),
+    "open_campaign": ("open_loop_campaign", "You plan it (planner kind external); the server's operator, or else "
+                      "your client, registers it, without pre-approvals. This session owns it.",
+                      {"title": {"type": "string", "minLength": 1, "maxLength": 200}, "objective": {"type": "object"},
+                       **_KEY}, ("title", "objective")),
+    "define_measurement": ("define_measurement", "",
+                           {**CAMPAIGN, "name": {"type": "string", "minLength": 1, "maxLength": 80},
+                            "spec": {"type": "object"}, **_KEY}, ("campaign_id", "name", "spec")),
+    "propose": ("propose_experiment", "A person approves it (over HTTP, the web app, or an --operator session); "
+                "then call wait_for_request.",
+                {**CAMPAIGN, "action": {"type": "string", "minLength": 1}, "params": {"type": "object"},
+                 "rationale": _TEXT, "prediction": {"type": "object"}, "expected_effect": _TEXT,
+                 "evidence_ids": {"type": "array", "items": {"type": "string"}, "maxItems": 50},
+                 "specimen": {"type": "object"}, **_KEY},
+                ("campaign_id", "action", "params", "rationale", "prediction", "expected_effect")),
+    "cancel": ("cancel_request", "", {**_REQUEST, "reason": _TEXT, **_KEY}, ("campaign_id", "request_id", "reason")),
+    "conclude": ("conclude_campaign", "",
+                 {**CAMPAIGN, "text": _TEXT, "unresolved_reasons": {"type": "array", "items": _TEXT, "maxItems": 50},
+                  **_KEY}, ("campaign_id", "text")),
+    "approve": ("approve_request", "As the server's operator.",
+                {**_REQUEST, "content_hash": _HASH, "note": {"type": "string", "maxLength": 2000}, **_KEY},
+                ("campaign_id", "request_id", "content_hash")),
+    "reject": ("reject_request", "As the server's operator.",
+               {**_REQUEST, "content_hash": _HASH, "reason": _TEXT, **_KEY},
+               ("campaign_id", "request_id", "content_hash", "reason")),
+    "revise": ("revise_request", "As the server's operator.",
+               {**_REQUEST, "params": {"type": "object"}, "reason": _TEXT, "approve": {"type": "boolean"}, **_KEY},
+               ("campaign_id", "request_id", "params", "reason")),
+    "submit_result": ("submit_result", "As the server's operator; upload is the HumanUpload without author.",
+                      {**CAMPAIGN, "upload": {"type": "object"}, "files": _FILES}, ("campaign_id", "upload")),
+    "amend": ("amend_objective", "As the server's operator.",
+              {**CAMPAIGN, "reason": _TEXT, "target": {"type": "object"},
+               "constraints": {"type": "array", "items": {"type": "object"}, "maxItems": 50}, **_KEY},
+              ("campaign_id", "reason")),
+    "note": ("add_note", "As the server's operator.", {**CAMPAIGN, "text": {**_TEXT, "maxLength": 2000}},
+             ("campaign_id", "text")),
+}
+LOOP_BY_TOOL = {spec[0]: capability for capability, spec in LOOP_TOOLS.items()}
+WAIT = _tool("wait_for_request", "Wait up to timeout_s for a request to settle, running it here if it is approved "
+             "computational work; returns the request (settled false while it still waits for a person).",
+             {**_REQUEST, "timeout_s": {"type": "number", "minimum": 0, "maximum": 60, "default": 30}},
+             ["campaign_id", "request_id"], read_only=False)
+WAITING = frozenset({"awaiting_approval", "queued", "running", "awaiting_result"})
+
+
+def _loop_tools(*, write: bool, operator: str | None):
+    """The loop tools this session offers: reads always; agent writes with --write; person tools with --operator."""
+    from translucent.loop_service import CAPABILITIES
+    out = []
+    for capability, cap in CAPABILITIES.items():
+        if capability not in LOOP_TOOLS or not cap.actors - {"system"}:
+            continue
+        if cap.write and not (write and ("agent" in cap.actors or operator)):
+            continue
+        name, more, properties, required = LOOP_TOOLS[capability]
+        out.append(_tool(name, f"{cap.summary}. {more}".strip(), properties, required, read_only=not cap.write))
+    return out + ([WAIT] if write else [])
 
 
 def _arguments(schema, value, path="arguments"):
@@ -234,31 +339,28 @@ def _writer(root):
 
 
 class Protocol:
-    def __init__(self, root, *, write=False, adopt=False, state_dir=None):
+    def __init__(self, root, *, write=False, adopt=False, state_dir=None, operator=None, import_root=None):
+        # state_dir is accepted for compatibility: MCP writers no longer lock the API's state directory or the
+        # ledger (several writers share a ledger; see the module docstring)
         self.root, self.initialized, self.ready = Path(root).resolve(), False, False
         self.write, self.adopt = write, adopt
         self.client_info, self.owned, self.step = {}, set(), 0
-        self.locks, self.closed = [], False
-        self.tools = TOOLS + (_write_tools() if write else [])
+        self.closed = False
         if adopt and not write:
             raise ValueError("--adopt requires --write")
-        if write:
-            from translucent.server import DEFAULT_STATE, _StateLock
-            if not (self.root / "ledger.sqlite").is_file():
-                raise ValueError("The configured ledger does not exist")
-            state = Path(state_dir or os.environ.get("TRANSLUCENT_STATE_DIR", DEFAULT_STATE)).resolve()
-            state.mkdir(parents=True, exist_ok=True)
-            try:
-                self.locks.append(_StateLock(state / "server.lock"))
-                self.locks.append(_StateLock(self.root / "mcp.lock"))
-            except (OSError, RuntimeError) as exc:
-                self.close()
-                raise ValueError("Cannot start MCP writes: another server owns this ledger or API state directory. "
-                                 "Stop that writer first; use the API server's --state directory.") from exc
+        if operator is not None:
+            operator = operator.strip()
+            if not write or not operator or len(operator) > 80 or re.search(r"[\x00-\x1f\x7f]", operator):
+                raise ValueError("--operator needs --write and a person's name (1-80 characters)")
+        self.operator = operator
+        self.import_root = Path(import_root).resolve() if import_root is not None else None
+        if self.import_root is not None and not self.import_root.is_dir():
+            raise ValueError("The --import-root folder does not exist")
+        if write and not (self.root / "ledger.sqlite").is_file():
+            raise ValueError("The configured ledger does not exist")
+        self.tools = TOOLS + (_write_tools() if write else []) + _loop_tools(write=write, operator=operator)
 
     def close(self):
-        while self.locks:
-            self.locks.pop().close()
         self.closed = True
 
     def _campaign(self, ledger, cid, *, writing=False):
@@ -275,6 +377,8 @@ class Protocol:
     def _call(self, name, arguments):
         if name in {t["name"] for t in TOOLS}:
             return call(self.root, name, arguments)
+        if name in LOOP_BY_TOOL or name == WAIT["name"]:
+            return self._loop_call(name, arguments)
         from translucent import runtime, tools
         from translucent.server import explain_check
         tool = next(t for t in self.tools if t["name"] == name)
@@ -293,6 +397,10 @@ class Protocol:
         with _writer(self.root) as ledger:
             actor = "agent:" + self.client_info["name"]
             if name == "open_campaign":
+                from translucent.loop_surface import budget_problem
+                from translucent.server import _profile
+                if problem := budget_problem(arguments["budget_usd"], _profile(), "budget_usd"):
+                    raise ValueError(problem)     # the same caps as POST /api/campaigns
                 if arguments['experiment'].split(':')[0]=='nist':
                     from translucent.intervention_runtime import open_intervention
                     parts=arguments['experiment'].split(':')
@@ -308,51 +416,203 @@ class Protocol:
                     raise ValueError("Experiment not found; choose an experiment from list_experiments")
                 campaign = runtime.new_campaign(ledger, arguments["objective"], videos[0]["label"] or arguments["experiment"],
                                                 [v["video_id"] for v in videos], budget_usd=arguments["budget_usd"])
+                # the code that will judge its findings, so verify re-checks them with the same gate rules
+                setup = ledger.put_json(runtime.setup_snapshot(ledger, campaign, {"profile": "mcp", "models": {}}),
+                                        kind="report", label="Setup")
                 ledger.emit(campaign.id, "campaign.started", actor, campaign.title, detail=campaign.objective,
-                            data={"via": "mcp", "clientInfo": self.client_info})
+                            refs=[setup.id], data={"via": "mcp", "clientInfo": self.client_info, "setup_id": setup.id})
                 self.owned.add(campaign.id)
                 return campaign.model_dump(mode="json")
             campaign = self._campaign(ledger, arguments["campaign_id"], writing=True)
-            from translucent.intervention import records as intervention_records
-            if intervention_records(ledger,campaign.id,'protocol'):
-                if name!='run_tool':raise ValueError('Use list_tools and run_tool for this intervention campaign; finish through supported write_procedure')
-                from translucent.intervention_runtime import InterventionTools
-                folds=intervention_records(ledger,campaign.id,'fold')
-                service=InterventionTools(ledger,campaign.id,folds[-1].id,self.root.parent/(self.root.name+'-sealed'))
-                return service.call(arguments['tool'],arguments['arguments'])
-            if name == "finish_campaign":
-                data = {"status": "finished", "answer": arguments["answer"], "not_proven": arguments["not_proven"]}
-                ledger.emit(campaign.id, "campaign.finished", actor, "Campaign finished", detail=data["answer"], data=data)
-                return {"campaign_id": campaign.id, **data}
-            if name == "run_tool":
-                name, args = arguments["tool"], arguments["arguments"]
-                if name not in tools.REGISTRY or name in EXCLUDED:
-                    raise ValueError("Tool is not available through run_tool; choose from list_tools")
-            else:
-                args = {k: v for k, v in arguments.items() if k != "campaign_id"}
-            _arguments(_schema(name), args)
-            for key in ("video_id", "boxes_id", "scale_id", "time_base_id"):
-                if key in args:
-                    _reference(ledger, campaign, args[key], ("artifact",) if key in {"video_id", "boxes_id"}
-                               else ("measurement",))
-            for mid in args.get("measurement_ids", []):
-                _reference(ledger, campaign, mid, ("measurement",))
-            for rid in args.get("evidence_ids", []):
-                _reference(ledger, campaign, rid, ("measurement", "run", "claim"))
-            if args.get("supersedes"):
-                _reference(ledger, campaign, args["supersedes"], ("claim",))
-            self.step += 1
-            result = tools.call(tools.Context(ledger, campaign.id, step_id=f"mcp{self.step}"), name, args)
-            run = ledger.get("run", result.run_id)
-            value = {"run_id": result.run_id, "status": result.status, "summary": result.summary,
-                     "outputs": list(dict.fromkeys(result.outputs + (run.measurement_ids or []))) if run else result.outputs,
-                     "images": [str(Path(p).resolve()) for p in result.images], "data": result.data}
-            if name == "propose_finding" and result.status == "ok":
-                review = [r for r in ledger.list("review", ref=result.data["claim_id"]) if r.reviewer == "gate"][-1]
-                value.update(claim_id=review.claim_id, verdict=review.verdict, reason=review.reason,
-                             failed_checks=[{**c.model_dump(), "explanation": explain_check(c.model_dump())}
-                                            for c in review.checks if not c.passed])
-            return value
+            lock = campaign_lock(self.root, campaign.id)
+            if not lock.try_acquire():
+                raise ValueError("Another process is writing to this campaign (the API server runs it, or another "
+                                 "MCP session is mid-call); try again when it stops")
+            try:
+                return self._legacy_write(ledger, campaign, name, arguments, actor)
+            finally:
+                lock.release()
+
+    # ------------------------------------------------------------ loop campaigns
+
+    def _loop_call(self, name, arguments):
+        from translucent import chain
+        from translucent.ledger import AdmissionError
+        from translucent.loop_service import CAPABILITIES, Actor, LoopService, ResultRefused
+        tool = next(t for t in self.tools if t["name"] == name)
+        _arguments(tool["inputSchema"], arguments)
+        agent = Actor("agent", self.client_info.get("name") or "reader", "mcp")
+        if name == WAIT["name"]:
+            return self._wait(agent, arguments)
+        capability = LOOP_BY_TOOL[name]
+        cap = CAPABILITIES[capability]
+        # a person's tool acts as the operator who started the server; never as the client's self-declared name
+        actor = Actor("person", self.operator, "mcp") if "agent" not in cap.actors else agent
+        cid = arguments.get("campaign_id")
+        # a read-only session reads a snapshot, as its other tools do; a writing session reads the live ledger
+        with (_writer if self.write else snapshot)(self.root) as ledger:
+            service = LoopService(ledger, actor, idempotency_key=arguments.get("idempotency_key"),
+                                  import_root=self.import_root)
+            if cap.write and cid is not None:
+                self._loop_campaign(ledger, cid)
+            try:
+                return self._loop_dispatch(service, capability, arguments)
+            except ResultRefused as e:
+                raise ValueError(f"The result was refused and the refusal recorded ({getattr(e.record, 'id', '')}): "
+                                 f"{e}") from e
+            except AdmissionError as e:
+                if cap.write and cid is not None and (done := chain.concluded(ledger, cid)) is not None:
+                    raise ValueError(f"Campaign concluded at seq {done.seq}; further writes are refused") from e
+                raise
+
+    def _loop_campaign(self, ledger, cid):
+        """Writes to a loop campaign need it to be one, opened by this session or adopted (as for other campaigns)."""
+        from translucent.loop import current_objective
+        current_objective(ledger, cid)
+        if cid not in self.owned and not self.adopt:
+            raise ValueError("This session did not open that campaign. Restart with --adopt to write to it.")
+
+    def _loop_dispatch(self, service, capability, a):
+        from translucent.loop_surface import campaigns, objective_budget_problems, replay, view
+        cid = a.get("campaign_id")
+        if capability == "systems":
+            return service.systems()
+        if capability == "datasets":
+            return service.datasets()
+        if capability == "dataset":
+            return service.dataset(a["dataset_id"])
+        if capability == "campaigns":
+            return campaigns(service, self.root.name, cursor=a.get("cursor", 0), limit=a.get("limit", 50))
+        if capability == "view":
+            return view(service, cid, self.root.name)
+        if capability == "series":
+            window = None
+            if "t0" in a or "t1" in a:
+                window = (a.get("t0", -math.inf), a.get("t1", math.inf))
+            return service.series(cid, a["ref"], a["quantity"], window=window, max_points=a.get("max_points", 2000))
+        if capability == "request":
+            return service.request(cid, a["request_id"])
+        if capability == "import_dataset":
+            files = a.get("files", ".")
+            if not isinstance(files, str) and not (isinstance(files, dict) and
+                                                   all(isinstance(p, str) for p in files.values())):
+                raise ValueError("files is a folder, or file name -> path, under the import root")
+            return service.import_dataset(a["manifest"], files)
+        if capability == "open_campaign":
+            from translucent.server import _profile
+            objective = dict(a["objective"])
+            objective["planner"] = {"kind": "external", "profile": None, "client": dict(self.client_info)}
+            objective["registered_by"] = self.operator or self.client_info["name"]
+            if problems := objective_budget_problems(objective, _profile()):
+                raise ValueError("; ".join(problems))
+            opened = service.open_campaign(objective, a["title"])
+            # a replayed key returns the campaign it opened; only the session that created it owns it (the key is
+            # no secret: another session could replay it to take over the campaign)
+            if opened["created"]:
+                self.owned.add(opened["campaign_id"])
+            elif opened["campaign_id"] not in self.owned and not self.adopt:
+                raise ValueError("Another session opened this campaign with this idempotency key. Restart with "
+                                 "--adopt to write to it, or open a new one with a new key.")
+            return {"campaign_id": opened["campaign_id"], "view": view(service, opened["campaign_id"], self.root.name)}
+        if capability == "define_measurement":
+            return service.define_measurement(cid, a["name"], a["spec"])
+        if capability == "propose":
+            return replay(service, "propose", cid, action=a["action"], params=a["params"]) or                 service.propose(cid, a["action"], a["params"], rationale=a["rationale"],
+                                prediction=a["prediction"], expected_effect=a["expected_effect"],
+                                evidence_ids=tuple(a.get("evidence_ids", ())), specimen=a.get("specimen"))
+        if capability == "cancel":
+            return service.cancel(cid, a["request_id"], a["reason"])
+        if capability == "conclude":
+            return service.conclude(cid, a["text"], a.get("unresolved_reasons", ()))
+        if capability == "approve":
+            return service.approve(cid, a["request_id"], a["content_hash"], a.get("note", ""))
+        if capability == "reject":
+            return service.reject(cid, a["request_id"], a["content_hash"], a["reason"])
+        if capability == "revise":
+            return replay(service, "revise", cid, request_id=a["request_id"], params=a["params"]) or \
+                service.revise(cid, a["request_id"], a["params"], a["reason"], approve=a.get("approve", False))
+        if capability == "submit_result":
+            upload = {**a["upload"], "author": self.operator}
+            files = a.get("files", {})
+            if not all(isinstance(p, str) for p in files.values()):
+                raise ValueError("files maps each file name to a path under the import root")
+            located = {n: service._confined(p) for n, p in files.items()}   # the import root's one rule
+            return service.submit_result(cid, upload, located)
+        if capability == "amend":
+            return replay(service, "amend", cid, reason=a["reason"], target=a.get("target"),
+                          constraints=a.get("constraints")) or \
+                service.amend(cid, a["reason"], target=a.get("target"), constraints=a.get("constraints"))
+        if capability == "note":
+            from translucent import chain
+            if done := chain.concluded(service.L, cid):
+                raise ValueError(f"Campaign concluded at seq {done.seq}; further writes are refused")
+            return service.note(cid, a["text"])
+        raise ValueError(f"{capability} has no MCP tool")
+
+    def _wait(self, agent, a):
+        """Poll the request until it settles or timeout_s passes, running approved computational work in this
+        process (LoopRunner.tick, one request at a time) so a request completes with or without an API server."""
+        from translucent.loop_runner import LoopRunner
+        from translucent.loop_service import LoopService
+        cid, rq = a["campaign_id"], a["request_id"]
+        deadline = time.monotonic() + a.get("timeout_s", 30)
+        runner = LoopRunner(self.root, process="mcp", workers=1)
+        while True:
+            with _writer(self.root) as ledger:
+                state = LoopService(ledger, agent).request(cid, rq)
+            if state["state"] not in WAITING or time.monotonic() >= deadline:
+                break
+            if not (state["state"] in ("queued", "running") and runner.tick(cid, limit=1)):
+                time.sleep(0.2)      # a person's decision, or another process running it
+        out = {**state, "settled": state["state"] not in WAITING}
+        if runner.problems:
+            out["runner_problems"] = [p.splitlines()[0] for p in runner.problems]
+        return out
+
+    def _legacy_write(self, ledger, campaign, name, arguments, actor):
+        """A write to a video or intervention campaign, holding its campaign lock."""
+        from translucent import tools
+        from translucent.server import explain_check
+        from translucent.intervention import records as intervention_records
+        if intervention_records(ledger,campaign.id,'protocol'):
+            if name!='run_tool':raise ValueError('Use list_tools and run_tool for this intervention campaign; finish through supported write_procedure')
+            from translucent.intervention_runtime import InterventionTools
+            folds=intervention_records(ledger,campaign.id,'fold')
+            service=InterventionTools(ledger,campaign.id,folds[-1].id,self.root.parent/(self.root.name+'-sealed'))
+            return service.call(arguments['tool'],arguments['arguments'])
+        if name == "finish_campaign":
+            data = {"status": "finished", "answer": arguments["answer"], "not_proven": arguments["not_proven"]}
+            ledger.emit(campaign.id, "campaign.finished", actor, "Campaign finished", detail=data["answer"], data=data)
+            return {"campaign_id": campaign.id, **data}
+        if name == "run_tool":
+            name, args = arguments["tool"], arguments["arguments"]
+            if name not in tools.REGISTRY or name in EXCLUDED:
+                raise ValueError("Tool is not available through run_tool; choose from list_tools")
+        else:
+            args = {k: v for k, v in arguments.items() if k != "campaign_id"}
+        _arguments(_schema(name), args)
+        for key in ("video_id", "boxes_id", "scale_id", "time_base_id"):
+            if key in args:
+                _reference(ledger, campaign, args[key], ("artifact",) if key in {"video_id", "boxes_id"}
+                           else ("measurement",))
+        for mid in args.get("measurement_ids", []):
+            _reference(ledger, campaign, mid, ("measurement",))
+        for rid in args.get("evidence_ids", []):
+            _reference(ledger, campaign, rid, ("measurement", "run", "claim"))
+        if args.get("supersedes"):
+            _reference(ledger, campaign, args["supersedes"], ("claim",))
+        self.step += 1
+        result = tools.call(tools.Context(ledger, campaign.id, step_id=f"mcp{self.step}"), name, args)
+        run = ledger.get("run", result.run_id)
+        value = {"run_id": result.run_id, "status": result.status, "summary": result.summary,
+                 "outputs": list(dict.fromkeys(result.outputs + (run.measurement_ids or []))) if run else result.outputs,
+                 "images": [str(Path(p).resolve()) for p in result.images], "data": result.data}
+        if name == "propose_finding" and result.status == "ok":
+            review = [r for r in ledger.list("review", ref=result.data["claim_id"]) if r.reviewer == "gate"][-1]
+            value.update(claim_id=review.claim_id, verdict=review.verdict, reason=review.reason,
+                         failed_checks=[{**c.model_dump(), "explanation": explain_check(c.model_dump())}
+                                        for c in review.checks if not c.passed])
+        return value
 
     def handle(self, message):
         if self.closed:
@@ -385,7 +645,11 @@ class Protocol:
             result = {"protocolVersion": version, "capabilities": {"tools": {"listChanged": False}},
                       "serverInfo": {"name": "translucent", "version": "0.1.0"},
                       "instructions": ("Open a campaign, run recorded measurement tools, and propose findings to the gate. "
-                                       "Only the gate decides verdicts. SAM follows TRANSLUCENT_SAM (strict replay by default)."
+                                       "Only the gate decides verdicts. SAM follows TRANSLUCENT_SAM (strict replay by default). "
+                                       "Loop campaigns: open_loop_campaign, propose_experiment, then wait_for_request; "
+                                       + (f"approvals are recorded as {self.operator}, the operator who started this server."
+                                          if self.operator else
+                                          "a person approves each experiment over HTTP or in the web app.")
                                        if self.write else "Read recorded evidence only. No tool runs experiments or calls providers.")}
         elif method == "ping":
             result = {}
@@ -403,7 +667,7 @@ class Protocol:
                 result = {"content": [{"type": "text", "text": json.dumps(value, ensure_ascii=False)}],
                           "isError": bool(isinstance(value, dict) and (value.get("ok") is False or
                                           value.get("status") in {"tool_failure", "invalid_result"}))}
-            except (OSError, ValueError, KeyError, TypeError, RecursionError, sqlite3.Error) as exc:
+            except (OSError, ValueError, LookupError, TypeError, RecursionError, sqlite3.Error) as exc:
                 result = {"content": [{"type": "text", "text": " ".join(str(exc).splitlines())}], "isError": True}
         else:
             return self.error(rid, -32601, "Method not found")
@@ -414,21 +678,36 @@ class Protocol:
         return {"jsonrpc": "2.0", "id": rid, "error": {"code": code, "message": message}}
 
 
-def main(argv=None):
-    parser = argparse.ArgumentParser(description="Translucent MCP server (stdio; read-only unless --write)")
+def add_arguments(parser):
+    """The server's flags, shared by `python -m translucent.mcp_server` and `translucent mcp`."""
     parser.add_argument("--ledger", type=Path,
                         default=Path(os.environ.get("TRANSLUCENT_LEDGER_DIR", "state/ledger")))
     parser.add_argument("--write", action="store_true", help="Enable recorded tools and gated findings")
     parser.add_argument("--adopt", action="store_true", help="Allow writes to existing unfinished campaigns")
-    parser.add_argument("--state", type=Path, help="API state directory to lock (same as translucent serve --state)")
-    args = parser.parse_args(argv)
+    parser.add_argument("--state", type=Path, help="Ignored: kept for older configurations (MCP writers no longer "
+                                                    "lock the API's state; several writers share a ledger)")
+    parser.add_argument("--operator", metavar="NAME",
+                        help="Offer the person tools (approve, reject, revise, submit results, amend, note), recorded "
+                             "as this person: you, the local operator, vouch for the name. Needs --write")
+    parser.add_argument("--import-root", type=Path, help="The one folder import_dataset and submit_result may read")
+    return parser
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="Translucent MCP server (stdio; read-only unless --write)")
+    add_arguments(parser)
+    return run(parser.parse_args(argv), parser)
+
+
+def run(args, parser):
     if not (args.ledger / "ledger.sqlite").is_file():
         parser.error("The configured ledger does not exist")
     if hasattr(sys.stdin, "reconfigure"):
         sys.stdin.reconfigure(encoding="utf-8")
         sys.stdout.reconfigure(encoding="utf-8")
     try:
-        protocol = Protocol(args.ledger, write=args.write, adopt=args.adopt, state_dir=args.state)
+        protocol = Protocol(args.ledger, write=args.write, adopt=args.adopt, state_dir=args.state,
+                            operator=args.operator, import_root=args.import_root)
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
     try:

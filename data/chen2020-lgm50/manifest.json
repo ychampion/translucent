@@ -1,0 +1,306 @@
+{
+  "manifest_version": 2,
+  "id": "chen2020-lgm50",
+  "title": "LG M50 validation records: 0.5-1.5C discharges and 0.3C charges, three cells",
+  "author": "Chen, Brosa Planella, O'Regan, Gastol, Widanage, Kendrick",
+  "citation": "Chen et al., experimental data for \"Development of Experimental Techniques for Parameterization of Multi-scale Lithium-ion Battery Models\", Zenodo doi:10.5281/zenodo.4032561 (2020); J. Electrochem. Soc. 167, 080534 (2020)",
+  "licence": "CC BY 4.0",
+  "system": "pybamm-fastcharge",
+  "records": [
+    {
+      "id": "cell02",
+      "role": "history",
+      "specimen": {
+        "id": "lgm50-cell02",
+        "batch": null,
+        "properties": {
+          "cell": "LG INR21700 M50",
+          "nominal_capacity_Ah": 5.0
+        }
+      },
+      "configuration": {
+        "charge_c_rate": 0.3,
+        "charge_cv_cutoff": 0.05
+      },
+      "configuration_units": {
+        "charge_c_rate": "1/h",
+        "charge_cv_cutoff": "A"
+      },
+      "conditions": {
+        "chamber": 26.75
+      },
+      "conditions_units": {
+        "chamber": "degC"
+      },
+      "time": {
+        "unit": "s",
+        "origin": "start of the Maccor test (record 1)",
+        "offset_s": 0.0,
+        "source": "Maccor Test Time column",
+        "uncertainty_s": 0.0
+      },
+      "tables": [
+        {
+          "file": "LGM50_cell02.csv",
+          "format": "csv",
+          "header_row": 13,
+          "skip_rows": 0,
+          "decimal": ".",
+          "time_column": "Test Time [s]",
+          "columns": {
+            "Voltage [V]": {
+              "quantity": "voltage",
+              "unit": "V"
+            },
+            "Temperature Cell [degC]": {
+              "quantity": "surface_temperature",
+              "unit": "degC",
+              "label": "Cell surface thermocouple"
+            },
+            "Current [A]": {
+              "quantity": "lab:current_magnitude",
+              "unit": "A",
+              "label": "Current magnitude; the Md column (C, D, R) gives its direction"
+            },
+            "Temperature Chamber [degC]": {
+              "quantity": "lab:chamber_temperature",
+              "unit": "degC"
+            },
+            "Capacity [Ah]": {
+              "quantity": "lab:step_capacity",
+              "unit": "Ah",
+              "label": "Charge passed since the start of the step"
+            },
+            "Step Time [s]": {
+              "quantity": "lab:step_time",
+              "unit": "s"
+            },
+            "Step": {
+              "quantity": "lab:step",
+              "unit": "1"
+            }
+          }
+        }
+      ],
+      "scalars": [],
+      "media": [],
+      "provenance": {
+        "source": "Zenodo doi:10.5281/zenodo.4032561 v1, Maccor export",
+        "instrument": "Maccor #3",
+        "operator": null,
+        "acquired_at": null,
+        "notes": "Maccor test LG_M50_validation.038, channel 38, procedure LG_M50_Validation.000, started 06/02/2019 12:28 (day and month order not stated). Steps: C/10 discharge; 0.3C CC to 4.2 V + CV to 50 mA charges after each discharge; C/2 (step 12), 1C (17) and 1.5C (22) discharges from full to 2.5 V; 2 h rests."
+      }
+    },
+    {
+      "id": "cell03",
+      "role": "history",
+      "specimen": {
+        "id": "lgm50-cell03",
+        "batch": null,
+        "properties": {
+          "cell": "LG INR21700 M50",
+          "nominal_capacity_Ah": 5.0
+        }
+      },
+      "configuration": {
+        "charge_c_rate": 0.3,
+        "charge_cv_cutoff": 0.05
+      },
+      "configuration_units": {
+        "charge_c_rate": "1/h",
+        "charge_cv_cutoff": "A"
+      },
+      "conditions": {
+        "chamber": 26.75
+      },
+      "conditions_units": {
+        "chamber": "degC"
+      },
+      "time": {
+        "unit": "s",
+        "origin": "start of the Maccor test (record 1)",
+        "offset_s": 0.0,
+        "source": "Maccor Test Time column",
+        "uncertainty_s": 0.0
+      },
+      "tables": [
+        {
+          "file": "LGM50_cell03.csv",
+          "format": "csv",
+          "header_row": 13,
+          "skip_rows": 0,
+          "decimal": ".",
+          "time_column": "Test Time [s]",
+          "columns": {
+            "Voltage [V]": {
+              "quantity": "voltage",
+              "unit": "V"
+            },
+            "Temperature Cell [degC]": {
+              "quantity": "surface_temperature",
+              "unit": "degC",
+              "label": "Cell surface thermocouple"
+            },
+            "Current [A]": {
+              "quantity": "lab:current_magnitude",
+              "unit": "A",
+              "label": "Current magnitude; the Md column (C, D, R) gives its direction"
+            },
+            "Temperature Chamber [degC]": {
+              "quantity": "lab:chamber_temperature",
+              "unit": "degC"
+            },
+            "Capacity [Ah]": {
+              "quantity": "lab:step_capacity",
+              "unit": "Ah",
+              "label": "Charge passed since the start of the step"
+            },
+            "Step Time [s]": {
+              "quantity": "lab:step_time",
+              "unit": "s"
+            },
+            "Step": {
+              "quantity": "lab:step",
+              "unit": "1"
+            }
+          }
+        }
+      ],
+      "scalars": [],
+      "media": [],
+      "provenance": {
+        "source": "Zenodo doi:10.5281/zenodo.4032561 v1, Maccor export",
+        "instrument": "Maccor #3",
+        "operator": null,
+        "acquired_at": null,
+        "notes": "Maccor test LG_M50_validation.039, channel 39, procedure LG_M50_Validation.000, started 06/02/2019 12:28 (day and month order not stated). Steps: C/10 discharge; 0.3C CC to 4.2 V + CV to 50 mA charges after each discharge; C/2 (step 12), 1C (17) and 1.5C (22) discharges from full to 2.5 V; 2 h rests."
+      }
+    },
+    {
+      "id": "cell04",
+      "role": "history",
+      "specimen": {
+        "id": "lgm50-cell04",
+        "batch": null,
+        "properties": {
+          "cell": "LG INR21700 M50",
+          "nominal_capacity_Ah": 5.0
+        }
+      },
+      "configuration": {
+        "charge_c_rate": 0.3,
+        "charge_cv_cutoff": 0.05
+      },
+      "configuration_units": {
+        "charge_c_rate": "1/h",
+        "charge_cv_cutoff": "A"
+      },
+      "conditions": {
+        "chamber": 26.75
+      },
+      "conditions_units": {
+        "chamber": "degC"
+      },
+      "time": {
+        "unit": "s",
+        "origin": "start of the Maccor test (record 1)",
+        "offset_s": 0.0,
+        "source": "Maccor Test Time column",
+        "uncertainty_s": 0.0
+      },
+      "tables": [
+        {
+          "file": "LGM50_cell04.csv",
+          "format": "csv",
+          "header_row": 13,
+          "skip_rows": 0,
+          "decimal": ".",
+          "time_column": "Test Time [s]",
+          "columns": {
+            "Voltage [V]": {
+              "quantity": "voltage",
+              "unit": "V"
+            },
+            "Temperature Cell [degC]": {
+              "quantity": "surface_temperature",
+              "unit": "degC",
+              "label": "Cell surface thermocouple"
+            },
+            "Current [A]": {
+              "quantity": "lab:current_magnitude",
+              "unit": "A",
+              "label": "Current magnitude; the Md column (C, D, R) gives its direction"
+            },
+            "Temperature Chamber [degC]": {
+              "quantity": "lab:chamber_temperature",
+              "unit": "degC"
+            },
+            "Capacity [Ah]": {
+              "quantity": "lab:step_capacity",
+              "unit": "Ah",
+              "label": "Charge passed since the start of the step"
+            },
+            "Step Time [s]": {
+              "quantity": "lab:step_time",
+              "unit": "s"
+            },
+            "Step": {
+              "quantity": "lab:step",
+              "unit": "1"
+            }
+          }
+        }
+      ],
+      "scalars": [],
+      "media": [],
+      "provenance": {
+        "source": "Zenodo doi:10.5281/zenodo.4032561 v1, Maccor export",
+        "instrument": "Maccor #3",
+        "operator": null,
+        "acquired_at": null,
+        "notes": "Maccor test LG_M50_validation.040, channel 40, procedure LG_M50_Validation.000, started 06/02/2019 12:28 (day and month order not stated). Steps: C/10 discharge; 0.3C CC to 4.2 V + CV to 50 mA charges after each discharge; C/2 (step 12), 1C (17) and 1.5C (22) discharges from full to 2.5 V; 2 h rests."
+      }
+    },
+    {
+      "id": "failing-baseline-1p5c",
+      "role": "baseline",
+      "specimen": {
+        "id": "lgm50-baseline-protocol",
+        "batch": null,
+        "properties": {
+          "cell": "LG INR21700 M50",
+          "nominal_capacity_Ah": 5.0
+        }
+      },
+      "configuration": {
+        "c_rate_1": 1.5,
+        "c_rate_2": 1.5,
+        "c_rate_3": 1.5,
+        "c_rate_4": 1.5,
+        "ambient": 25.0
+      },
+      "configuration_units": {
+        "c_rate_1": "1/h",
+        "c_rate_2": "1/h",
+        "c_rate_3": "1/h",
+        "c_rate_4": "1/h",
+        "ambient": "degC"
+      },
+      "conditions": {},
+      "conditions_units": {},
+      "time": null,
+      "tables": [],
+      "scalars": [],
+      "media": [],
+      "provenance": {
+        "source": "Engineer-supplied protocol: single-step 1.5C constant current to 4.2 V, then constant voltage",
+        "instrument": null,
+        "operator": null,
+        "acquired_at": null,
+        "notes": "No measurement exists for this protocol; its outcome comes from the solver (computational baseline). Expected: fails both limits, about 51 degC and +7 mV."
+      }
+    }
+  ],
+  "notes": "Records hold no charge faster than 0.3C, no temperature other than about 26.7 degC and no plating measurement. Each file repeats two Test Time values (inside step 8, and the final single-row step 24), so a parser that requires strictly increasing time must drop exact repeats. Current is a magnitude: the Md column, not imported here, marks charge (C), discharge (D) and rest (R). The chamber dips to about 12.5 degC during some rests. Fetch the files with scripts/fetch_lgm50_data.py (sha256 pinned)."
+}

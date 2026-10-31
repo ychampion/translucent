@@ -28,11 +28,8 @@
   "problems": []
  },
  "web/public/fixtures/m4-meta": {
-  "summary": "21 findings re-checked, 19 match; 37 files intact",
-  "problems": [
-   "Finding claim_4acff4f6ca: recorded unsupported, re-check gives unsupported; verdict, checks or reason differ",
-   "Finding claim_6d23fcc864: recorded unsupported, re-check gives unsupported; verdict, checks or reason differ"
-  ]
+  "summary": "21 findings re-checked, 21 match; 37 files intact",
+  "problems": []
  },
  "web/public/fixtures/m4-methods": {
   "summary": "4 findings re-checked, 4 match; 11 files intact, 1 decisions re-checked",
@@ -92,15 +89,11 @@
   ]
  },
  "runs/fw-chain6": {
-  "summary": "12 findings re-checked, 11 match; 16 files intact",
-  "problems": [
-   "Finding claim_336515bdae: recorded supported, re-check gives inconclusive; verdict, checks or reason differ"
-  ]
+  "summary": "12 findings re-checked, 12 match; 16 files intact",
+  "problems": []
  },
  "runs/fw-chain8": {
-  "summary": "15 findings re-checked, 14 match; 13 files intact",
-  "problems": [
-   "Finding claim_8fe798b4f9: recorded unsupported, re-check gives unsupported; verdict, checks or reason differ"
-  ]
+  "summary": "15 findings re-checked, 15 match; 13 files intact",
+  "problems": []
  }
 }

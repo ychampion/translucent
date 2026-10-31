@@ -33,7 +33,10 @@ def _core(surface, *, E, A, q, g, initial_offset=0.0):
 @lru_cache(maxsize=8)
 def continuous_prior(fmt, soc):
     """Kinetic priors fitted only from the same condition's continuous heating traces."""
-    from translucent.systems.nist_heat import load_dataset
+    from translucent import systems
+
+    nist = systems.get("nist-heat-interrupt")
+    load_dataset = nist.load_trials
 
     source = [
         t
@@ -79,7 +82,10 @@ def register_priors(L, cid):
     """Bind every kinetic parameter to immutable continuous-trial artifacts."""
     from translucent.contracts import Source
     from translucent.intervention import record, records
-    from translucent.systems.nist_heat import load_dataset, SYSTEM
+    from translucent import systems
+
+    nist = systems.get("nist-heat-interrupt")
+    load_dataset, SYSTEM = nist.load_trials, nist.metadata
 
     if records(L, cid, "physics_prior"):
         return

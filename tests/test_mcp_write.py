@@ -14,14 +14,20 @@ from translucent import cli, mcp_server, tools
 from translucent.ledger import Ledger
 from translucent.mcp_server import Protocol
 from translucent.runtime import new_campaign
+from translucent.locks import campaign_lock
 from translucent.server import _StateLock, explain_check
 from translucent.verify import read_ledger, verify
 
 ROOT = Path(__file__).resolve().parents[1]
 EXPERIMENT = "reisecker2023/movie4"
 CLIENT = {"name": "pytest-agent", "version": "1.2.3"}
-READ = {"list_campaigns", "list_findings", "get_evidence", "verify", "list_branches"}
-WRITE = {"list_experiments", "open_campaign", "list_tools", "run_tool", "propose_finding",
+# loop campaign tools (translucent.mcp_server.LOOP_TOOLS): reads for every session, agent writes with --write
+LOOP_READ = {"list_systems", "list_datasets", "get_dataset", "list_loop_campaigns", "get_campaign_view",
+             "read_series", "get_request"}
+LOOP_WRITE = {"import_dataset", "open_loop_campaign", "define_measurement", "propose_experiment", "cancel_request",
+              "conclude_campaign", "wait_for_request"}
+READ = {"list_campaigns", "list_findings", "get_evidence", "verify", "list_branches"} | LOOP_READ
+WRITE = LOOP_WRITE | {"list_experiments", "open_campaign", "list_tools", "run_tool", "propose_finding",
          "record_lesson", "finish_campaign"}
 
 
@@ -129,7 +135,11 @@ def test_discovery_annotations_and_client_identity(ledger, protocol):
     with read_ledger(ledger[0]) as store:
         event = store.events(cid)[0]
         assert event.type == "campaign.started" and event.actor == "agent:pytest-agent"
-        assert event.data == {"via": "mcp", "clientInfo": CLIENT}
+        assert event.data == {"via": "mcp", "clientInfo": CLIENT, "setup_id": event.refs[0]}
+        # the gate code that judges its findings is recorded, so verify re-checks them with the same rules
+        setup = json.loads(store.blob_path(event.data["setup_id"]).read_text(encoding="utf-8"))
+        from translucent.runtime import code_version
+        assert setup["code"]["files"]["gate.py"] == code_version()["files"]["gate.py"]
         assert store.get("campaign", cid).budget_usd == 0
 
 
@@ -331,33 +341,35 @@ def test_sam_respects_replay_mode(ledger, protocol, monkeypatch, mode):
         assert store.list("measurement") == []
 
 
-def test_api_state_lock_and_other_mcp_writer_refuse_start(ledger, tmp_path):
+def test_mcp_writers_share_the_ledger_and_legacy_campaigns_take_their_lock(ledger, tmp_path):
+    """Intentional change (S5, design §2.10): MCP writers no longer hold the API's server.lock or a ledger-wide
+    mcp.lock, so an API server and several MCP sessions may write one ledger (loop records are safe by chain
+    admission). A legacy campaign is written by one process at a time instead: its campaign lock, which the API
+    worker holds while it runs the campaign and an MCP session takes for each write call."""
     state = tmp_path / "api"
     state.mkdir()
-    lock = _StateLock(state / "server.lock")
+    lock = _StateLock(state / "server.lock")           # an API server is running on this state directory
     try:
-        with pytest.raises(ValueError, match="another server"):
-            Protocol(ledger[0], write=True, state_dir=state)
-        process = subprocess.run([sys.executable, "-m", "translucent.mcp_server", "--ledger", str(ledger[0]),
-                                  "--write", "--state", str(state)], input="", text=True,
-                                 capture_output=True, timeout=30)
-        assert process.returncode != 0 and "another server" in process.stderr and not process.stdout
-        reader = Protocol(ledger[0])
-        initialize(reader)
-        assert invoke(reader, "list_campaigns") == []
+        first = Protocol(ledger[0], write=True, state_dir=state)
+        second = Protocol(ledger[0], write=True, adopt=True, state_dir=tmp_path / "other-api")
+        initialize(first)
+        initialize(second, {"name": "second-agent", "version": "1"})
+        cid = opened(first)
+        held = campaign_lock(ledger[0], cid)            # as the API worker holds it while running the campaign
+        assert held.try_acquire()
+        try:
+            refused(second, "finish_campaign", "Another process is writing to this campaign", campaign_id=cid,
+                    answer="a", not_proven="b")
+        finally:
+            held.release()
+        assert invoke(second, "finish_campaign", campaign_id=cid, answer="a", not_proven="b")["status"] == "finished"
+        refused(first, "finish_campaign", "Campaign is finished", campaign_id=cid, answer="a", not_proven="b")
+        with pytest.raises(RuntimeError, match="another server"):
+            _StateLock(state / "server.lock")           # the API's own lock is still the API's
     finally:
         lock.close()
-    writer = Protocol(ledger[0], write=True, state_dir=state)
-    try:
-        with pytest.raises(ValueError, match="another server"):
-            Protocol(ledger[0], write=True, state_dir=tmp_path / "other-api")
-        with pytest.raises(RuntimeError, match="another server"):
-            _StateLock(state / "server.lock")
-    finally:
-        writer.close()
-    replacement = Protocol(ledger[0], write=True, state_dir=state)
-    replacement.close()
-    assert writer.handle(request("ping"))["error"]["message"] == "Server is closed"
+    first.close()
+    assert first.handle(request("ping"))["error"]["message"] == "Server is closed"
 
 
 def test_stdio_write_smoke(ledger, tmp_path):

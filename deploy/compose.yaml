@@ -23,3 +23,6 @@ services:
     depends_on: [api]
     ports:
       - "127.0.0.1:${TRANSLUCENT_PORT:-8090}:8080"
+    volumes:
+      # /fixtures/... (replays, intervention bundles and their split, loop exports under loop/), seeded by seed-ledger.sh
+      - ${TRANSLUCENT_FIXTURES:-./state/fixtures}:/data/fixtures:ro

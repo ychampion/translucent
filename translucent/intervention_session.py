@@ -222,7 +222,10 @@ def dry_run(settings, *, split="loco", muse_only=False):
     """
     from translucent.providers import TOKEN_PRICES
     from translucent.runtime import PROFILES
-    from translucent.systems.nist_heat import load_dataset
+    from translucent import systems
+
+    nist = systems.get("nist-heat-interrupt")
+    load_dataset = nist.load_trials
 
     trials = [
         t for t in load_dataset() if t["t"] and t["delay_after_vent_s"] is not None

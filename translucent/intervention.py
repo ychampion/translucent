@@ -725,7 +725,10 @@ def problems(ledger, cid=None):
             if t is None or not matches_seal(t.data, r.data):
                 out.append(f"{tid}: revealed outcome does not match seal")
             if t is not None:
-                from translucent.systems.nist_heat import outcome_evidence_problems
+                from translucent import systems
+
+                nist = systems.get("nist-heat-interrupt")
+                outcome_evidence_problems = nist.outcome_evidence_problems
 
                 out.extend(outcome_evidence_problems(ledger, t, r, rows))
             ds = [d for d in decisions if d.data["trial_id"] == tid]
@@ -755,7 +758,10 @@ def problems(ledger, cid=None):
             try:
                 import csv
                 import io
-                from translucent.systems.nist_heat import corroboration_rows
+                from translucent import systems
+
+                nist = systems.get("nist-heat-interrupt")
+                corroboration_rows = nist.corroboration_rows
 
                 files = {f["path"]: f["artifact_id"] for f in ref.data["files"]}
                 source = ledger.blob_path(files["out/task1_labels.csv"]).read_text()

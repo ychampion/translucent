@@ -61,8 +61,13 @@ interface Setup {
 }
 ```
 
-`translucent verify` prints one informational line when a checked campaign has a setup record: whether the gate code
-re-checking the findings is the code they were recorded with. It is never a problem.
+`translucent verify` re-checks each finding with the gate rules it was recorded under. A campaign's setup record names
+its gate code by sha256; earlier versions of `gate.py` are kept byte for byte in `translucent/past_gates/` and picked
+by that hash. Campaigns recorded before setup records existed (before 2026-10-29) name no gate, so they are re-checked
+with the gate that was current when the campaign started, from the campaign's own start time. A recorded verdict
+that differs from what those rules give is a problem, as before. Informational lines (never problems) say which gate
+code re-checked the findings, and name any finding whose verdict today's gate would give differently. When the
+recorded code has no frozen copy (a changed working tree), the current gate re-checks and the line says so.
 
 ## Evidence graph
 
@@ -501,3 +506,53 @@ retain paid spending. A real `message.refusal` alone is `refused`; HTTP 4xx othe
 `provider_rejected` with its code. `finish_reason` and reasoning tokens are recorded; a length stop is
 `length_limit`. Scores after an early stop carry `partial: true` and the campaign status. Incomplete
 episodes are listed as pending and cannot ground performance claims or a supported procedure.
+
+## Loop campaigns and datasets (record kinds `loop` and `dataset`, event `loop.recorded`)
+
+Additions for engineering loop campaigns, in [`translucent/loop_contracts.py`](../translucent/loop_contracts.py).
+The contract version stays 2: no existing record, event or bundle changes shape or meaning, and the only schema
+change is one more `EventType` value.
+
+**`dataset`** (`DatasetRecord`) is an import v2 dataset: a team's time series, tables, scalars and media with units,
+time base, specimen and configuration identity, and provenance. Its id is the manifest id and its `campaign_id` is
+empty, so the record's primary key makes a dataset id unique per ledger. Admission requires the manifest, every
+normalized series and every source file to be recorded artifacts.
+
+**`loop`** (`LoopRecord`) is one step of a loop campaign: `{id, campaign_id, type, seq, actor, data, created_at,
+previous_hash, digest}`. `type` is one of `objective`, `amendment`, `measurement`, `request`, `approval`,
+`rejection`, `cancellation`, `execution`, `result`, `result_rejected`, `failure`, `comparison`, `conclusion`,
+`planner`, and `data` is that type's payload model (`PAYLOADS`) in its JSON form. Request states (awaiting approval,
+queued, running, awaiting result, completed, failed, cancelled, rejected, superseded) are derived by folding these
+records; nothing is updated.
+
+- **Hash chain.** `digest = sha256(canonical(record without digest))`, where `canonical` is sorted-key compact JSON
+  with no NaN or infinity. `previous_hash` is the digest of the campaign's previous loop record (`""` for the
+  first). The first record is the objective, and there is only one. After the `conclusion`, only `planner` receipts
+  are accepted.
+- **Mirror event.** Each record has a `loop.recorded` event at the same `seq`, with `refs == [id]`,
+  `data.record` equal to the record, and `t == created_at`. Other events of the campaign take seq numbers between
+  loop records; the chain does not need contiguous seqs.
+- **One transaction.** `translucent.chain.append` looks the id up, links, takes the next seq, runs admission
+  (chain rules, then the hooks registered for the type) and inserts the record and its event inside one
+  `BEGIN IMMEDIATE`, so concurrent writers in several processes cannot fork the chain. Loop records written any
+  other way are refused.
+- **Idempotent ids.** Record ids are deterministic (`chain.natural_id(prefix, ...)`, or `chain.key_id` for a client
+  idempotency key). The same body under the same id returns the stored record; a different body is refused
+  (`ChainConflict`, HTTP 409).
+- **Approval binding.** A request's `content_hash` is `chain.content_hash(payload)`: the hash of the `RequestData`
+  JSON form without `content_hash`, covering everything the approver saw. Approvals, rejections and results name
+  the hash they apply to.
+
+**Event time.** Every event's `t` is now at least the campaign's previous event's `t`, so a clock that steps back
+cannot make verify report time running backwards. For existing writers this changes nothing: their clocks already
+increase.
+
+**Web data contract.** `LoopView` (one campaign) and `CampaignSummary` (the list) are documented as `TypedDict`s at
+the end of `loop_contracts.py`; `tests/data/loop_view_sample.json` is a complete example that the tests validate.
+A live view and a recorded export share one shape; `source.kind` (`"live"` or `"recorded"`) tells them apart.
+
+**Units** ([`translucent/units.py`](../translucent/units.py)). Imported channels and operator outputs use an
+explicit registry (`s, ms, min, h; V, mV; A, mA; Ah, mAh; W, mW, J, Wh; K, degC, delta_degC; Ohm, mOhm; m, mm,
+um, nm; kg, g; Pa, kPa, MPa; N; 1, %`) composed with `*`, `/` and integer powers (`1/h` is a C-rate). `degC`
+converts to `K` only as an absolute value; temperature differences are `delta_degC`, and `delta` and `slope`
+operators produce it. Unknown units and conversions across dimensions are refused.

@@ -2,7 +2,7 @@
 
 Translucent is a referee for findings about recorded experiments. Your MCP client chooses measurements and proposes findings; trusted tools produce the numbers, record their runs and evidence, and send each finding through the deterministic gate. The client cannot insert a measurement, write a review, or choose a verdict. Failed checks include the same plain explanations shown in the web viewer.
 
-Start from an existing ledger containing imported videos. `list_experiments` returns their experiment ids, video ids, labels and citations; pass the experiment id to `open_campaign`. MCP does not import arbitrary files. Run the server from the Translucent checkout, or give `uv` its absolute `--directory`.
+Start from an existing ledger containing imported videos. `list_experiments` returns their experiment ids, video ids, labels and citations; pass the experiment id to `open_campaign`. MCP does not import arbitrary files; a loop campaign's datasets are imported only from the server's `--import-root` (see Loop campaigns). Run the server from the Translucent checkout, or give `uv` its absolute `--directory`.
 
 ## Claude Code
 
@@ -12,10 +12,10 @@ From the checkout:
 claude mcp add translucent -- uv run python -m translucent.mcp_server --ledger /absolute/path/to/ledger --write
 ```
 
-To pin the checkout and an API state directory:
+To pin the checkout:
 
 ```sh
-claude mcp add translucent -- uv run --directory /absolute/path/to/translucent python -m translucent.mcp_server --ledger /absolute/path/to/ledger --write --state /absolute/path/to/api-state
+claude mcp add translucent -- uv run --directory /absolute/path/to/translucent python -m translucent.mcp_server --ledger /absolute/path/to/ledger --write
 ```
 
 ## Other clients, including Muse Code
@@ -26,7 +26,7 @@ replacing the absolute paths. A client that reads a TOML server table takes them
 ```toml
 [mcp_servers.translucent]
 command = "uv"
-args = ["run", "--directory", "/absolute/path/to/translucent", "python", "-m", "translucent.mcp_server", "--ledger", "/absolute/path/to/ledger", "--write", "--state", "/absolute/path/to/api-state"]
+args = ["run", "--directory", "/absolute/path/to/translucent", "python", "-m", "translucent.mcp_server", "--ledger", "/absolute/path/to/ledger", "--write"]
 env = { TRANSLUCENT_SAM = "strict" }
 ```
 
@@ -34,7 +34,7 @@ These are standard stdio instructions; Muse Code has not been tested. The server
 
 ## Available tools
 
-Without `--write`, only `list_campaigns`, `list_findings`, `get_evidence` and `verify` are advertised. Adding `--write` also offers:
+Without `--write`, only `list_campaigns`, `list_findings`, `get_evidence`, `verify`, `list_branches` and the loop-campaign reads (below) are advertised. Adding `--write` also offers:
 
 | Tool | Arguments | Result |
 | --- | --- | --- |
@@ -50,15 +50,55 @@ Without `--write`, only `list_campaigns`, `list_findings`, `get_evidence` and `v
 
 For a timing comparison, use `type: "value_within"`, a recorded event's measurement id, and `params: {"lo": 80, "hi": 100, "unit": "s"}`. Read the verdict rather than treating a successful tool run as an accepted finding. To correct a finding, cite its id in `supersedes`. Measurement and superseded finding ids must belong to the same campaign. Frame images are returned as local file paths, never inline base64; the client needs access to the server's filesystem to view them.
 
-SAM uses `TRANSLUCENT_SAM` exactly as campaigns do. The default is `strict`: only an exact recorded reply can be used. Missing replies fail as recorded tool runs. `nearest` is a development replay whose substitutions cannot become evidence. The server never enables live mode itself. Keep `TRANSLUCENT_SAM=strict` for offline work. `budget_usd` is recorded on the campaign; this MCP adapter does not run the campaign's provider-budget loop.
+SAM uses `TRANSLUCENT_SAM` exactly as campaigns do. The default is `strict`: only an exact recorded reply can be used. Missing replies fail as recorded tool runs. `nearest` is a development replay whose substitutions cannot become evidence. The server never enables live mode itself. Keep `TRANSLUCENT_SAM=strict` for offline work. `budget_usd` is recorded on the campaign and held to the same provider caps as on HTTP; this MCP adapter does not run the campaign's provider-budget loop.
+
+## Loop campaigns
+
+A loop campaign is the workflow Translucent's own planner runs, open to your agent: register an objective on a
+system, propose experiments, wait while a person approves each exact version, read the results and comparisons, and
+conclude. The tools come from the same capability table as the HTTP routes ([API.md](API.md#loop-campaigns-api-v1-ledgers-id)),
+against the same ledger and rules.
+
+```sh
+uv run python -m translucent.mcp_server --ledger /absolute/path/to/ledger --write --import-root /absolute/path/to/data
+```
+
+| Tool | Who | Arguments | Result |
+| --- | --- | --- | --- |
+| `list_systems`, `list_datasets`, `get_dataset`, `list_loop_campaigns` | everyone | `dataset_id`; `cursor`, `limit` | systems; dataset summaries and records; campaigns |
+| `get_campaign_view`, `get_request`, `read_series` | everyone | `campaign_id`; `request_id`; `ref`, `quantity`, `t0?`, `t1?`, `max_points?` | the campaign's view; one request; a series |
+| `import_dataset` | `--write` | `manifest` (the JSON), `files`: a folder or `{name: path}` under `--import-root` | the `DatasetRecord` |
+| `open_loop_campaign` | `--write` | `title`, `objective` | `{campaign_id, view}`; you are the planner (`external`), the session owns it |
+| `define_measurement` | `--write` | `campaign_id`, `name`, `spec` (ops/1) | the record and its measurements |
+| `propose_experiment` | `--write` | `campaign_id`, `action`, `params`, `rationale`, `prediction`, `expected_effect`, `evidence_ids?`, `specimen?` | the request with its `content_hash` |
+| `wait_for_request` | `--write` | `campaign_id`, `request_id`, `timeout_s` (at most 60) | the request, `settled` false while it still waits for a person; approved computational work runs in this process |
+| `cancel_request`, `conclude_campaign` | `--write` | `request_id`, `reason`; `text`, `unresolved_reasons?` | the request; the conclusion with its computed outcome |
+| `approve_request`, `reject_request`, `revise_request`, `submit_result`, `amend_objective`, `add_note` | `--operator` | as the HTTP routes; result files are paths under `--import-root` | as the HTTP routes |
+
+Every write tool except `submit_result` and `add_note` takes an optional `idempotency_key`; the same key and
+arguments return the first result, a different call under a used key is refused.
+
+**Who approves.** Your client's name is self-declared, so it is never a person's identity. Without `--operator`, the
+person tools are not offered: a person approves your requests over HTTP or in the web app, and `wait_for_request`
+returns once they have and the work has run. The local operator who starts the server may add
+`--operator "Ana Ruiz"`: they vouch for that name, as holding the team token does over HTTP, and approvals, results
+and amendments are recorded as `person:Ana Ruiz`, never under the client's name. `open_loop_campaign` registers the
+objective under the operator's name, or else the client's, and can never pre-approve experiments.
+
+**Files.** `import_dataset` and `submit_result` read only files under `--import-root`, named relative to it or by an
+absolute path inside it; anything outside it, or reached through a link, is refused, and without `--import-root`
+nothing is read.
+
+**Budgets.** `open_campaign` and `open_loop_campaign` budgets must be finite, 0 or more, and not above the caps of
+the providers the server's profile calls (`TRANSLUCENT_PROFILE`: dev $25, meta $170), as on HTTP.
 
 ## Ownership and concurrent writers
 
-An MCP session can write only to campaigns it opened. Reconnecting with the same client name does not restore ownership. A local operator may deliberately add `--adopt` together with `--write` to allow writes to existing unfinished campaigns. Adoption does not bypass evidence ownership or the gate. Once any `campaign.finished` event exists, further write calls on that campaign are refused, including with `--adopt`; read tools remain available.
+An MCP session can write only to campaigns it opened, loop campaigns included. Reconnecting with the same client name does not restore ownership. A local operator may deliberately add `--adopt` together with `--write` to allow writes to existing unfinished campaigns. Adoption does not bypass evidence ownership or the gate. Once any `campaign.finished` event exists, further write calls on that campaign are refused, including with `--adopt`; read tools remain available.
 
-Only one process may write a ledger at a time. Stop the API server and other campaign writers before starting MCP with `--write`. Each MCP write opens one ledger connection and closes it before replying; no ledger connection is held between calls.
+Several processes may write one ledger at once: the API server, any number of MCP sessions and the CLI. Loop campaign records are appended under the ledger's own admission in one transaction, so concurrent writers cannot fork a campaign's record chain or run a request twice. A video or intervention campaign is written by one process at a time: an MCP session takes the campaign's lock (`<ledger>/locks/campaign-<hash>.lock`) for each write call and is refused while another process holds it, and the API worker holds it for as long as it runs the campaign. Locks release on process death. The ledger must be on a local disk of one host; network filesystems are not supported. Each MCP write opens one ledger connection and closes it before replying.
 
-The MCP writer holds the API's existing `server.lock` for its lifetime and refuses startup if that lock is held. Use **the same `--state` directory as `translucent serve --state`**; its default is `TRANSLUCENT_STATE_DIR` or `ops/sol/state/api`, resolved from the working directory. The API cannot discover arbitrary state directories from a ledger, so a custom API state path must be supplied explicitly. MCP also holds a ledger-local `mcp.lock`, preventing two MCP writers even if they choose different state directories. Locks release on shutdown or process death. Runtime/CLI writers do not use these locks and must be stopped separately. Read-only MCP can remain connected while another process writes.
+Earlier versions made an MCP writer hold the API's `server.lock` and a ledger-wide `mcp.lock`, so it refused to start beside an API server or a second MCP writer. They no longer do; `--state` is still accepted and ignored.
 
 ## Example session: correcting playback timing
 

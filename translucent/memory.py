@@ -10,7 +10,7 @@ from __future__ import annotations
 
 CAP = 6
 ORDER = {"supported": 0, "tentative": 1}
-REASONS = {"same recording": 0, "same source": 1, "method": 2}
+REASONS = {"same recording": 0, "same system": 0, "same source": 1, "method": 2}
 
 
 def _source(experiment: str) -> str:
@@ -63,8 +63,18 @@ def confidence(L, lesson, lessons=None) -> str:
     return "tentative"
 
 
+def _loop_system(L, cid: str) -> str | None:
+    """The system id a loop campaign's objective names; None for any other campaign."""
+    row = L.db.execute("SELECT json_extract(body,'$.data.system.id') FROM record WHERE kind='loop' AND campaign_id=? "
+                       "AND json_extract(body,'$.type')='objective' LIMIT 1", (cid,)).fetchone()
+    return row[0] if row else None
+
+
 def relation(L, lesson, campaign) -> str | None:
     """Why a lesson concerns this campaign, or None."""
+    if (lesson.scope or "").startswith("system:"):
+        system = _loop_system(L, campaign.id)
+        return "same system" if system is not None and lesson.scope.removeprefix("system:") == system else None
     from translucent.tools import _experiment
     videos = set(campaign.inputs)
     shas = {v.removeprefix("sha256:") for v in videos}

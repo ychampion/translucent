@@ -3,16 +3,21 @@
 // receipt. The original file is read only, never changed: it stays the verifiable receipt. Skips a bundle whose
 // .stamp matches its SHA-256 and the splitter source.
 //
-//   bun scripts/split-intervention.ts            # every registered intervention bundle
+//   bun scripts/split-intervention.ts                          # every registered intervention bundle
+//   bun scripts/split-intervention.ts --if-present             # the same, or nothing when no bundle is there (prebuild:
+//                                                              # the web image is built without fixtures; deploy seeds
+//                                                              # and splits them on the fixtures volume)
+//   bun scripts/split-intervention.ts --fixtures <dir>         # a fixtures folder elsewhere (deploy/seed-ledger.sh)
 import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { gunzipSync } from "node:zlib";
 import { INTERVENTION_KEYS, interventionEntry } from "../lib/intervention";
 import { splitIntervention, type ReceiptRecord, type SplitOutput } from "../lib/intervention-split";
 
-const FIXTURES = join(import.meta.dir, "..", "public", "fixtures");
+const argAfter = (flag: string) => { const i = process.argv.indexOf(flag); return i > 0 ? process.argv[i + 1] : undefined; };
+const FIXTURES = resolve(argAfter("--fixtures") ?? join(import.meta.dir, "..", "public", "fixtures"));
 /** Bounded decompression: a receipt part larger than this is refused. */
 const MAX_INFLATE = 512 * 1024 * 1024;
 
@@ -83,6 +88,12 @@ function upToDate(key: string): boolean {
 }
 
 if (import.meta.main) {
+  // Fixtures absent altogether (the web image's build context): nothing to split, and the page fetches /fixtures/...
+  // from the volume at run time. A partial set is still an error.
+  if (process.argv.includes("--if-present") && !INTERVENTION_KEYS.some((key) => existsSync(join(FIXTURES, `${key}.json`)))) {
+    console.log(`intervention: no bundles in ${FIXTURES}; skipping the split (deploy/seed-ledger.sh splits them on the fixtures volume)`);
+    process.exit(0);
+  }
   for (const key of INTERVENTION_KEYS) {
     const src = join(FIXTURES, `${key}.json`);
     if (!existsSync(src)) throw new Error(`Missing intervention bundle ${src}`);

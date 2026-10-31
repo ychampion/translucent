@@ -11,6 +11,7 @@ import { remember } from "@/lib/recents";
 import { apiConfigured } from "@/lib/sources";
 import { ensureMock } from "@/lib/useCampaign";
 import { AddRecording } from "./AddRecording";
+import { ServerCampaigns } from "./CampaignList";
 import { ChipMenu, Composer, type PlusAction } from "./Composer";
 import { IconBolt, IconCheck, IconClose, IconDown, IconFilm, IconUpload } from "./Icons";
 import { PageHeader } from "./Shell";
@@ -193,6 +194,8 @@ export function Home() {
       </div>
       <div className="home-dock">
         {(error || notice) && <p className={`dock-note ${error ? "is-error" : ""}`} role="status">{error || notice}</p>}
+        {!q && <ServerCampaigns />}
+        {!q && <p className="side-label home-recorded">Recorded examples</p>}
         {!q && INTERVENTION_NAV.map((x) => (
           <Link key={x.key} href={interventionHref(x.key)} className="home-feature">
             <span className="home-feature-top"><span className="home-feature-title">{x.name}</span><span className="home-feature-kind">{x.source === "live" ? "Live run" : "Scripted benchmark"}</span></span>

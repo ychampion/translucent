@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-from translucent import cli, replay, runtime, server, tools
+from translucent import cli, providers, replay, runtime, server, tools
 from translucent.contracts import Campaign, Source
 from translucent.ledger import Ledger
 
@@ -63,6 +63,8 @@ def sse_data(response):
 def enable(monkeypatch):
     monkeypatch.setenv("TRANSLUCENT_LIVE", "1")
     monkeypatch.setenv("TRANSLUCENT_ADMIN_TOKEN", "test-administrator")
+    for name in ("FIREWORKS_API_KEY", "MODEL_API_KEY"):  # placeholders: the fake campaigners never call a provider
+        monkeypatch.setenv(name, "test-key")
     return {"Authorization": "Bearer test-administrator"}
 
 
@@ -188,7 +190,7 @@ def test_single_live_campaign_and_slot_released(store, monkeypatch):
         assert client.post("/api/campaigns", json=request_body(), headers=headers).status_code == 202
 
 
-def test_worker_failure_is_durable_and_ends_sse(store, monkeypatch):
+def test_worker_failure_is_durable_and_ends_sse(store, monkeypatch, caplog):
     headers = enable(monkeypatch)
     class Broken(FakeCampaigner):
         def run(self):
@@ -199,6 +201,28 @@ def test_worker_failure_is_durable_and_ends_sse(store, monkeypatch):
         job = wait_job(client, cid, "failed")
         assert "fixture failure" in job["error"]
         assert sse_data(client.get(f"/api/campaigns/{cid}/events"))[0] == [1]
+    # the operator sees it in the server log too, with the campaign and the error
+    assert [r for r in caplog.records if r.levelname == "ERROR" and r.exc_info and
+            f"Campaign {cid} failed: RuntimeError: fixture failure" in r.getMessage()]
+
+
+def test_live_needs_the_profiles_provider_keys(store, monkeypatch, tmp_path):
+    """Without a provider key the server is not live: a campaign is refused up front, not failed in the background."""
+    headers = enable(monkeypatch)
+    monkeypatch.setattr(providers, "ROOT", tmp_path)  # no .env
+    monkeypatch.delenv("MODEL_API_KEY")
+    monkeypatch.delenv("META_API_KEY", raising=False)
+    monkeypatch.setenv("FIREWORKS_API_KEY", "")  # set but empty: missing, as providers.Metered reads it
+    with TestClient(make_app(store, FakeCampaigner)) as client:
+        assert client.get("/api/session").json()["live"] is False
+        refused = client.post("/api/campaigns", json=request_body(), headers=headers)
+        assert refused.status_code == 503 and "no FIREWORKS_API_KEY for the dev profile" in refused.json()["detail"]
+        assert len(client.get("/api/campaigns").json()) == 1 and list((store[2] / "jobs").glob("*.json")) == []
+        monkeypatch.setenv("FIREWORKS_API_KEY", "test-key")
+        assert client.get("/api/session").json()["live"] is True
+        refused = client.post("/api/campaigns", json=request_body(profile="meta"), headers=headers)
+        assert refused.status_code == 503 and "MODEL_API_KEY" in refused.json()["detail"]
+        assert client.post("/api/campaigns", json=request_body(), headers=headers).status_code == 202
 
 
 def write_job(store, status):
@@ -324,6 +348,18 @@ def test_post_invalid_input_or_unknown_experiment(store, monkeypatch, change):
         assert len(client.get("/api/campaigns").json()) == 1
 
 
+@pytest.mark.parametrize("budget,expected", [("1e999", "budget: Input should be a finite number"),
+    ("100000", "budget: $100000 is more than the $25 cap"), ("200", "budget: $200 is more than the $170 cap")])
+def test_campaign_budget_is_finite_and_within_the_provider_caps(store, monkeypatch, budget, expected):
+    headers = {**enable(monkeypatch), "Content-Type": "application/json"}
+    body = json.dumps(request_body(profile="meta" if budget == "200" else "dev")).replace("0.25", budget)
+    with TestClient(make_app(store, FakeCampaigner)) as client:
+        response = client.post("/api/campaigns", content=body, headers=headers)
+        assert response.status_code == 422 and response.json()["detail"].startswith(expected)
+        assert len(client.get("/api/campaigns").json()) == 1
+        assert client.post("/api/campaigns", content=body.replace(budget, "25"), headers=headers).status_code == 202
+
+
 def test_cli_budget_export_serve_and_run_with_fake_campaigner(store, monkeypatch, capsys, tmp_path):
     monkeypatch.setattr(server.budget, "balances", lambda: {"fixture": {"remaining_usd": 1}})
     assert cli.main(["budget"]) == 0
@@ -341,6 +377,30 @@ def test_cli_budget_export_serve_and_run_with_fake_campaigner(store, monkeypatch
     monkeypatch.setattr(runtime, "Campaigner", FakeCampaigner)
     assert cli.main(["run", "--ledger", str(store[1]), "--budget", "0.1", "--steps", "1"]) == 0
     assert len(store[0].list("campaign")) == 2
+
+
+def test_reading_commands_refuse_a_missing_ledger(store, monkeypatch, capsys, tmp_path):
+    """A mistyped --ledger is an error, not a new empty ledger. Only commands that write records create one."""
+    import uvicorn
+    served = []
+    monkeypatch.setattr(uvicorn, "run", lambda app, **kw: served.append(kw))
+    typo, state = tmp_path / "ledgr", str(tmp_path / "api-state")
+    for argv in (["experiments", "--ledger", str(typo)], ["export", "seed", str(tmp_path / "out"), "--ledger", str(typo)],
+                 ["resume", "seed", "--ledger", str(typo)], ["serve", "--ledger", str(typo), "--state", state],
+                 ["mcp", "--ledger", str(typo)], ["verify", str(typo)]):
+        with pytest.raises(SystemExit) as stop:
+            cli.main(argv)
+        assert stop.value.code == 2 and "ledger" in capsys.readouterr().err, argv
+        assert not typo.exists() and not served, argv
+    assert cli.main(["serve", "--ledger", str(typo), "--state", state, "--create-ledger"]) == 0
+    assert (typo / "ledger.sqlite").is_file() and served and "Created an empty ledger" in capsys.readouterr().err
+    assert cli.main(["experiments", "--ledger", str(typo)]) == 0
+
+
+def test_run_on_a_missing_movie_says_how_to_fetch_it(store, capsys):
+    with pytest.raises(SystemExit) as stop:  # there is no Movie 9; a fresh clone has none of them
+        cli.main(["run", "--ledger", str(store[1]), "--movie", "9", "--budget", "0.1", "--steps", "1"])
+    assert stop.value.code == 2 and "scripts/fetch_data.py reisecker2023/movie9" in capsys.readouterr().err
 
 
 def test_export_cache_is_prepared_without_a_bundle_request(store, monkeypatch):

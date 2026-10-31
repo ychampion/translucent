@@ -282,6 +282,7 @@ def test_post_campaign_records_the_protocol_before_the_start(tmp_path, monkeypat
     L.db.close()
     monkeypatch.setenv("TRANSLUCENT_LIVE", "1")
     monkeypatch.setenv("TRANSLUCENT_ADMIN_TOKEN", "admin")
+    monkeypatch.setenv("FIREWORKS_API_KEY", "test-key")  # a placeholder: the fake campaigner never calls a provider
     headers = {"Authorization": "Bearer admin"}
     seen = {}
 

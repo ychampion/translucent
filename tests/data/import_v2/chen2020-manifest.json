@@ -1,0 +1,29 @@
+{
+  "manifest_version": 2,
+  "id": "chen2020-lgm50-excerpt",
+  "title": "LG M50 validation cycling, cell 02 (excerpt)",
+  "author": "Chang-Hui Chen et al.",
+  "citation": "Chen, C.-H., Brosa Planella, F., O'Regan, K., Gastol, D., Widanage, W. D., Kendrick, E. Experimental data for \"Development of Experimental Techniques for Parameterization of Multi-scale Lithium-ion Battery Models\". Zenodo (2020), doi:10.5281/zenodo.4032561. Paper: J. Electrochem. Soc. 167, 080534 (2020), doi:10.1149/1945-7111/ab9050",
+  "licence": "CC BY 4.0",
+  "notes": "Records 2601-2900 of LGM50_cell02.csv, unchanged. Maccor current is unsigned; the Md column (not imported) gives the mode.",
+  "records": [
+    {
+      "id": "cell02-rest-then-charge",
+      "role": "history",
+      "specimen": {"id": "LGM50_cell02", "batch": "LG M50 21700 (Chen 2020)", "properties": {"nominal_capacity_Ah": 5.0}},
+      "configuration": {"charge_current": 1.5, "charge_cutoff": 4.2},
+      "configuration_units": {"charge_current": "A", "charge_cutoff": "V"},
+      "time": {"unit": "s", "origin": "start of the Maccor test (Test Time 0)", "source": "Maccor Test Time column", "uncertainty_s": 0.01},
+      "tables": [{
+        "file": "LGM50_cell02_excerpt.csv", "format": "csv", "header_row": 13, "time_column": "Test Time [s]",
+        "columns": {
+          "Voltage [V]": {"quantity": "voltage", "unit": "V"},
+          "Current [A]": {"quantity": "current", "unit": "A", "label": "unsigned; see Md"},
+          "Temperature Cell [degC]": {"quantity": "temperature", "unit": "degC", "label": "cell surface thermocouple"},
+          "Temperature Chamber [degC]": {"quantity": "lab:chamber_temperature", "unit": "degC"}
+        }
+      }],
+      "provenance": {"source": "Zenodo record 4032561, file LGM50_cell02.csv", "instrument": "Maccor #3", "acquired_at": "2019-02-06"}
+    }
+  ]
+}

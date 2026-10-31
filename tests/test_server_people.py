@@ -56,6 +56,8 @@ def team(monkeypatch):
 def live(monkeypatch):
     monkeypatch.setenv("TRANSLUCENT_LIVE", "1")
     monkeypatch.setenv("TRANSLUCENT_ADMIN_TOKEN", "test-administrator")
+    for name in ("FIREWORKS_API_KEY", "MODEL_API_KEY"):  # placeholders: the fake campaigners never call a provider
+        monkeypatch.setenv(name, "test-key")
 
 
 def wait_job(client, cid, status):
@@ -262,6 +264,7 @@ def test_resume_endpoint_rules_and_worker_settings(store, monkeypatch):
         assert resume().status_code == 409  # never started
         L.emit("seed", "campaign.started", "runtime", "Start")  # then the process died: interrupted
         assert resume(extra=1).status_code == 422 and resume(budget=0).status_code == 422
+        assert "more than the $25 cap" in resume(budget=1e6).json()["detail"]  # dev: Fireworks only
         r = resume(profile="meta")
         assert r.status_code == 202 and r.json()["job"]["resume"] is True and r.json()["campaign"]["id"] == "seed"
         job = wait_job(client, "seed", "finished")

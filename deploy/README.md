@@ -10,6 +10,9 @@ docker compose -f deploy/compose.yaml up -d --build
 curl -s 127.0.0.1:8090/api/campaigns | head -c 300
 ```
 
+The API refuses to start without a ledger. To start empty instead of seeding, add `--create-ledger` to the API
+service's command.
+
 Going public is a separate decision: point a domain at the host, then use `deploy/nginx-site.conf` (hosts that
 already run nginx) or any reverse proxy with response buffering off (campaign updates stream).
 

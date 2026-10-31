@@ -55,7 +55,9 @@ def test_stdio_initialize_discovery_and_tool_calls(ledger):
     assert [r["id"] for r in replies] == [1, 2, 3, 4, 5, 6]
     assert replies[0]["result"]["protocolVersion"] == "2025-06-18"
     catalog = replies[1]["result"]["tools"]
-    assert {t["name"] for t in catalog} == {"list_campaigns", "list_findings", "get_evidence", "verify", "list_branches"}
+    assert {t["name"] for t in catalog} == {"list_campaigns", "list_findings", "get_evidence", "verify", "list_branches",
+                                            "list_systems", "list_datasets", "get_dataset", "list_loop_campaigns",
+                                            "get_campaign_view", "read_series", "get_request"}
     assert all(t["annotations"]["readOnlyHint"] for t in catalog)
     values = [json.loads(r["result"]["content"][0]["text"]) for r in replies[2:]]
     assert values[0][0]["id"] == "c"
@@ -148,3 +150,20 @@ def test_finding_review_summary_contains_latest_reviews_and_marks_truncation(led
     assert len(finding["reviews"]) == 50
     assert finding["reviews"][-1]["id"] == "review-54"
     assert finding["review_count"] == 56 and finding["reviews_truncated"] is True
+
+
+def test_translucent_mcp_subcommand_runs_the_server(ledger, monkeypatch, capsys):
+    """docs/API.md documents `translucent mcp --write --ledger LEDGER`: the subcommand takes the server's flags."""
+    from translucent import cli
+    init = request(1, "initialize", protocolVersion="2025-06-18", capabilities={},
+                   clientInfo={"name": "pytest", "version": "1"})
+    lines = [init, {"jsonrpc": "2.0", "method": "notifications/initialized"}, request(2, "tools/list")]
+    for flags, writes in ([], False), (["--write"], True):
+        monkeypatch.setattr(sys, "stdin", io.StringIO("".join(json.dumps(m) + "\n" for m in lines)))
+        assert cli.main(["mcp", "--ledger", str(ledger), *flags]) == 0
+        replies = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+        assert [r["id"] for r in replies] == [1, 2]
+        assert ("open_campaign" in {t["name"] for t in replies[1]["result"]["tools"]}) is writes
+    with pytest.raises(SystemExit) as stop:
+        cli.main(["mcp", "--ledger", str(ledger.parent / "typo")])
+    assert stop.value.code == 2 and "does not exist" in capsys.readouterr().err

@@ -1,0 +1,54 @@
+{
+  "manifest_version": 2,
+  "id": "fastcharge-screen-2026q3",
+  "title": "Fast-charge screening, cells 07 to 09",
+  "author": "Ana Ruiz",
+  "citation": "Lab notebook 14, pp. 3-9",
+  "licence": "internal",
+  "records": [
+    {
+      "id": "cell07-cc",
+      "role": "baseline",
+      "specimen": {"id": "cell-0007", "batch": "LGM50-2607", "properties": {"capacity_Ah": 5.0}},
+      "configuration": {"c_rate": 0.2, "protocol": "CC"},
+      "configuration_units": {"c_rate": "1/h"},
+      "conditions": {"ambient": 25},
+      "conditions_units": {"ambient": "degC"},
+      "time": {"unit": "s", "origin": "start of charge", "offset_s": 10.0, "source": "cycler step log", "uncertainty_s": 1.0},
+      "tables": [{
+        "file": "eclab-cell07.mpt", "format": "tsv", "header_row": 5, "time_column": "time/s",
+        "columns": {
+          "Ecell/V": {"quantity": "voltage", "unit": "V", "uncertainty": {"value": 0.001, "kind": "resolution", "method": "cycler spec"}},
+          "I/mA": {"quantity": "current", "unit": "mA"},
+          "Temperature/°C": {"quantity": "temperature", "unit": "degC", "uncertainty": {"value": 0.5, "kind": "bound", "method": "type-K"}}
+        }
+      }],
+      "scalars": [{"quantity": "charge_time_80", "value": 1260, "unit": "s", "source": "cycler summary"}],
+      "media": [{"file": "teardown-cell07.png", "kind": "image", "t_s": null, "needs_vision": true, "label": "Anode after test"}],
+      "provenance": {"source": "BioLogic EC-Lab export", "instrument": "VMP3", "operator": "Ana", "acquired_at": "2026-07-14"}
+    },
+    {
+      "id": "cell08-cc",
+      "specimen": {"id": "cell-0008", "batch": "LGM50-2607"},
+      "configuration": {"c_rate": 0.5},
+      "configuration_units": {"c_rate": "1/h"},
+      "time": {"unit": "min", "origin": "start of charge", "offset_s": 30.0, "source": "logger started 30 s before the charge"},
+      "tables": [{
+        "file": "cell08-mv.csv", "skip_rows": 1, "time_column": "elapsed",
+        "columns": {"V": {"quantity": "voltage", "unit": "mV"}, "I": {"quantity": "current", "unit": "A"}}
+      }],
+      "provenance": {"source": "bench logger CSV", "acquired_at": "2026-07-15"}
+    },
+    {
+      "id": "cell09-thermal",
+      "role": "reference",
+      "specimen": {"id": "cell-0009"},
+      "time": {"unit": "s", "origin": "start of charge", "source": "thermal logger"},
+      "tables": [{
+        "file": "cell09-thermal.json", "format": "json", "time_column": "t_s",
+        "columns": {"T_K": {"quantity": "temperature", "unit": "K"}}
+      }],
+      "provenance": {"source": "thermal logger JSON export"}
+    }
+  ]
+}

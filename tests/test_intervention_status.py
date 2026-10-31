@@ -96,6 +96,25 @@ def test_length_stop_records_finish_reason_reasoning_and_replays(tmp_path):
     assert replayed.value.reason == error.value.reason
 
 
+def test_a_cut_off_reply_is_asked_again_with_more_room_and_replays(tmp_path):
+    client = Client(completion(finish_reason="length", reasoning=3900), completion(tool="finish"))
+    settings = Settings(max_tokens=4000, length_max_tokens=10000, retry_base_s=0)
+    messages = [dict(role="user", content="recorded data")]
+    reply = ChatSession(settings, tmp_path, client=client).chat(messages)
+    assert reply["tool_calls"][0]["function"]["name"] == "finish"
+    assert [c["max_tokens"] for c in client.calls] == [4000, 8000]
+    assert ChatSession(settings, tmp_path, replay=True).chat(messages) == reply
+
+
+def test_the_room_for_a_cut_off_reply_stops_at_its_ceiling(tmp_path):
+    client = Client(*[completion(finish_reason="length", reasoning=9000)] * 3)
+    session = ChatSession(Settings(max_tokens=4000, length_max_tokens=10000, retry_base_s=0), tmp_path, client=client)
+    with pytest.raises(StopCampaign) as error:
+        session.chat([dict(role="user", content="recorded data")])
+    assert error.value.status == "length_limit"
+    assert [c["max_tokens"] for c in client.calls] == [4000, 8000, 10000]
+
+
 def test_paid_recording_write_failure_keeps_cost_and_no_partial_tape(
     tmp_path, monkeypatch
 ):

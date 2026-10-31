@@ -305,7 +305,8 @@ def test_invalid_ids_are_rejected(recording, id):
         Manifest(**manifest)
 
 
-@pytest.mark.parametrize("name", ["../movie.mp4", "/tmp/movie.mp4", "sub/movie.mp4", "sub\\movie.mp4"])
+@pytest.mark.parametrize("name", ["../movie.mp4", "/tmp/movie.mp4", "sub/movie.mp4", "sub\\movie.mp4", "NUL",
+                                  "CON.mp4", "com1.csv"])
 def test_manifest_only_accepts_plain_filenames(recording, name):
     manifest = {**recording.manifest, "video": name}
     with pytest.raises(ValidationError):

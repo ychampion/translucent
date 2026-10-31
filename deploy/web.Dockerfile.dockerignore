@@ -3,6 +3,8 @@
 !web/**
 !deploy/Caddyfile
 web/node_modules/
+# fixtures are served from a volume (compose.yaml, Caddyfile); prebuild skips the split without them
+web/public/fixtures/
 web/out/
 web/.next/
 web/tsconfig.tsbuildinfo

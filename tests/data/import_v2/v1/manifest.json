@@ -1,0 +1,11 @@
+{
+  "id": "cell-e2e",
+  "title": "Cell e2e, operando recording",
+  "citation": "Lab notebook 2026-10-28, experiment 7",
+  "licence": "Internal lab use",
+  "author": "Ana Patel",
+  "video": "cell-e2e.mp4",
+  "scale": {"bar_px": 100, "bar_um": 50, "uncertainty": 0.005, "source": "Microscope calibration slide"},
+  "clock": {"timestamps_csv": "frames.csv", "source": "Acquisition computer timestamp export"},
+  "voltage": {"csv": "voltage.csv", "offset_s": 12, "source": "Potentiostat export; video start at log time 12 s"}
+}

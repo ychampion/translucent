@@ -47,6 +47,13 @@ def test_uploads_need_a_token_and_plain_names(store, team, recording):
         assert client.put(f"/api/uploads/{uid}/.hidden", content=b"x", headers=TEAM).status_code == 400
         assert client.put(f"/api/uploads/not-hex/movie.mp4", content=b"x", headers=TEAM).status_code == 400
         assert client.post("/api/experiments", json={"upload_id": uid, "manifest": {}}).status_code == 403
+        # a Windows device name is the device, not a file (NUL was a 500; CON.csv a write to nowhere)
+        for name in ("NUL", "nul", "CON.csv", "AUX", "COM1.txt", "lpt9.dat", "con.tar.gz"):
+            r = client.put(f"/api/uploads/{uid}/{name}", content=b"x", headers=TEAM)
+            assert r.status_code == 422 and "device name" in r.text, (name, r.text)
+            r = client.put(f"/api/v1/ledgers/default/uploads/{uid}/{name}", content=b"x", headers=TEAM)
+            assert r.status_code == 422, (name, r.text)
+        assert client.put(f"/api/uploads/{uid}/console.csv", content=b"x", headers=TEAM).status_code == 201
 
 
 def test_a_playlist_posing_as_a_video_never_reaches_a_decoder(store, team, recording):

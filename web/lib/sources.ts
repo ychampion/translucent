@@ -143,6 +143,8 @@ const EVENT_TYPES = [
   "campaign.started", "campaign.finished", "memory.loaded", "memory.learned", "step.started", "step.finished",
   "tool.started", "tool.finished", "artifact.created", "measurement.recorded", "claim.proposed", "claim.reviewed",
   "cost.updated",
+  // loop campaigns: one per loop record (the loop screen refetches its view on it)
+  "loop.recorded",
   // people in the loop
   "human.note", "question.asked", "question.answered", "question.expired",
   "campaign.control", "campaign.paused", "campaign.resumed", "campaign.retry",

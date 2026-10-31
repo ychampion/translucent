@@ -7,7 +7,7 @@
 import json
 import os
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
 from openai import APIStatusError, OpenAI
 
 from translucent.budget import ROOT, SAFETY, BudgetExceeded, Ledger
@@ -45,10 +45,19 @@ def _rejected(e):
     return 400 <= e.status_code < 500 and e.status_code != 429
 
 
+def missing_keys(providers) -> list[str]:
+    """The key variables Metered would refuse to start without, read as it reads them: the environment first (even an
+    empty value), then <checkout>/.env. Reads .env without changing the environment."""
+    found = dotenv_values(ROOT / ".env")
+    return [KEY_VARS[p][0] for p in sorted(providers)
+            if not any(os.environ[v] if v in os.environ else found.get(v) for v in KEY_VARS[p])]
+
+
 class Metered:
     """Chat completions against one provider, with a mandatory output ceiling and a hard cap."""
 
     provider = None
+    last_usd = 0.0      # the charge of this client's latest chat call (its worst case until usage settles it)
 
     def __init__(self):
         load_dotenv(ROOT / ".env")
@@ -69,15 +78,20 @@ class Metered:
         in_tokens = len(text) // 2 if not images else len(text.split("base64,")[0]) // 2 + images * IMAGE_TOKENS_WORST
         worst = (in_tokens * prices[0] + max_tokens * prices[2]) * SAFETY
         rid = self.ledger.reserve(worst, f"chat {model} max_tokens={max_tokens}")
+        # This call's own charge, for the caller's accounting. The provider balance also moves with every other
+        # campaign using the provider at the same time, so its change is not this call's cost.
+        self.last_usd = worst
         try:
             r = self._client.chat.completions.create(model=model, messages=messages, max_tokens=max_tokens, **kw)
         except APIStatusError as e:
             if _rejected(e):
                 self.ledger.settle(rid, 0.0, {"rejected": e.status_code})
+                self.last_usd = 0.0
             raise
         if r.usage is not None:
-            self.ledger.settle(rid, _token_cost(prices, r.usage), r.usage.model_dump())
-        return r  # no usage: the reservation stays
+            self.last_usd = _token_cost(prices, r.usage)
+            self.ledger.settle(rid, self.last_usd, r.usage.model_dump())
+        return r  # no usage: the reservation stays, and so does its charge
 
 
 class MeteredFireworks(Metered):

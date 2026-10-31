@@ -319,6 +319,7 @@ def test_rerun_reaching_the_sandbox_is_an_authorized_queued_job(parent, tmp_path
         assert c.post("/api/campaigns/P/forks", json=body, headers=ADMIN).status_code == 403  # live not opted in
         monkeypatch.setenv("TRANSLUCENT_LIVE", "1")
         assert c.post("/api/campaigns/P/forks", json=body, headers=ADMIN).status_code == 422  # no budget
+        assert c.post("/api/campaigns/P/forks", json={**body, "budget": 1e6}, headers=ADMIN).status_code == 422
         assert p.L.list("fork") == [] and calls == []
         made = c.post("/api/campaigns/P/forks", json={**body, "budget": 1}, headers=ADMIN)
         assert made.status_code == 201, made.text

@@ -8,7 +8,7 @@ charged cost, so replay does not need a provider client or credentials.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
 import json
 import math
@@ -45,6 +45,9 @@ class Settings:
     retry_base_s: float = 2.0
     step_cap: int = 120
     reasoning_effort: str | None = "medium"
+    # A reply cut off at max_tokens (reasoning counts against it) is asked again with twice the room, up to this
+    # many tokens, instead of ending the campaign. None: a cut-off reply stops it.
+    length_max_tokens: int | None = None
 
     def __post_init__(self):
         if self.profile not in PROFILES:
@@ -323,8 +326,9 @@ class ChatSession:
 
     def chat(self, messages, tools=None):
         """Run one logical call, recording each separately metered retry."""
-        request = request_for(self.settings, messages, tools)
-        worst = worst_case_cost(self.settings, messages, tools)
+        settings = self.settings
+        request = request_for(settings, messages, tools)
+        worst = worst_case_cost(settings, messages, tools)
         for attempt in range(self.settings.retries + 1):
             if self.spent_usd + worst > self.settings.budget_usd + 1e-12:
                 raise StopCampaign(
@@ -356,6 +360,12 @@ class ChatSession:
             if response.get("refusal"):
                 raise StopCampaign("refused", response["refusal"])
             if entry.get("finish_reason") == "length":
+                if settings.max_tokens < (self.settings.length_max_tokens or 0) and attempt < self.settings.retries:
+                    settings = replace(settings, max_tokens=min(2 * settings.max_tokens,
+                                                                self.settings.length_max_tokens))
+                    request = request_for(settings, messages, tools)
+                    worst = worst_case_cost(settings, messages, tools)
+                    continue
                 raise StopCampaign(
                     "length_limit",
                     "Provider reached its length limit; "

@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
+import sys
 
 from translucent.intervention_gate import install as _install_intervention_gate
 
@@ -11,6 +13,18 @@ _install_intervention_gate()
 
 HERO = ("How fast do the lithium filaments grow across the solid electrolyte, does the battery short when they "
         "bridge it, and does it recover when they retract?")
+
+
+def _existing_ledger(path, parser, hint="run, add-experiment and intervene create a new one"):
+    """Commands that read a ledger never create one: a mistyped --ledger would otherwise open a new, empty ledger."""
+    if not (Path(path) / "ledger.sqlite").is_file():
+        parser.error(f"no ledger at {path}; check --ledger ({hint})")
+
+
+def _new_ledger_note(path):
+    """Commands that write records may create a ledger; they say so, so a mistyped path is visible."""
+    if not (Path(path) / "ledger.sqlite").is_file():
+        print(f"Creating a new ledger at {path}", file=sys.stderr)
 
 
 def _add_experiment(args, parser):
@@ -70,6 +84,7 @@ def _add_experiment(args, parser):
             files[path.name] = path
     ledger = None
     try:
+        _new_ledger_note(args.ledger)
         ledger = Ledger(args.ledger)
         video = register(ledger, manifest, files)
     except ValidationError as e:
@@ -132,6 +147,19 @@ def main(argv=None):
     serve.add_argument("--state", default=None)
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8000)
+    serve.add_argument("--create-ledger", action="store_true", help="Create an empty ledger if --ledger has none")
+    serve.add_argument("--data-root", default=None,
+                       help="Serve every ledger under this folder (see `translucent init`) instead of one --ledger")
+    serve.add_argument("--import-root", default=None,
+                       help="The one server folder dataset imports may read by path (default: none)")
+    init = commands.add_parser("init", help="Create a ledger under a data root, for serve --data-root (offline)")
+    init.add_argument("ledger_id")
+    init.add_argument("--data-root", required=True)
+    init.add_argument("--title", default=None)
+    imp = commands.add_parser("import", help="Import a team's records from a v2 (or v1) manifest (offline)")
+    imp.add_argument("manifest", type=Path)
+    imp.add_argument("--ledger", type=Path, required=True)
+    imp.add_argument("--files", type=Path, default=None, help="Folder holding the files (default: the manifest's)")
     commands.add_parser("budget", help="Print read-only provider balances")
     verify = commands.add_parser("verify", help="Re-check recorded findings and files offline")
     verify.add_argument("path", type=Path)
@@ -157,7 +185,39 @@ def main(argv=None):
     add.add_argument("--ledger", type=Path, default=Path("state/ledger"))
     experiments = commands.add_parser("experiments", help="List recordings imported into the ledger (offline)")
     experiments.add_argument("--ledger", type=Path, default=Path("state/ledger"))
+    learning = commands.add_parser("learning-export",
+                                   help="Write loop campaigns as learning episodes, JSONL (offline, read-only)")
+    learning.add_argument("out", type=Path)
+    learning.add_argument("--ledger", type=Path, required=True)
+    learning.add_argument("--campaign", action="append", dest="campaigns", default=None,
+                          help="A loop campaign to export (repeatable; default: every loop campaign of the ledger)")
+    learning.add_argument("--scope", default=None, help="ledger:<id> (default: ledger:<the ledger folder's name>)")
+    learning.add_argument("--include-series", action="store_true", help="Include raw series (omitted by default)")
+    learning.add_argument("--heldout", choices=("campaign", "time"), default="campaign")
+    learning.add_argument("--heldout-fraction", type=float, default=0.2)
+    learning.add_argument("--seed", type=int, default=0)
+    start = commands.add_parser("start", help="Set up a working campaign from nothing: ledger, records, objective")
+    start.add_argument("example", choices=["fastcharge"])
+    start.add_argument("--data-root", type=Path, required=True)
+    start.add_argument("--ledger-id", default="lab")
+    start.add_argument("--person", required=True, help="Who registers the campaign and approves its requests")
+    start.add_argument("--planner", choices=["bo", "external", "muse"], default="bo",
+                       help="bo: Bayesian optimisation, no model; external: your agent over MCP or HTTP; "
+                            "muse: Muse Wonder (paid, needs --live)")
+    start.add_argument("--auto-approve", action="store_true",
+                       help="Approve the campaign's computational requests without a person (default: each waits)")
+    start.add_argument("--serve", action="store_true", help="Then serve the data root on --host/--port")
+    start.add_argument("--live", action="store_true",
+                       help="With --serve: let the server's planner make paid model calls (needs "
+                            "TRANSLUCENT_ADMIN_TOKEN)")
+    start.add_argument("--host", default="127.0.0.1")
+    start.add_argument("--port", type=int, default=8000)
+    from translucent import mcp_server
+    mcp = mcp_server.add_arguments(commands.add_parser(
+        "mcp", help="Serve a ledger to an agent over MCP on stdin/stdout (read-only unless --write)"))
     args = parser.parse_args(argv)
+    if args.command == "mcp":
+        return mcp_server.run(args, mcp)
     if args.command == "intervene":
         import math
         import time
@@ -172,6 +232,8 @@ def main(argv=None):
         if args.dry_run:
             print(json.dumps(dry_run(settings, split=args.split, muse_only=args.muse_only), indent=2))
             return 0
+        if args.ledger is not None:
+            _new_ledger_note(args.ledger)
         ledger_path = args.ledger or Path("state") / (
             "intervene-" + time.strftime("%Y%m%dT%H%M%S", time.gmtime()) + f"-{time.time_ns() % 1000000000:09d}"
         )
@@ -193,6 +255,7 @@ def main(argv=None):
     if args.command == "experiments":
         from translucent.experiments import list_experiments
         from translucent.ledger import Ledger
+        _existing_ledger(args.ledger, experiments)
         ledger = None
         try:
             ledger = Ledger(args.ledger)
@@ -203,8 +266,29 @@ def main(argv=None):
         finally:
             if ledger is not None:
                 ledger.db.close()
+    if args.command == "learning-export":
+        from translucent.ledger import Ledger
+        from translucent.loop_learning import export as learning_export
+        _existing_ledger(args.ledger, learning)
+        L = Ledger(args.ledger)
+        try:
+            done = learning_export(L, scope=args.scope or f"ledger:{L.root.name}", campaign_ids=args.campaigns,
+                                   out=args.out, include_series=args.include_series, heldout=args.heldout,
+                                   heldout_fraction=args.heldout_fraction, seed=args.seed)
+        except ValueError as e:
+            learning.error(str(e))
+        finally:
+            L.db.close()
+        h = done["header"]
+        print(f"{done['episodes']} episodes from {len(h['campaign_ids'])} campaign(s), held out by "
+              f"{h['split']['rule']} (seed {h['split']['seed']}) -> {done['path']}")
+        for x in h["excluded"]:
+            print(f"Excluded {x['campaign_id']}: {x['reason']}", file=sys.stderr)
+        return 0
     if args.command == "verify":
         from translucent.verify import verify as recheck
+        if not args.path.exists():
+            verify.error(f"no ledger, export or receipt at {args.path}")
         result = recheck(args.path, args.campaign)
         print(result.summary())
         for problem in result.problems:
@@ -216,10 +300,68 @@ def main(argv=None):
         from translucent.budget import balances
         print(json.dumps(balances(), indent=2))
         return 0
-    if args.command == "serve":
+    if args.command == "init":
+        from translucent.workspace import LedgerExists, init_ledger
+        try:
+            path = init_ledger(args.data_root, args.ledger_id, title=args.title)
+        except (ValueError, LedgerExists) as e:
+            parser.error(str(e))
+        print(f"Created ledger {args.ledger_id} at {path}")
+        return 0
+    if args.command == "import":
+        from translucent import datasets
+        from translucent.ledger import Ledger
+        _existing_ledger(args.ledger, imp, "create one with `translucent init` or `serve --create-ledger`")
+        try:
+            record = datasets.import_dataset(Ledger(args.ledger), args.manifest, args.files)
+        except ValueError as e:
+            print(f"Not imported: {e}", file=sys.stderr)
+            return 1
+        print(f"Imported dataset {record.id}: {len(record.records)} record(s), "
+              + ", ".join(f"{r.id} ({len(r.channels)} channels)" for r in record.records))
+        return 0
+    if args.command == "start":
+        from translucent.start import StartError, start_fastcharge
+        if args.planner == "muse" and args.serve and not args.live:
+            parser.error("the muse planner makes paid model calls: add --live, or choose --planner bo or external")
+        if args.live and not os.environ.get("TRANSLUCENT_ADMIN_TOKEN"):
+            parser.error("--live needs TRANSLUCENT_ADMIN_TOKEN in the environment")
+        try:
+            out = start_fastcharge(args.data_root, ledger_id=args.ledger_id, planner=args.planner,
+                                   person=args.person, auto_approve=args.auto_approve)
+        except (StartError, ValueError) as e:
+            print(f"Not started: {e}", file=sys.stderr)
+            return 1
+        print(f"Ledger {out['ledger']} at {out['path']}" + (" (created)" if out["ledger_created"] else ""))
+        print(f"Dataset {out['dataset']}; failing baseline {out['baseline']}")
+        print(f"Campaign {out['campaign_id']}, planner {out['planner']}")
+        if not args.serve:
+            print(f"Serve it: translucent serve --data-root {args.data_root}")
+            return 0
         import uvicorn
         from translucent.server import create_app
-        uvicorn.run(create_app(args.ledger, args.state), host=args.host, port=args.port)
+        if args.live:
+            os.environ["TRANSLUCENT_LIVE"] = "1"
+        uvicorn.run(create_app(data_root=args.data_root), host=args.host, port=args.port)
+        return 0
+    if args.command == "serve":
+        import uvicorn
+        from translucent.ledger import Ledger
+        from translucent.server import DEFAULT_LEDGER, create_app
+        if args.data_root:
+            if args.ledger or args.create_ledger:
+                parser.error("serve takes --data-root or --ledger, not both")
+            if not Path(args.data_root).is_dir():
+                parser.error(f"--data-root {args.data_root} is not a folder; create ledgers with `translucent init`")
+            uvicorn.run(create_app(state_dir=args.state, data_root=args.data_root, import_root=args.import_root),
+                        host=args.host, port=args.port)
+            return 0
+        ledger = Path(args.ledger or os.environ.get("TRANSLUCENT_LEDGER_DIR", DEFAULT_LEDGER))
+        if args.create_ledger and not (ledger / "ledger.sqlite").is_file():
+            Ledger(ledger).db.close()
+            print(f"Created an empty ledger at {ledger}", file=sys.stderr)
+        _existing_ledger(ledger, serve, "--create-ledger starts the server on a new, empty one")
+        uvicorn.run(create_app(ledger, args.state, import_root=args.import_root), host=args.host, port=args.port)
         return 0
     from translucent import analysis, tools  # register analysis for CLI campaigns too
     from translucent.ledger import Ledger
@@ -233,6 +375,10 @@ def main(argv=None):
         import math
         if not math.isfinite(args.budget) or args.budget <= 0:
             parser.error("budget must be positive and finite")
+    if args.command in ("export", "resume"):
+        _existing_ledger(args.ledger, export if args.command == "export" else resume)
+    else:
+        _new_ledger_note(args.ledger)
     L = Ledger(Path(args.ledger))
     try:
         if args.command == "export":
@@ -254,9 +400,13 @@ def main(argv=None):
                                 Settings(profile=args.profile), resume=True).run()
             print(json.dumps(result, indent=1))
             return 0
-        video = tools.import_video(L, Path(f"data/raw/reisecker2023/movie{args.movie}.mp4"),
-            label=f"Movie {args.movie}", experiment=f"reisecker2023/movie{args.movie}", licence="CC BY 4.0",
-            citation=f"Reisecker et al., Nat. Commun. 14, 2432 (2023), Supplementary Movie {args.movie}")
+        try:
+            video = tools.import_video(L, Path(f"data/raw/reisecker2023/movie{args.movie}.mp4"),
+                label=f"Movie {args.movie}", experiment=f"reisecker2023/movie{args.movie}", licence="CC BY 4.0",
+                citation=f"Reisecker et al., Nat. Commun. 14, 2432 (2023), Supplementary Movie {args.movie}")
+        except FileNotFoundError:
+            parser.error(f"data/raw/reisecker2023/movie{args.movie}.mp4 is missing (movies are not in git); fetch it "
+                         f"with: uv run python scripts/fetch_data.py reisecker2023/movie{args.movie}")
         campaign = new_campaign(L, args.objective, "Lithium filaments in a solid-state battery", [video.id],
                                 memory=args.memory, budget_usd=args.budget)
         print("campaign", campaign.id)

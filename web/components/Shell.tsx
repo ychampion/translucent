@@ -8,7 +8,7 @@ import { EXPERIMENTS } from "@/lib/campaigns";
 import { INTERVENTION_NAV, interventionHref } from "@/lib/intervention";
 import { dispatchKey, useCommands } from "@/lib/commands";
 import { useAttention, useRecents, useRunning, useUnread } from "@/lib/recents";
-import { IconChats, IconClose, IconFlask, IconMemory, IconMoon, IconNew, IconProof, IconSidebar, IconSun } from "./Icons";
+import { IconAim, IconChats, IconClose, IconFlask, IconMemory, IconMoon, IconNew, IconProof, IconSidebar, IconSun } from "./Icons";
 import { Palette, ShortcutSheet } from "./Palette";
 
 type Theme = "dark" | "light";
@@ -71,6 +71,7 @@ export function Shell({ children }: { children: ReactNode }) {
     { id: "palette", label: "Search findings and commands", group: "Help", keys: ["Ctrl+K"], inFields: true, quiet: true, run: () => { setKeysSheet(false); setPalette((p) => !p); } },
     { id: "keys", label: "Keyboard shortcuts", group: "Help", keys: ["?", "Ctrl+/"], run: () => { setPalette(false); setKeysSheet((k) => !k); } },
     { id: "new", label: "New campaign", group: "Navigate", run: () => router.push("/") },
+    { id: "campaigns", label: "Campaigns on the server", group: "Navigate", run: () => router.push("/campaigns/") },
     { id: "memory", label: "Memory", group: "Navigate", run: () => router.push(`/c/${memoryKey}/memory/`) },
     { id: "proof", label: "How it’s checked", group: "Navigate", run: () => router.push("/proof/") },
     { id: "compare", label: "Compare two runs of Movie 4", hint: "With the team vs the earlier run with typed-in numbers", group: "Compare", run: () => router.push("/compare/?a=m4-team&b=m4-meta") },
@@ -92,6 +93,7 @@ export function Shell({ children }: { children: ReactNode }) {
           <button className="rail-btn" onClick={() => { if (!sidebar) toggleSidebar(); document.getElementById("side-experiments")?.focus(); }} aria-label="Experiments" title="Experiments">
             <IconFlask />
           </button>
+          <RailLink href="/campaigns/" label="Campaigns on the server" on={path === "/campaigns" || path === "/w"}><IconAim /></RailLink>
           <RailLink href={`/c/${memoryKey}/memory/`} label="Memory" on={path.endsWith("/memory")}><IconMemory /></RailLink>
           <RailLink href="/proof/" label="How it’s checked" on={path.startsWith("/proof")}><IconProof /></RailLink>
           <span className="rail-gap" />
@@ -150,6 +152,7 @@ function Sidebar({ path, onClose, theme, toggleTheme }: { path: string; onClose(
         <button className="icon-btn side-close" onClick={onClose} aria-label="Close menu"><IconClose /></button>
       </div>
       <Link href="/" className={`side-row is-new ${path === "/" ? "is-on" : ""}`}><IconNew size={16} />New campaign</Link>
+      <Link href="/campaigns/" className={`side-row ${path === "/campaigns" || path === "/w" ? "is-on" : ""}`}><IconAim size={16} />Campaigns on the server</Link>
 
       <p className="side-label" id="side-experiments" tabIndex={-1}>Experiments</p>
       {INTERVENTION_NAV.map((x) => (

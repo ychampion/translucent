@@ -1,18 +1,94 @@
 # Translucent
 
-Translucent is a research agent for recorded battery experiments. It checks microscopy measurements and tests
-intervention strategies on NIST heating-interruption records. Scientists and the agent work on the same evidence
-record. The agent plans tests, measures the recording and proposes findings. A deterministic rulebook,
-implemented in code with no model, decides which findings are proven. People steer the work, answer questions and
-sign off or challenge findings. Their reviews remain beside the rulebook's verdict.
+Translucent is an agent for hardware engineering teams. A team brings the records of a test that failed and
+states what must improve and which limits must hold. The agent proposes each next experiment with its reasons and a
+prediction for every quantity it expects to change. An engineer approves the exact version they read. The server
+runs computational experiments itself, and physical ones wait for a person to upload the result. A fixed rule
+compares every result with the failing baseline. The campaign ends with the baseline against the best candidate,
+or as unresolved with its reasons.
 
-Each microscopy finding links to its frames, lab clock, voltage data and analysis code. This evidence page,
-called a receipt, can be shared and checked offline with one command. Translucent checks the analysis of recorded
-experiments. It does not establish that a battery is safe.
+Every proposal, approval, run and comparison is kept in an insert-only, hash-chained ledger. Anyone can re-check a
+campaign offline without our keys. The agent is Muse Wonder on the Meta Model API. A team can connect its own agent
+over MCP instead. It gets the same tools and the same rules, and it can never approve its own work.
 
-The [microscopy campaigns](#evaluation) measure filament growth and check short timing against voltage records.
-The [NIST benchmark](#nist-heating-interruption) tests interventions after heater-off. No agent strategy beats
-always-escalate after correction. Both demonstrations produce receipts that anyone can check offline.
+Batteries come first. On a fast-charge problem for the LG M50 cell, the agent's campaigns came within 0.24 min of
+the fastest protocol the battery model allows and found the exact optimum on a held-out case. With the same eight
+experiments, the same model without feedback and constrained Bayesian optimisation both ended slower. These results
+are simulated under one frozen model; no physical cell was charged.
+
+Earlier work used the same evidence record to [check microscopy measurements](#microscopy-campaigns) and to
+[test interventions on NIST heating-interruption records](#nist-heating-interruption). Every finding there links to
+its frames, lab clock, voltage data and analysis code, in a receipt that can be checked offline with one command.
+
+## Engineering campaigns
+
+### How a campaign runs
+
+1. **Import.** The team's records are imported as published, with their units and time bases, and checked against
+   pinned checksums.
+2. **Registration.** An engineer registers the objective: the quantity to improve, the limits that must hold and
+   the experiment budget. The objective pins the system's code and solver. The failing baseline is re-run on the
+   solver at once, so every candidate is compared with it on the same basis.
+3. **Proposal.** The agent proposes an experiment with its parameters, reasons, expected effect and a predicted
+   range for each quantity. Parameters outside the system's bounds are refused before anything is written.
+4. **Approval.** The engineer approves a content hash, the version they read. A request revised after they read it
+   needs a new approval.
+5. **Execution.** A computational request runs once, also across a server restart, in a child process that holds
+   no keys. A physical request waits for a person's upload. Results in a unit that cannot be converted, from a
+   configuration outside the approved tolerance, or from a specimen an earlier test destroyed are refused, and the
+   refusal is recorded.
+6. **Comparison.** The target must improve beyond its margin with both uncertainties counted, and every limit must
+   hold. A candidate that meets the limits a failing baseline breaks wins even when it is slower, and the price is
+   shown. Anything the uncertainties cannot decide is inconclusive.
+7. **Conclusion.** The outcome is computed from the comparisons. The agent does not write it.
+
+An engineer can tighten a limit or add one mid-campaign. Earlier results are compared again under the amended
+objective, and the ledger keeps both. Details are in [docs/LOOP.md](docs/LOOP.md).
+
+### First campaign: a faster charge for the LG M50 cell
+
+A protocol charges the LG M50 21700 cell (Chen et al. 2020 parameters) from 10 to 80 % at 1.5C in four windows. It
+takes 28.2 min, and it fails. The anode falls to +7.3 mV against lithium, inside the margin where lithium can plate,
+and the cell reaches 51.2 °C against a 45 °C limit. The campaign asks for the fastest four-step protocol that keeps
+the anode at or above +10 mV and the cell at or below 45 °C. Experiments run on PyBaMM's DFN model with lithium
+plating and lumped thermal behaviour.
+
+The evaluation protocol was fixed before any run was scored ([evals/FASTCHARGE-PROTOCOL.md](evals/FASTCHARGE-PROTOCOL.md)).
+Each arm had eight experiments. The model arms had $1.50 of model calls per campaign. Case A is the problem above.
+In case B the engineer raises the plating margin from +10 to +25 mV after the fourth experiment. Case C moves the
+cell to 15 °C and was held out while the system was built.
+
+Median best protocol that meets every limit, minutes from 10 to 80 %:
+
+| Case | Agent campaign | Same model, no feedback | Constrained BO | Fastest the model allows |
+|---|---|---|---|---|
+| A, 25 °C | **33.79** | 36.29 | 42.62 | 33.55 |
+| B, margin raised to +25 mV | **37.17** | 44.29 | 42.62 | 37.13 |
+| C, 15 °C, held out | **34.13** | 39.50 | 45.98 | 34.13 |
+
+The agent ran 3 campaigns per case and found the optimum in all 3 for case C. The no-feedback arm is the same model
+planning all eight experiments at once without seeing a result. The BO arm ran 5 seeds per case.
+
+The amendment in case B changed what the agent did next. We replayed its fifth turn from the same history, with and
+without the amendment, three times. Without it, the agent proposed 1.1C in the last window. With it, the agent
+proposed 0.7 to 0.8C and predicted a lowest anode potential of +25.0 to +28.0 mV.
+
+The records alone cannot answer the question. The best protocol they support is 0.3C constant current then
+constant voltage, 140.0 min measured, and they hold no anode potential, so the plating margin cannot be checked on
+them.
+
+What the agent pays for its result:
+
+- It ran a median of 4 experiments out of 8 that broke a limit in cases A and C. BO ran 2. The agent probes the
+  boundary on purpose, and on real hardware each of those runs would cost cell time.
+- Its model calls cost a median of $1.13 to $1.22 per campaign, against $0.23 to $0.25 without feedback. A campaign
+  took 4.1 to 4.8 min against 1.4 to 1.6 min.
+- Two of the three case C campaigns ended on the $1.50 budget, after finding the optimum.
+
+All of this is computational. The result says that the loop finds good protocols under this model. A physical test
+of the case A protocol on a real cell is the next step, and it needs qualified operators. Translucent issues that
+request and records its result. It does not run hardware. Full tables, per-run results and spend are in
+[evals/FASTCHARGE.md](evals/FASTCHARGE.md).
 
 ## Battery research
 
@@ -33,7 +109,9 @@ that trusts the playback clock reports the filaments growing 18× faster than th
 can carry errors like that into a finding. Translucent checks whether each measurement uses the recorded
 clock and calibration, and whether the evidence supports the proposed finding.
 
-## Research workflow
+## Microscopy campaigns
+
+### Research workflow
 
 1. A scientist asks about a recorded experiment: "How fast do the lithium filaments grow, does the battery
    short when they bridge it, and does it recover when they retract?"
@@ -46,7 +124,7 @@ clock and calibration, and whether the evidence supports the proposed finding.
 6. People inspect the evidence down to the frames and code. They can share a link or QR code and re-check it
    offline.
 
-## Working together
+### Working together
 
 Scientists can leave a note while the agent runs, pause it or stop it. A note such as "check both onset definitions"
 reaches the agent before its next step. The agent asks people for information the records cannot supply, such as
@@ -67,9 +145,9 @@ The Movie 4 campaign below records this collaboration over the HTTP API, live on
 note and signed off a finding. Ben challenged another, and the agent returned a narrower finding that the checker
 proved.
 
-## Evaluation
+### Microscopy evaluation
 
-### Planted mistakes
+#### Planted mistakes
 
 Each test plants one mistake, then proposes the finding implied by the faulty data. The cases include a wrong
 scale, playback timing, swapped video, invalid outlines and a voltage log that does not support a short. A check
@@ -85,7 +163,7 @@ an error. It does not check whether its inputs belong together. The other 14 fau
 measurement records, numbers typed into analysis code, withdrawn evidence and an overreaching second opinion.
 These have no equivalent in the baseline script, so they are reported separately.
 
-### Model double-check
+#### Model double-check
 
 We asked Muse Spark Open, the model used for the second opinion, to check each finding produced by the planted
 mistakes, 3 times each (120 real calls, $0.95). Given a finding and its numbers, it accepted **5 of 18** planted
@@ -96,7 +174,7 @@ This experiment shows that the evidence supplied to the reviewer affects the res
 record for every finding without a model call. The other 20 planted mistakes were stopped before they produced a
 finding for the model to judge.
 
-### The 18× timing error
+#### The 18× timing error
 
 A test filament grows at a known speed using Movie 4's recorded clock and scale. Timing the same images by
 playback produces the following error:
@@ -107,13 +185,13 @@ playback produces the following error:
 | Translucent | **6.200 ± 0.018 µm/s** (95% interval), proven |
 | Normal pipeline | 112.82 µm/s, 18.2× too fast: it timed playback frames (each image is 6.9 s of lab time, 0.4 s of playback) |
 
-### Agreement with the paper
+#### Agreement with the paper
 
 On the real Movie 4 voltage log, Translucent measures the first short at 89.6 ± 3.5 s and the second at 351 ± 7 s.
 The paper's voltage data puts them at 86–93 s and 345–358 s (Reisecker et al., Nature Communications 2023).
 Both measured windows overlap the paper's.
 
-### Movie 4 team campaign
+#### Movie 4 team campaign
 
 Muse Wonder planned the tests. Muse Spark located the filament lanes, and SAM 3.1 outlined them live. Ana left a
 note before the first step describing the electrodes and the five lanes where the filaments grow. The agent
@@ -134,7 +212,7 @@ electrode can merge with the far electrode. The tip must be checked against both
 The campaign produced 12 findings; `translucent verify` re-checks 12 of 12 offline. Every analysis number passed
 the input check described below.
 
-### Detecting numbers typed by our own agent
+#### Detecting numbers typed by our own agent
 
 The first Meta run of Movie 4 also "proved" a growth speed, a filament length and an electrode gap. Inspection of
 the evidence showed that the planner's sandboxed code had copied numbers from earlier tool output and chosen its
@@ -144,24 +222,24 @@ Analysis code now runs a second time with inputs changed by a fraction of a perc
 does not change with them is rejected. This failure is now a planted mistake in the evals. The earlier run remains
 as evidence of the failure. Both microscopy campaigns were re-run with the check in place.
 
-### Graphite during fast charging
+#### Graphite during fast charging
 
 On graphite during fast charging (Lu et al. 2023), the rulebook proved that cell voltage first fell below 0 V after
 about 7.4 hours, 2.6 ± 0.7 hours before the paper's stated plating onset of 10 hours. The campaign did not prove
 whether plating was visible earlier in the movie. It started with Movie 4's lessons loaded and recorded another:
 the gold colour of lithiated graphite can be mistaken for plating.
 
-### Visual second opinion
+#### Visual second opinion
 
 A vision model reviews one evidence image per proven finding. In 16 seeded cases tested 3 times each (48 real
 calls, $0.21), it never agreed with a wrong finding (0 of 33). It missed a correct finding 20% of the time. This
 review is advisory and cannot overrule the rulebook.
 
-### Cost
+#### Cost
 
 On Meta's models, model calls for the Movie 4 team campaign cost $3.00. The graphite campaign cost $0.88.
 
-### Known limits
+#### Known limits
 
 - Without a recorded clock, repeated images are not removed. The rulebook still refuses the resulting speeds.
 - The visual second opinion runs only after the rulebook returns "proven". A fault the rulebook misses gets only
@@ -224,11 +302,12 @@ The exported [scripted receipt](web/public/fixtures/nist-bench.json) contains th
 
 ## Meta's models
 
-Both microscopy campaigns ran on the Meta Model API. Each replay names the model used for each role. The live
-server uses the same configuration (`TRANSLUCENT_PROFILE=meta`).
+The engineering campaigns and both microscopy campaigns ran on the Meta Model API. Each replay names the model used
+for each role. The live server uses the same configuration (`TRANSLUCENT_PROFILE=meta`).
 
-| Role | Model (`meta` profile, used in the microscopy campaigns) |
+| Role | Model (`meta` profile) |
 |---|---|
+| Campaign agent: proposes experiments with predicted ranges, reads results and comparisons, asks the engineer when the records cannot answer | Muse Wonder (Meta Model API) |
 | Planner: selects tests, reads rejection reasons and asks people for missing information | Muse Wonder (Meta Model API) |
 | Pointer: reads a gridded frame and returns pixel points on filaments or electrodes | Muse Spark (Meta Model API) |
 | Outliner: converts points and boxes to outlines and tracks them | SAM 3.1 (Meta Model API), live, every call recorded |
@@ -302,7 +381,33 @@ Browsing, replaying and verifying need no provider keys.
 
 ```sh
 uv sync --group dev
+uv run python scripts/fetch_data.py   # the papers' supplementary movies into data/raw/ (about 106 MB)
 ```
+
+The movies are not in git. `scripts/fetch_data.py` downloads them from the publisher and checks each against the
+sha256 the experiment records are pinned to (`translucent.instruments.RECORDED_FILES`); a file that differs is
+refused. Name some to fetch only those, e.g. `scripts/fetch_data.py reisecker2023/movie4` for the command below.
+Browsing, replaying, verifying and most tests do not need them.
+
+### Engineering campaign
+
+```sh
+uv run python scripts/fetch_lgm50_data.py      # the Chen 2020 LG M50 records, 1.8 MB, checked by sha256
+uv run translucent start fastcharge --data-root ./lab --person Ana --serve
+```
+
+`start` creates the ledger, imports the records, re-runs the failing protocol and opens the campaign. Running it
+again changes nothing. Choose who proposes with `--planner`:
+
+| Planner | Who proposes | Cost |
+|---|---|---|
+| `bo` (default) | constrained Bayesian optimisation | none |
+| `external` | your own agent, over MCP or HTTP | yours |
+| `muse` | Muse Wonder, $1.50 model budget | paid: needs `--live` and `TRANSLUCENT_ADMIN_TOKEN` |
+
+Each request waits for a person's approval in the web app; `--auto-approve` lets computational requests run
+without one. Point the web app at the server with `NEXT_PUBLIC_API_BASE=http://127.0.0.1:8000` (see
+[Web demo](#web-demo)). To connect your own agent, see [docs/AGENTS.md](docs/AGENTS.md#loop-campaigns).
 
 ### CLI
 
@@ -340,7 +445,9 @@ and step cap, and a fresh ledger directory. See
 ### Offline verification
 
 Verification re-checks every recorded finding in a ledger or exported bundle, including evidence file hashes and
-event order. It exits 0 only if everything matches. Otherwise it prints one line per problem.
+event order. It exits 0 only if everything matches. Otherwise it prints one line per problem. Findings are re-checked
+with the gate rules they were recorded under (see [docs/CONTRACTS.md](docs/CONTRACTS.md)), and a note names any
+finding today's gate would decide differently.
 
 ```sh
 uv run --group dev translucent verify <ledger-dir | export-dir>   # optional: --campaign <id>
@@ -370,11 +477,15 @@ The API is read-only by default. People's actions, including notes, answers, sig
 uv run translucent serve --ledger <ledger-dir> --state <state-dir>   # http://127.0.0.1:8000/api/campaigns
 ```
 
+The ledger must exist; `--create-ledger` starts the server on a new, empty one.
+
 A container recipe is in [`deploy/README.md`](deploy/README.md). Endpoints are in [docs/API.md](docs/API.md).
 
 ### Web demo
 
-The static Next.js app replays exported campaigns from `web/public/fixtures/`.
+The Next.js app replays exported campaigns from `web/public/fixtures/`. With `NEXT_PUBLIC_API_BASE` set to a running
+server, it also lists that server's engineering campaigns: approve or reject each request, follow it while it runs
+and read the comparison with the baseline. The app labels a live campaign and a replay differently.
 
 ```sh
 cd web
@@ -418,9 +529,12 @@ translucent/      runtime (runtime.py), checker (gate.py), ledger (ledger.py), t
                   SAM recording/replay (recordings.py), outline QC (qc.py), sandboxed analysis (analysis.py),
                   offline verify (verify.py), API (server.py), MCP (mcp_server.py), CLI (cli.py)
                   NIST intervention controller, executable world models and cost-based decision rules
+                  engineering campaigns: lifecycle (loop.py), comparison (loop_compare.py), planner
+                  (loop_planner.py), HTTP and MCP capabilities (loop_surface.py), systems/ (LG M50 adapter, solver)
 evals/            fault injection, plain-pipeline baseline, critic eval, model double-check, memory test;
                   REPORT.md, CRITIC.md, LLM_JUDGE.md, MEMORY.md
                   NIST intervention benchmark (INTERVENE.md), generated results and ledgers
+                  fast-charge campaign evaluation (FASTCHARGE.md, FASTCHARGE-PROTOCOL.md)
 data/groundtruth/ published numbers digitised from the papers, with provenance (README.md)
 web/              Next.js app (app/, components/, lib/)
                   scripted NIST receipt (public/fixtures/nist-bench.json)
@@ -429,7 +543,7 @@ runs/             recorded campaign ledgers used by evals and the container
 state/            live intervention ledgers and private planner recordings (git-ignored)
 tests/            pytest suite
 deploy/           API and web containers
-docs/             API, agents over MCP, bringing your own recording, replay-bundle schema
+docs/             engineering campaigns (LOOP.md), API, agents over MCP, bringing your own recording, replay-bundle schema
                   intervention protocol (INTERVENTION.md), intervention bundle contract (CONTRACTS.md)
 ```
 

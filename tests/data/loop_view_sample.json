@@ -1,0 +1,305 @@
+{
+  "view_version": 1,
+  "source": {
+    "kind": "live",
+    "api": "http://127.0.0.1:8090",
+    "ledger": "demo",
+    "as_of_seq": 27,
+    "generated_at": 1761903600.0
+  },
+  "campaign": {
+    "id": "loop_8f1f34a18db3efe1",
+    "title": "Faster two-step charge under a 45 °C limit",
+    "created_at": 1761900000.0,
+    "status": "concluded",
+    "memory": "on",
+    "system": {
+      "id": "toy-two-step-charge",
+      "version": "1",
+      "title": "Toy two-step charge (analytic)",
+      "solver": {
+        "name": "analytic-charge",
+        "version": "1.0",
+        "validity": "Closed-form toy model for development; not a cell model"
+      }
+    },
+    "planner": {
+      "kind": "muse",
+      "models": {
+        "planner": "muse-wonder-1.0",
+        "vision": null
+      }
+    }
+  },
+  "objective": {
+    "version": 1,
+    "statement": "Reach 80% charge faster than the 1C constant-current baseline while the cell stays at or below 45 °C.",
+    "target": {
+      "quantity": "charge_time_80",
+      "unit": "s",
+      "direction": "minimize",
+      "margin": 0.0,
+      "label": "Time to 80% charge"
+    },
+    "constraints": [
+      {
+        "quantity": "max_temperature",
+        "op": "<=",
+        "limit": 45.0,
+        "unit": "degC",
+        "label": "Cell stays at or below 45 °C"
+      }
+    ],
+    "amendments": []
+  },
+  "baseline": [
+    {
+      "basis": "computational",
+      "refs": [
+        "toy-charge-2026q4/baseline-1c"
+      ],
+      "values": {
+        "charge_time_80": {
+          "value": 2880.0,
+          "unit": "s",
+          "h": 5.0
+        },
+        "max_temperature": {
+          "value": 37.8,
+          "unit": "degC",
+          "h": 0.2
+        }
+      },
+      "constraints": [
+        {
+          "quantity": "max_temperature",
+          "value": 37.8,
+          "limit": 45.0,
+          "ok": true
+        }
+      ],
+      "fails": []
+    }
+  ],
+  "current_result": {
+    "comparison_id": "cmp_300dc84912798e9ec90919a4",
+    "request_id": "rq_aacbc878ef695b3042e2",
+    "verdict": "candidate_better",
+    "basis": "computational",
+    "sentence": "In simulation, 2.5C to 50% then 1.2C reaches 80% in 1620 s instead of 2880 s and peaks at 43.9 °C."
+  },
+  "next_action": {
+    "kind": "none"
+  },
+  "requests": [
+    {
+      "request_id": "rq_e055f395368fa40845eb",
+      "version": 1,
+      "state": "rejected",
+      "action": "simulate_protocol",
+      "executor": "computational",
+      "params": {
+        "c_rate_1": {
+          "value": 3.5,
+          "unit": "1/h"
+        },
+        "switch_soc": {
+          "value": 0.6,
+          "unit": "1"
+        }
+      },
+      "proposed_by": "agent:muse-wonder-1.0",
+      "approved_by": null,
+      "content_hash": "e657d1290e76588e198b1daf02ee72346fdfc0528d11209f8d664070e9b7c761",
+      "rationale": "The baseline peaks at 37.8 °C, far below the limit, so a much faster first step may still stay under 45 °C.",
+      "prediction": {
+        "charge_time_80": {
+          "value": 1150.0,
+          "lo": 1050.0,
+          "hi": 1250.0,
+          "unit": "s"
+        },
+        "max_temperature": {
+          "value": 46.0,
+          "lo": 43.5,
+          "hi": 48.5,
+          "unit": "degC"
+        }
+      },
+      "timeline": [
+        {
+          "state": "awaiting_approval",
+          "seq": 6,
+          "t": 1761900310.0,
+          "actor": "agent:muse-wonder-1.0"
+        },
+        {
+          "state": "rejected",
+          "seq": 8,
+          "t": 1761900905.0,
+          "actor": "person:Ana"
+        }
+      ],
+      "result": null,
+      "rejections": []
+    },
+    {
+      "request_id": "rq_aacbc878ef695b3042e2",
+      "version": 1,
+      "state": "completed",
+      "action": "simulate_protocol",
+      "executor": "computational",
+      "params": {
+        "c_rate_1": {
+          "value": 2.5,
+          "unit": "1/h"
+        },
+        "switch_soc": {
+          "value": 0.5,
+          "unit": "1"
+        }
+      },
+      "proposed_by": "agent:muse-wonder-1.0",
+      "approved_by": "person:Ana",
+      "content_hash": "77981d8f0ac1e73bbb6a3613b6429d70e331557f8fb69c77044dde8de0eca679",
+      "rationale": "Ana rejected 3.5C as above the cell's 3C datasheet limit. 2.5C to half charge keeps the fast step inside the limit; the predicted peak is just under 45 °C.",
+      "prediction": {
+        "charge_time_80": {
+          "value": 1650.0,
+          "lo": 1550.0,
+          "hi": 1750.0,
+          "unit": "s"
+        },
+        "max_temperature": {
+          "value": 44.5,
+          "lo": 42.0,
+          "hi": 46.5,
+          "unit": "degC"
+        }
+      },
+      "timeline": [
+        {
+          "state": "awaiting_approval",
+          "seq": 11,
+          "t": 1761901210.0,
+          "actor": "agent:muse-wonder-1.0"
+        },
+        {
+          "state": "queued",
+          "seq": 13,
+          "t": 1761901500.0,
+          "actor": "person:Ana"
+        },
+        {
+          "state": "running",
+          "seq": 14,
+          "t": 1761901502.0,
+          "actor": "system:runner"
+        },
+        {
+          "state": "completed",
+          "seq": 19,
+          "t": 1761901544.0,
+          "actor": "system:runner"
+        }
+      ],
+      "result": {
+        "result_id": "res_fc2440364f9dcbfb9a0647ed",
+        "basis": "computational",
+        "measurements": [
+          {
+            "id": "m_60e3691bd7e2ecf2",
+            "quantity": "charge_time_80",
+            "value": 1620.0,
+            "unit": "s",
+            "h": 5.0
+          },
+          {
+            "id": "m_231003302c781db4",
+            "quantity": "max_temperature",
+            "value": 43.9,
+            "unit": "degC",
+            "h": 0.2
+          },
+          {
+            "id": "m_41be87ee3103639a",
+            "quantity": "derived:time_above_40C",
+            "value": 412.0,
+            "unit": "s",
+            "h": 1.0
+          }
+        ],
+        "categories": {
+          "status": "ok",
+          "validity": "within_range"
+        },
+        "series": [
+          {
+            "quantity": "temperature",
+            "unit": "degC",
+            "url": "/api/v1/ledgers/demo/artifacts/sha256:8ce23b3958b1023b0432b63bcd018a6468a836fc44e813823f92004539a8a0a2",
+            "n": 1621
+          }
+        ],
+        "prediction_error": {
+          "charge_time_80": {
+            "predicted": 1650.0,
+            "measured": 1620.0,
+            "inside": true
+          },
+          "max_temperature": {
+            "predicted": 44.5,
+            "measured": 43.9,
+            "inside": true
+          }
+        }
+      },
+      "rejections": []
+    }
+  ],
+  "comparisons": [
+    {
+      "id": "cmp_300dc84912798e9ec90919a4",
+      "request_id": "rq_aacbc878ef695b3042e2",
+      "objective_version": 1,
+      "basis": "computational",
+      "target": {
+        "baseline": 2880.0,
+        "candidate": 1620.0,
+        "delta": 1260.0,
+        "better": true
+      },
+      "constraints": [
+        {
+          "quantity": "max_temperature",
+          "value": 43.9,
+          "limit": 45.0,
+          "ok": true
+        }
+      ],
+      "verdict": "candidate_better",
+      "reasons": []
+    }
+  ],
+  "measurements_defined": [
+    {
+      "name": "time_above_40C",
+      "op": "duration_where",
+      "unit": "s",
+      "defined_by": "agent:muse-wonder-1.0"
+    }
+  ],
+  "spend": {
+    "model_usd": 0.31,
+    "model_budget_usd": 5.0,
+    "experiments_used": 1,
+    "experiments_budget": 4
+  },
+  "conclusion": {
+    "outcome": "improved_in_simulation",
+    "comparison_id": "cmp_300dc84912798e9ec90919a4",
+    "text": "In simulation, charging at 2.5C to 50% and then 1.2C reaches 80% in 1620 s, 1260 s faster than the 1C baseline, and peaks at 43.9 °C, inside the 45 °C limit. This is a computational result; a cell test would confirm it.",
+    "unresolved_reasons": []
+  },
+  "events_cursor": 27
+}

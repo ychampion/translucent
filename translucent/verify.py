@@ -12,7 +12,7 @@ import tempfile
 import time
 import uuid
 
-from translucent import gate
+from translucent import gate, past_gates
 from translucent.contracts import Event, Measurement, ReplayBundle, Review
 from translucent.ledger import Ledger, SCHEMA, TABLES, sha256_file
 from translucent.intervention_gate import install as _install_intervention_gate
@@ -20,6 +20,7 @@ from translucent.intervention_gate import install as _install_intervention_gate
 _install_intervention_gate()
 
 HASH = re.compile(r"[0-9a-f]{64}\Z")
+IN_FLIGHT = re.compile(r"[0-9a-f]{64}\.[0-9]+-[0-9a-f]{8}\.tmp\Z")  # Ledger.put_file's per-writer temp name
 
 
 @dataclass
@@ -28,6 +29,7 @@ class Result:
     matched: int = 0
     files: int = 0
     decisions: int = 0                                 # re-checked decisions; named in the summary only when present
+    requests: int = 0                                  # re-checked loop requests; likewise
     problems: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)   # informational only; never a problem
 
@@ -37,7 +39,8 @@ class Result:
 
     def summary(self):
         text = f"{self.findings} findings re-checked, {self.matched} match; {self.files} files intact"
-        return text + (f", {self.decisions} decisions re-checked" if self.decisions else "")
+        text += f", {self.decisions} decisions re-checked" if self.decisions else ""
+        return text + (f", {self.requests} requests re-checked" if self.requests else "")
 
     def as_dict(self):
         out = {"ok": self.ok, "summary": self.summary(), "findings": self.findings,
@@ -46,6 +49,8 @@ class Result:
             out["notes"] = self.notes
         if self.decisions:
             out["decisions"] = self.decisions
+        if self.requests:
+            out["requests"] = self.requests
         return out
 
     @property
@@ -86,12 +91,27 @@ def _scratch():
 
 @contextmanager
 def snapshot(root):
+    """A writable scratch copy of the ledger at one point in time. A ledger with a write-ahead log may have writers
+    (an API runner, MCP processes): it is copied with SQLite's backup API from a read-only connection, which sees one
+    committed state. A ledger without one is copied as files, so verify never adds -wal or -shm files beside it."""
     with _scratch() as directory:
         source = Path(root).resolve()
         if not (source / "ledger.sqlite").is_file():
             raise ValueError(f"Ledger not found: {source}")
         scratch = Ledger.__new__(Ledger)
         scratch.root, scratch.blobs = Path(directory), source / "blobs"
+        if (source / "ledger.sqlite-wal").exists():
+            scratch.db = sqlite3.connect(scratch.root / "ledger.sqlite", isolation_level=None)
+            try:
+                live = sqlite3.connect((source / "ledger.sqlite").as_uri() + "?mode=ro", uri=True, timeout=15)
+                try:
+                    live.backup(scratch.db)
+                finally:
+                    live.close()
+                yield scratch
+            finally:
+                scratch.db.close()
+            return
         copied_root = scratch.root / "source"
         copied_root.mkdir()
         paths = [source / "ledger.sqlite", source / "ledger.sqlite-wal"]
@@ -287,6 +307,8 @@ def _blobs(L, result):
         if not path.is_file():
             continue
         hexd = path.name
+        if IN_FLIGHT.fullmatch(hexd) and path.parent.name == hexd[:2]:
+            continue                                   # a writer is storing this blob now; not evidence yet
         if (not HASH.fullmatch(hexd) or path.parent.name != hexd[:2] or
                 not path.resolve().is_relative_to(L.blobs.resolve())):
             result.problems.append(f"Blob has an invalid content address: {path.name}")
@@ -303,10 +325,42 @@ def _blobs(L, result):
         result.problems.append(f"Recorded blob is missing: {aid}")
 
 
+def _recorded_gate(L, cid):
+    """The sha256 of the gate code a campaign's setup record names, or None for a campaign recorded without one."""
+    for (body,) in L.db.execute("SELECT body FROM event WHERE campaign_id=? AND body LIKE '%campaign.started%' "
+                                "ORDER BY seq", (cid,)):
+        ev = Event.model_validate_json(body)
+        setup = ev.data.get("setup_id") if ev.type == "campaign.started" else None
+        if not isinstance(setup, str) or not HASH.fullmatch(setup.removeprefix("sha256:")):
+            continue
+        try:
+            return json.loads(L.blob_path(setup).read_text(encoding="utf-8"))["code"]["files"]["gate.py"]
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+    return None
+
+
+def _gate_rules(L, cid):
+    """The gate commit a campaign's findings were recorded under: the one its setup record names, else (campaigns
+    recorded before setups named their gate code) the one current when the campaign started. None: no frozen copy
+    matches, and the current gate re-checks."""
+    recorded = _recorded_gate(L, cid)
+    if recorded is not None:
+        return past_gates.by_hash(recorded)
+    campaign = L.get("campaign", cid)
+    return past_gates.in_force(campaign.created_at) if campaign is not None else None
+
+
 def _reviews(L, result, campaign_id):
     claims = L.list("claim", campaign_id=campaign_id)
     result.findings = len(claims)
+    rules = {}
     for claim in claims:
+        if claim.campaign_id not in rules:
+            rules[claim.campaign_id] = _gate_rules(L, claim.campaign_id)
+        commit = rules[claim.campaign_id]
+        # intervention findings have their own gate (intervention_gate dispatches them through gate.review)
+        rule = gate if commit is None or L.kind_of(claim.id) == "intervention" else past_gates.module(commit)
         reviews = L.db.execute("SELECT rowid, inserted_at, body FROM record WHERE kind='review' AND ref=? "
                                "ORDER BY inserted_at, rowid", (claim.id,)).fetchall()
         gate_reviews = [(row, at, Review.model_validate_json(body)) for row, at, body in reviews
@@ -322,7 +376,7 @@ def _reviews(L, result, campaign_id):
                 L.db.execute("DROP TRIGGER IF EXISTS inval_no_delete")
                 L.db.execute("DELETE FROM record WHERE rowid>=?", (row,))
                 L.db.execute("DELETE FROM invalidation WHERE at>?", (at,))
-                fresh = gate.review(L, claim.id)
+                fresh = rule.review(L, claim.id)
                 if (fresh.verdict, fresh.checks, fresh.reason) != (saved.verdict, saved.checks, saved.reason):
                     result.problems.append(f"Finding {claim.id}: recorded {saved.verdict}, re-check gives {fresh.verdict}; "
                                            "verdict, checks or reason differ")
@@ -335,6 +389,21 @@ def _reviews(L, result, campaign_id):
                 L.db.execute("ROLLBACK TO recheck")
                 L.db.execute("RELEASE recheck")
         latest = gate_reviews[-1][2]
+        if rule is not gate:  # recorded under earlier rules: say so when today's gate would decide otherwise
+            row, at, _ = gate_reviews[-1]
+            L.db.execute("SAVEPOINT today")
+            try:
+                L.db.execute("DROP TRIGGER IF EXISTS record_no_delete")
+                L.db.execute("DROP TRIGGER IF EXISTS inval_no_delete")
+                L.db.execute("DELETE FROM record WHERE rowid>=?", (row,))
+                L.db.execute("DELETE FROM invalidation WHERE at>?", (at,))
+                today = gate.review(L, claim.id).verdict
+            finally:
+                L.db.execute("ROLLBACK TO today")
+                L.db.execute("RELEASE today")
+            if today != latest.verdict:
+                result.notes.append(f"Finding {claim.id}: {latest.verdict} under the gate it was recorded with "
+                                    f"({commit}); today's gate gives {today}")
         if latest.verdict != "unsupported":
             status = L.claim_status(claim.id)
             current = evidence(L, claim.id)["problems"]
@@ -364,15 +433,17 @@ def _ledger(root, result, campaign_id=None):
         _events(L, result)
         if campaign_id is not None and L.get("campaign", campaign_id) is None:
             raise ValueError(f"Campaign not found: {campaign_id}")
+        _setup_note(L, result, campaign_id)
         _reviews(L, result, campaign_id)
         _forks(L, result, campaign_id)
         _decisions(L, result, campaign_id)
-        _setup_note(L, result, campaign_id)
         from translucent.intervention_verify_cache import verification_cache
         # Historical legacy reviews above deliberately change their scratch
         # view. Intervention checks below use one immutable current snapshot.
         with verification_cache(L):
             _interventions(L, result, campaign_id)
+        from translucent.loop_verify import check as _loops
+        _loops(L, result, campaign_id)
 
 
 def _interventions(L, result, campaign_id):
@@ -460,27 +531,31 @@ def _decisions(L, result, campaign_id):
 
 
 def _setup_note(L, result, campaign_id):
-    """One informational line comparing the gate code findings were recorded with (from each campaign's setup
-    record, when it has one) with the gate code re-checking them now."""
-    recorded = set()
-    for cid, body in L.db.execute("SELECT campaign_id, body FROM event ORDER BY rowid"):
+    """Informational lines naming the gate code that re-checks the findings: the code each campaign's setup record
+    names when it has one, else the gate current when a campaign with findings started (past_gates)."""
+    recorded, dated = set(), {}
+    cids = [cid for (cid,) in L.db.execute("SELECT DISTINCT campaign_id FROM event ORDER BY rowid")]
+    claimed = {cid for (cid,) in L.db.execute("SELECT DISTINCT campaign_id FROM record WHERE kind='claim'")}
+    for cid in cids:
         if campaign_id is not None and cid != campaign_id:
             continue
-        ev = Event.model_validate_json(body)
-        setup = ev.data.get("setup_id") if ev.type == "campaign.started" else None
-        if not isinstance(setup, str) or not HASH.fullmatch(setup.removeprefix("sha256:")):
-            continue
-        try:
-            snap = json.loads(L.blob_path(setup).read_text(encoding="utf-8"))
-            recorded.add(snap["code"]["files"]["gate.py"])
-        except (OSError, ValueError, KeyError, TypeError):
-            continue
+        sha = _recorded_gate(L, cid)
+        if sha is not None:
+            recorded.add(sha)
+        elif cid in claimed and (commit := _gate_rules(L, cid)) not in (None, past_gates.VERSIONS[-1][0]):
+            dated[cid] = commit
+    if dated:
+        result.notes.append("No gate code recorded for " + ", ".join(f"{cid} (started under {c})" for cid, c in
+                            dated.items()) + "; re-checked with the gate current when each started")
     if not recorded:
         return
     from translucent.runtime import code_version
     now = code_version()["files"]["gate.py"]
     if recorded == {now}:
         result.notes.append(f"Re-checked with the gate code the findings were recorded with ({now[:12]})")
+    elif all(past_gates.by_hash(h) for h in recorded):
+        result.notes.append("Re-checked with the gate code the findings were recorded with "
+                            f"({', '.join(sorted(h[:12] for h in recorded))})")
     else:
         result.notes.append(f"Recorded with gate code {', '.join(sorted(h[:12] for h in recorded))}; "
                             f"re-checked with gate code {now[:12]}")
@@ -489,9 +564,13 @@ def _setup_note(L, result, campaign_id):
 def _bundle(path, result):
     root = path.parent if path.is_file() else path
     candidate = path if path.is_file() and path.suffix=='.json' else root/'bundle.json'
-    if candidate.is_file() and json.loads(candidate.read_text(encoding='utf-8')).get('intervention') is not None:
+    head = json.loads(candidate.read_text(encoding='utf-8')) if candidate.is_file() else {}
+    if isinstance(head, dict) and head.get('intervention') is not None:
         from translucent.intervention_export import verify_bundle
         return verify_bundle(candidate,result)
+    if isinstance(head, dict) and 'loop_export_version' in head:
+        from translucent.loop_export import verify_export
+        return verify_export(candidate, result, head)
     receipt_path = root / "verification.json"
     if not receipt_path.is_file():
         raise ValueError("Bundle lacks verification data; export it again with translucent export")

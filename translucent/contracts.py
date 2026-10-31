@@ -256,6 +256,7 @@ EventType = Literal[
     "campaign.control", "campaign.paused", "campaign.resumed", "campaign.retry",
     "fork.created",                          # a person's what-if branch (in the branch and the parent)
     "intervention.recorded",                 # new intervention records only; old event meanings unchanged
+    "loop.recorded",                         # one loop campaign record (translucent.chain); data.record is it
 ]
 
 

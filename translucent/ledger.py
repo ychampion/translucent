@@ -8,27 +8,36 @@
     its artifact_ids exist;
   * a Run's outputs and inputs exist (artifacts or measurements);
   * a Claim's predicate cites existing Measurements; a Review cites an existing Claim.
-- Events get a strictly increasing per-campaign `seq` assigned inside the insert transaction.
+- Events get a strictly increasing per-campaign `seq` assigned inside the insert transaction, and a time never
+  earlier than the campaign's previous event.
+- `transaction()` groups writes into one BEGIN IMMEDIATE; it is re-entrant, and `emit` uses it, so events can be
+  written inside a larger transaction. Loop records (translucent.chain) are appended only inside one.
 """
 from __future__ import annotations
 
 import hashlib
 import json
+import os
+import random
 import shutil
 import sqlite3
 import time
+import uuid
+from time import monotonic, sleep
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Iterator
 
 from translucent.contracts import (Artifact, Campaign, Claim, Decision, Event, Fork, Lesson, Measurement, Protocol,
                                    Review, Run, Source, Transform)
 from translucent.intervention_records import InterventionRecord
+from translucent.loop_contracts import DatasetRecord, LoopRecord
 
 # Each kind is a `kind` value in the one record table: a new kind needs no new table or trigger.
 TABLES = {
     "campaign": Campaign, "artifact": Artifact, "run": Run, "measurement": Measurement,
     "claim": Claim, "review": Review, "lesson": Lesson, "fork": Fork, "protocol": Protocol, "decision": Decision,
-    "intervention": InterventionRecord,
+    "intervention": InterventionRecord, "dataset": DatasetRecord, "loop": LoopRecord,
 }
 
 SCHEMA = """
@@ -75,6 +84,8 @@ def sha256_file(path: Path) -> str:
 
 
 class Ledger:
+    _depth = 0  # open transaction() levels on this connection (class default: verify builds Ledgers without __init__)
+
     def __init__(self, root: Path | str):
         self.root = Path(root)
         self.blobs = self.root / "blobs"
@@ -82,8 +93,11 @@ class Ledger:
         self.db = sqlite3.connect(self.root / "ledger.sqlite", isolation_level=None, check_same_thread=False)
         # the API thread writes people's actions while the campaign worker writes evidence: wait, don't fail
         self.db.execute("PRAGMA busy_timeout=15000")
-        self.db.execute("PRAGMA journal_mode=WAL")
-        self.db.executescript(SCHEMA)
+        # Switching to WAL and creating tables take the write lock; another process writing at that moment must not
+        # make opening the ledger fail.
+        self._retry_locked(lambda: self.db.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+                           or self.db.execute("PRAGMA journal_mode=WAL"))
+        self._retry_locked(lambda: self.db.executescript(SCHEMA))
 
     # ------------------------------------------------------------ blobs
 
@@ -103,19 +117,29 @@ class Ledger:
             self._require(transform.parent_ids, ("artifact", "measurement"), "transform parent")
         dst = self.blob_path(aid)
         dst.parent.mkdir(parents=True, exist_ok=True)
-        tmp = dst.with_suffix(".tmp")
+        tmp = dst.with_name(f"{dst.name}.{os.getpid()}-{uuid.uuid4().hex[:8]}.tmp")  # one per writer
         shutil.copyfile(path, tmp)
         if "sha256:" + sha256_file(tmp) != aid:  # file changed while copying
             tmp.unlink()
             raise AdmissionError(f"{path} changed during import")
-        tmp.replace(dst)
+        try:
+            tmp.replace(dst)
+        except PermissionError:  # Windows: another writer stored the same bytes and has the blob open
+            tmp.unlink(missing_ok=True)
+            if not dst.exists() or "sha256:" + sha256_file(dst) != aid:
+                raise
         art = Artifact(id=aid, kind=kind, media_type=media_type, bytes=dst.stat().st_size, shape=shape, axes=axes,
                        source=source, transform=transform, label=label, created_at=time.time())
-        self._insert("artifact", art)
+        try:
+            self._insert("artifact", art)
+        except AdmissionError:  # another writer recorded the same bytes first: content addressing makes it this file
+            if existing := self.get("artifact", aid):
+                return existing
+            raise
         return art
 
     def put_bytes(self, data: bytes, *, suffix=".bin", **kw) -> Artifact:
-        tmp = self.root / f".incoming-{hashlib.sha256(data).hexdigest()}{suffix}"
+        tmp = self.root / f".incoming-{hashlib.sha256(data).hexdigest()}-{os.getpid()}-{uuid.uuid4().hex[:8]}{suffix}"
         tmp.write_bytes(data)
         try:
             return self.put_file(tmp, **kw)
@@ -133,6 +157,16 @@ class Ledger:
         if kind == "intervention":
             from translucent.intervention import admit
             admit(self, rec)
+        elif kind == "loop":
+            from translucent.chain import admit
+            admit(self, rec)
+        elif kind == "dataset":
+            self._require([rec.manifest_id], ("artifact",), "dataset manifest")
+            for r in rec.records:
+                self._require([c.series_id for c in r.channels], ("artifact",), f"dataset {rec.id}/{r.id} series")
+                self._require(list(r.files.values()), ("artifact",), f"dataset {rec.id}/{r.id} file")
+                self._require([m["artifact_id"] for m in r.media if "artifact_id" in m], ("artifact",),
+                              f"dataset {rec.id}/{r.id} media")
         elif kind == "run":
             self._require(rec.input_ids, ("artifact", "measurement"), "run input")
             self._require(rec.output_ids, ("artifact", "measurement"), "run output")
@@ -314,23 +348,96 @@ class Ledger:
 
     # ------------------------------------------------------------ events
 
+    def in_transaction(self) -> bool:
+        return self._depth > 0
+
+    @contextmanager
+    def transaction(self) -> Iterator["Ledger"]:
+        """One atomic group of writes. The outermost level takes BEGIN IMMEDIATE (SQLite's write lock, which
+        serializes writers across processes) and commits, or rolls back on any exception. A nested level is a
+        savepoint: it joins the outer transaction, and its own failure undoes only its writes. put_file copies bytes
+        and belongs outside."""
+        if self._depth:
+            name = f"nested_{self._depth}"
+            self.db.execute(f"SAVEPOINT {name}")
+            self._depth += 1
+            try:
+                yield self
+            except BaseException:
+                self.db.execute(f"ROLLBACK TO {name}")
+                self.db.execute(f"RELEASE {name}")
+                raise
+            else:
+                self.db.execute(f"RELEASE {name}")
+            finally:
+                self._depth -= 1
+            return
+        self._begin_immediate()
+        self._depth = 1
+        try:
+            yield self
+            self.db.execute("COMMIT")
+        except BaseException:
+            if self.db.in_transaction:
+                self.db.execute("ROLLBACK")
+            raise
+        finally:
+            self._depth = 0
+
+    WRITE_WAIT_S = 120.0
+
+    def _retry_locked(self, step) -> None:
+        deadline = monotonic() + self.WRITE_WAIT_S
+        while True:
+            try:
+                step()
+                return
+            except sqlite3.OperationalError as e:
+                if "locked" not in str(e) and "busy" not in str(e) or monotonic() >= deadline:
+                    raise
+                sleep(random.uniform(0.01, 0.1))
+
+    def _begin_immediate(self) -> None:
+        # SQLite's busy handler is not a queue: under load one process can lose the write lock to the others for
+        # longer than busy_timeout and get "database is locked". Keep asking, with jitter, until WRITE_WAIT_S.
+        deadline = monotonic() + self.WRITE_WAIT_S
+        while True:
+            try:
+                self.db.execute("BEGIN IMMEDIATE")
+                return
+            except sqlite3.OperationalError as e:
+                if "locked" not in str(e) and "busy" not in str(e) or monotonic() >= deadline:
+                    raise
+                sleep(random.uniform(0.01, 0.1))
+
+    def next_event(self, campaign_id: str) -> tuple[int, float]:
+        """The campaign's next event seq and time, inside a transaction. The time is never earlier than the previous
+        event's, so a clock that steps back (another process, NTP) cannot make verify see time run backwards."""
+        if not self._depth:
+            raise RuntimeError("next_event is read inside Ledger.transaction()")
+        row = self.db.execute("SELECT seq, body FROM event WHERE campaign_id=? ORDER BY seq DESC LIMIT 1",
+                              (campaign_id,)).fetchone()
+        identity = getattr(self, "intervention_identity", None)
+        now = identity.timestamp() if identity is not None else time.time()
+        if row is None:
+            return 1, now
+        return row[0] + 1, max(now, json.loads(row[1])["t"])
+
+    def write_event(self, ev: Event) -> Event:
+        """Insert an event built from next_event(), inside the same transaction."""
+        if not self._depth:
+            raise RuntimeError("write_event runs inside Ledger.transaction()")
+        self.db.execute("INSERT INTO event VALUES (?,?,?)", (ev.campaign_id, ev.seq, ev.model_dump_json()))
+        return ev
+
     def emit(self, campaign_id: str, type: str, actor: str, title: str, *, detail=None, refs=(), data=None) -> Event:
         if len(title) > 90:  # titles are shown whole: cut at a word, never mid-word
             title = title[:89].rsplit(" ", 1)[0].rstrip(",;:") + "…"
-        self.db.execute("BEGIN IMMEDIATE")
-        try:
-            (last,) = self.db.execute("SELECT COALESCE(MAX(seq), 0) FROM event WHERE campaign_id=?",
-                                      (campaign_id,)).fetchone()
-            identity = getattr(self, "intervention_identity", None)
-            event_time = identity.timestamp() if identity is not None else time.time()
-            ev = Event(seq=last + 1, campaign_id=campaign_id, t=event_time, type=type, actor=actor, title=title,
+        with self.transaction():
+            seq, event_time = self.next_event(campaign_id)
+            ev = Event(seq=seq, campaign_id=campaign_id, t=event_time, type=type, actor=actor, title=title,
                        detail=detail, refs=list(refs), data=data or {})
-            self.db.execute("INSERT INTO event VALUES (?,?,?)", (campaign_id, ev.seq, ev.model_dump_json()))
-            self.db.execute("COMMIT")
-        except BaseException:
-            self.db.execute("ROLLBACK")
-            raise
-        return ev
+            return self.write_event(ev)
 
     def events(self, campaign_id: str, after_seq: int = 0) -> list[Event]:
         rows = self.db.execute("SELECT body FROM event WHERE campaign_id=? AND seq>? ORDER BY seq",

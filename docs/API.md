@@ -4,6 +4,9 @@
 uv run translucent serve --ledger <ledger-dir> --state <state-dir>   # http://127.0.0.1:8000
 ```
 
+The ledger must already exist (a mistyped path is refused); add `--create-ledger` to start on a new, empty one.
+`verify`, `experiments`, `export`, `resume` and `mcp` likewise refuse a path that holds no ledger.
+
 ## NIST live planner and recorded replay
 
 The intervention command runs locally through the existing metered providers.
@@ -79,7 +82,7 @@ Protected requests send `Authorization: Bearer <token>`. Tokens are compared in 
 
 | Endpoint | Returns |
 |---|---|
-| `GET /api/session` | Whether live runs and team actions are enabled, and the default model. |
+| `GET /api/session` | Whether live runs and team actions are enabled, and the default model. Live is true only with opt-in, the administrator token and the default profile's provider keys. |
 | `GET /api/experiments` | Recorded experiments in the ledger. |
 | `GET /api/campaigns` | Campaigns, each with a nullable `job` (queued, running, paused, finished, failed, interrupted). |
 | `GET /api/campaigns/{id}` | One campaign and its job. |
@@ -93,14 +96,17 @@ Protected requests send `Authorization: Bearer <token>`. Tokens are compared in 
 | `GET /api/campaigns/{id}/protocol` | The campaign's pre-registered metrics and method board: `protocol` (or `null`), `pre_registered` (the protocol provably precedes the start), and per metric its `attempts` (finding, `method`, `value`, `unit`, `uncertainty`, checker `status`, `on_protocol` with a `protocol_note`, `replications`) and `decisions`. |
 | `GET /api/campaigns/{id}/forks` | What-if branches made from this campaign: each `fork`, its `branch` campaign, `status` (`done`, `failed`, `needs_agent`, or the agent job's status), `reason`, and the branch's `findings` with their status. |
 | `GET /api/findings/{claim_id}/branches` | A finding's alternatives: `chain` (findings it replaces or that replace it), `forks` (what-if branches with their findings and status), `same_quantity` (findings in other campaigns that test the same quantity). |
-| `GET /api/artifacts/{sha256-id}` | Recorded evidence bytes with their media type. Only existing ledger ids are served. |
+| `GET /api/artifacts/{sha256-id}` | Recorded evidence bytes with their media type. Only existing ledger ids are served. Every artifact carries `Content-Security-Policy: sandbox` and `nosniff`; anything but plain data (CSV, TSV, text, JSON, Parquet), PNG/JPEG/GIF/WebP/TIFF images and video is sent as an attachment (HTML and SVG never render on the app's origin). |
 | `GET /api/budget` | Local spend balances per provider. Never contacts a provider. |
 
 ## Running campaigns (admin token)
 
 `POST /api/campaigns` with `{"objective": "...", "experiment_id": "reisecker2023/movie4", "profile": "meta",
 "budget": 2.0}` returns 202 with the campaign and its queued job. The experiment must already be in the ledger;
-paths are never taken from a request. Only one campaign runs at a time (409 otherwise).
+paths are never taken from a request. Only one campaign runs at a time (409 otherwise). A budget must be a
+finite number above zero and no more than the spending caps of the providers its profile calls ($25 for `dev`,
+$170 for `meta`; 422 otherwise, as for resumes and queued what-ifs). A server without the profile's provider key
+refuses the run with 503 before recording anything; a run that fails later is logged with its campaign id.
 
 An optional `"protocol"` fixes the success metrics before the agent starts:
 
@@ -201,6 +207,86 @@ It runs in a fresh sandbox with networking blocked, no credentials and a 120 s l
 inputs, 32 MiB of input bytes, 32 scalar outputs. The code then runs a second time on the recorded inputs moved by a
 fraction of a percent; an output or uncertainty that doesn't move with them was typed in, and is refused.
 
+## Several ledgers from one server (`/api/v1`)
+
+`create_app(data_root=D)` (`TRANSLUCENT_DATA_ROOT`) serves every ledger under `D/ledgers/<id>/`, with the server's
+state for each in `D/state/<id>/` and one server per data root (`D/state/server.lock`). Ledger ids are 2-64
+lowercase letters, digits, `-` and `_`. `translucent.workspace.init_ledger(D, id, title=...)` creates one; nothing
+else does. An unknown id is a 404 and creates no folder. The `/api/...` routes above serve the ledger `default`
+(the `--ledger` folder in single-ledger mode). One server's tokens are valid on every ledger it serves.
+
+| Method and path | Auth | Body | Response |
+|---|---|---|---|
+| `GET /api/v1/ledgers` | none | | `[{id, title, campaigns, datasets}]` |
+| `GET /api/v1/ledgers/{id}/campaigns?cursor=&limit=` | none | | `{items: [CampaignSummary], next_cursor}`: every kind (loop, video, intervention), newest first; `limit` 1-50 (50) |
+| `GET /api/v1/ledgers/{id}/campaigns/{cid}/events` | none | | SSE, `Last-Event-ID` resumes after that seq; a loop campaign's stream ends at its conclusion |
+| `GET /api/v1/ledgers/{id}/artifacts/{artifact-id}` | none | | the bytes, served as `GET /api/artifacts/...` |
+| `POST /api/v1/ledgers/{id}/video-campaigns` | admin, live | as `POST /api/campaigns` | as `POST /api/campaigns`; one queued, running or paused job per ledger (409) |
+| `PUT /api/v1/ledgers/{id}/uploads/{upload-id}/{name}` | team | raw bytes | `{name, bytes}`; at most 64 files per upload |
+| `POST /api/v1/ledgers/{id}/datasets` | team | `{manifest, upload_id}` or `{manifest, path}` | the `DatasetRecord`; 409 for a different dataset under a used id, 422 with the plain reason, 403 for a path the server may not read |
+
+The manifest is always the JSON itself (import v2, or a v1 experiment manifest). `path` names a folder under the
+server's import root (`create_app(import_root=...)`, `TRANSLUCENT_IMPORT_ROOT`); without one, no path is read.
+Absolute paths and `..` outside the root, and links in the folder or on the way to it, are refused. Dataset ids are
+per ledger: two ledgers can hold the same id. Writes accept `Idempotency-Key` as the `/api/...` ones do.
+
+## Loop campaigns (`/api/v1/ledgers/{id}/...`)
+
+A loop campaign registers an objective on a system (`GET .../systems`), proposes experiments, has a person approve
+each exact version, runs computational ones on the server and takes physical results from people, and concludes with
+an outcome computed from the recorded comparisons. Every capability in `translucent.loop_service.CAPABILITIES` that a
+person or an agent may call is one route below, named `loop.<capability>`; the same capabilities are MCP tools (see
+[AGENTS.md](AGENTS.md)). The runner's and the comparator's capabilities are on no route.
+
+People act with the team token under the `author` they name. An agent's own client may call the agent capabilities
+with the team token and `"agent": "<client name>"` instead of `author`; it can never approve, reject, revise, submit
+a result, amend or note. Opening a campaign with a planner that spends nothing (`external`, `scripted`,
+`domain_baseline`) needs the team token; a paid planner (`muse...`) also needs the administrator token and live
+opt-in. The objective's `budget.model_usd` must be a finite number of dollars, 0 or more, and not above the caps of
+the providers its profile calls (dev $25, meta $170), as for a video campaign; `experiment_usd` and `max_wall_s`
+must be finite and non-negative.
+
+| Method and path (under `/api/v1/ledgers/{id}`) | Auth | Body | Response |
+|---|---|---|---|
+| `GET /systems` | none | | `[SystemSpec as JSON]` |
+| `GET /datasets`, `GET /datasets/{did}` | none | | summaries; one `DatasetRecord` (no raw values) |
+| `POST /datasets` | team | see above | `DatasetRecord` |
+| `POST /campaigns` | team (admin, live for a paid planner) | `{author or agent, title, objective, memory?}` | 201 `{campaign, view}`; `registered_by` defaults to the caller |
+| `GET /campaigns/{cid}/view` | none | | the campaign's `LoopView` |
+| `GET /campaigns/{cid}/series?ref=&quantity=&max_points=&t0=&t1=` | none | | `{t, y, unit, t_unit, n, downsampled}`; `ref` is a request or result id, or `dataset/record` |
+| `POST /campaigns/{cid}/measurements` | team | `{author or agent, name, spec}` (ops/1) | `{record, measurements}` |
+| `POST /campaigns/{cid}/requests` | team | `{author or agent, action, params, rationale, prediction, expected_effect, evidence_ids?, specimen?, due_by?}` | 201 the request, with `content_hash`; a pending request with the same configuration is returned instead |
+| `GET /campaigns/{cid}/requests/{rq}` | none | | the request: versions, state, timeline, result |
+| `POST .../requests/{rq}/approve` | team | `{author, content_hash, note?}` | the request; 409 when the hash is of an older version |
+| `POST .../requests/{rq}/reject` | team | `{author, content_hash, reason}` | the request |
+| `POST .../requests/{rq}/revise` | team | `{author, params, reason, approve?}` | the request at its next version |
+| `POST .../requests/{rq}/cancel` | team | `{author or agent, reason}` | the request (an agent: only its own, before approval) |
+| `POST .../requests/{rq}/results` | team | the `HumanUpload` JSON (`request_id`, `content_hash`, `executed_configuration`, `executed_units`, `specimen_id`, `table`, `time`, `scalars`, `notes`, `author`) and `upload_id` | the completed request; 422 `{detail: {message, result_rejected: {record_id, reasons}}}` when refused (the refusal is recorded) |
+| `POST /campaigns/{cid}/amendments` | team | `{author, reason, target?, constraints?}` | `{amendment, comparisons}` |
+| `POST /campaigns/{cid}/notes` | team | `{author, text}` | the `human.note` event |
+| `POST /campaigns/{cid}/conclusion` | team | `{author or agent, text}` | the `conclusion` record; its outcome is computed, not sent |
+| `GET /campaigns/{cid}/export` | none | | `<cid>.loop.json`: the view and the receipt `translucent verify` re-checks |
+
+A result's files are uploaded first with `PUT .../uploads/{upload_id}/{name}` and removed once the result is
+accepted. Computational requests run on the server's loop runner thread (`create_app(loop_workers=2)`; 0 runs none
+here) as soon as they are approved; an MCP session's `wait_for_request` runs them too, and a claim lock with the
+ledger's admission keeps each to one execution.
+
+**Statuses.** 403: not this actor's capability, or a missing token (every write under `/api` without the team or administrator token is refused before its body is read). 413: a body over its route's limit (1 MB of JSON; 16 MB for a dataset or experiment manifest; 500 MB for an uploaded file). 404: an unknown ledger, campaign, request or
+dataset. 409: an approval of an older version, an Idempotency-Key reused for a different write, a dataset id clash,
+and any write to a concluded campaign. 422: anything else the ledger refuses, with the plain reason.
+
+**Idempotency-Key.** Every write takes one. The key becomes part of the ids of the records the write appends (and
+of the campaign's id when opening), so a retry, including one after a restart that lost the API's state, finds the
+original records instead of writing twice; a different write under the same key is a 409. The API also keeps the
+first response for each key, as for every people's write, so a retry with the state kept gets that response byte
+for byte. A note (an event, not a record) and a result whose uploaded files were removed are recognised by the kept
+response only.
+
+**Several writers.** The API server, any number of MCP sessions and the CLI may write one ledger at once. It must
+be on a local disk of one host: SQLite's write-ahead log needs shared memory, so network filesystems are not
+supported.
+
 ## Offline verification
 
 ```sh
@@ -219,8 +305,9 @@ manifest needs an external checkpoint to detect.
 
 ## MCP
 
-A stdio MCP server exposes `list_campaigns`, `list_findings`, `get_evidence` and `verify` over one ledger, and with
-`--write` the measurement tools and `propose_finding`. See [AGENTS.md](AGENTS.md).
+A stdio MCP server exposes `list_campaigns`, `list_findings`, `get_evidence` and `verify` over one ledger, the
+loop-campaign reads, and with `--write` the measurement tools, `propose_finding` and the loop-campaign agent tools;
+with `--operator "<name>"` also the person tools. See [AGENTS.md](AGENTS.md).
 
 ## Recorded NIST interventions
 

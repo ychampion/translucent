@@ -50,7 +50,8 @@ def test_export_reuses_graph_and_campaign_diff(campaign,tmp_path):
     assert d['intervention']['a_decisions']==d['intervention']['b_decisions']>0
 
 
-def test_server_intervention_reads_are_projected_and_read_only(campaign,tmp_path):
+def test_server_intervention_reads_are_projected_and_read_only(campaign,tmp_path,monkeypatch):
+    monkeypatch.setenv('TRANSLUCENT_TEAM_TOKEN','team-secret')
     from fastapi.testclient import TestClient
     from translucent.server import create_app
     L,c=campaign
@@ -61,5 +62,8 @@ def test_server_intervention_reads_are_projected_and_read_only(campaign,tmp_path
         assert client.get(f'/api/campaigns/{c.id}/intervention/updates').json()==[]
         assert client.get(f'/api/campaigns/{c.id}/bundle').json()['intervention']['procedure']
         assert client.get(f'/api/campaigns/{c.id}/graph').status_code==200
-        assert client.post(f'/api/campaigns/{c.id}/intervention/updates',json={}).status_code==405
+        # no write route: a token holder gets 405; without a token, every write is refused before routing
+        team={'Authorization':'Bearer team-secret'}
+        assert client.post(f'/api/campaigns/{c.id}/intervention/updates',json={},headers=team).status_code==405
+        assert client.post(f'/api/campaigns/{c.id}/intervention/updates',json={}).status_code==403
     assert L.db.execute('SELECT COUNT(*) FROM record').fetchone()[0]==before

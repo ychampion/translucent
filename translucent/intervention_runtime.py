@@ -156,7 +156,10 @@ def open_intervention(
     min_trials=20,
     budget_usd=0,
 ):
-    from translucent.systems.nist_heat import ingest
+    from translucent import systems
+
+    nist = systems.get("nist-heat-interrupt")
+    ingest = nist.ingest
 
     c = create(L, splits=[split], min_trials=min_trials, budget_usd=budget_usd)
     from translucent.intervention_physics import register_priors
@@ -726,7 +729,10 @@ class InterventionTools:
             pending = sorted({key(t) for t in trials} - completed)
             if not pending:
                 return dict(done=True)
-            from translucent.systems.nist_heat import ingest
+            from translucent import systems
+
+            nist = systems.get("nist-heat-interrupt")
+            ingest = nist.ingest
 
             scope = f"planner:{split}:{len(folds)}"
             # Registration fixes the trial universe. New scopes get independent salts;
@@ -834,7 +840,10 @@ def register_hypotheses(L, cid, policies):
 
 def propose_experiments(L, cid, training_ids, *, limit=3):
     """Expected information about the hypothesis identity, using equal prior weights."""
-    from translucent.systems.nist_heat import load_dataset, VENT_MEANS
+    from translucent import systems
+
+    nist = systems.get("nist-heat-interrupt")
+    load_dataset, VENT_MEANS = nist.load_trials, nist.condition_grid()
     from translucent.intervention_physics import continuous_prior, two_node_forecast
 
     hypotheses = records(L, cid, "hypothesis")
@@ -967,7 +976,10 @@ def write_procedure(L, cid, policy_id, claim_ids, limits=None):
         raise ValueError(
             "Procedure needs supported performance evidence for its policy"
         )
-    from translucent.systems.nist_heat import register_visual_evidence
+    from translucent import systems
+
+    nist = systems.get("nist-heat-interrupt")
+    register_visual_evidence = nist.register_closing_evidence
 
     register_visual_evidence(L, cid)
     config = protocol(L, cid).data
