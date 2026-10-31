@@ -357,3 +357,13 @@ def test_a_threshold_never_reached_is_an_answer(L):
     # a threshold the series starts past is still refused: "already above" is not "not reached"
     with pytest.raises(AdmissionError, match="already at or above"):
         LoopService(L, MUSE).define_measurement(cid, "warm20", time_to_40 | {"threshold": 20.0})
+
+
+def test_the_view_says_which_rule_decided():
+    """The web explains a slower winner from the view's decided_by, never by re-deciding the comparison itself."""
+    from types import SimpleNamespace
+    from translucent.loop_view import _comparison
+    won = _comparison(SimpleNamespace(id="cmp1", data=run(obj(), FAILING, cand(1300.0))))
+    plain = _comparison(SimpleNamespace(id="cmp2", data=run(obj(), BASE, cand(800.0))))
+    assert won["verdict"] == "candidate_better" and won["target"]["decided_by"] == "feasibility"
+    assert "decided_by" not in plain["target"]

@@ -1,7 +1,9 @@
 import type { Metadata, Viewport } from "next";
-import { Shell, THEME_SCRIPT } from "@/components/Shell";
+import { Shell } from "@/components/Shell";
 import { REDUCED_MOTION_SCRIPT } from "@/lib/motion";
+import { THEME_SCRIPT } from "@/lib/theme";
 import "./globals.css";
+import "./chat.css";
 import "./pages.css";
 import "./intervention.css";
 import "./loop.css";

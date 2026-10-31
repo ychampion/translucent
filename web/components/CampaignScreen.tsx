@@ -68,6 +68,10 @@ export function CampaignScreen({ campaignKey }: { campaignKey: string }) {
 
   // Remember it in the sidebar; mark a running live campaign there.
   const title = view?.campaign?.title || view?.campaign?.objective || "";
+  // A title the server cut from the objective mid-word reads as broken; show the whole question and let the header
+  // ellipsize it at whatever width there is.
+  const objective = view?.campaign?.objective ?? "";
+  const heading = objective && title && objective !== title && objective.startsWith(title.replace(/[….\s]+$/, "")) ? objective : title;
   useEffect(() => {
     if (!store || !title) return;
     const href = liveId ? `${window.location.pathname}${window.location.search}` : `/c/${campaignKey}/`;
@@ -212,7 +216,7 @@ export function CampaignScreen({ campaignKey }: { campaignKey: string }) {
     <div className={`campaign ${panel ? "has-panel" : ""} ${panel && layout.wide ? "is-wide" : ""}`}
       style={panel && layout.width && !layout.wide ? { ["--panel-w" as string]: `${layout.width}px` } : undefined}>
       <div className="campaign-main">
-        <PageHeader title={title}>
+        <PageHeader title={<span title={heading}>{heading}</span>}>
           {liveId && <Presence view={view} />}
           <button className={`icon-btn ${panel ? "is-on" : ""}`} onClick={() => { setPanel((p) => !p); setSelected(null); }}
             aria-label={panel ? "Hide the recording" : "Show the recording"} title="Recording" aria-pressed={panel}>

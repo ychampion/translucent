@@ -7,7 +7,9 @@ import {
   actorWord, artifactIdOf, bannerLine, baselineFor, bestComparison, byRecency, canAct, change, constraintLine, limitFor,
   num, outcomeOfVerdict, paramsLine, parseLoopFile, predictedLine, RECORDING_NAME, recordingUrl, requestTitle,
   categoriesLine, seriesFromBlob, spendLines, validityWarning, valueLine, standing, stateCounts, targetLine, thin, withUnit,
-  type Comparison, type LoopView,
+  actorIn, decidedByLimits, idWords, limitValue, OBJECTIVE_CUT, objectiveLine, plannerIsAgent, plannerWord, prose, reasonsLine,
+  unbroken, verdictSentence, wordsFor,
+  type Comparison, type LoopView, type SystemSpecLite,
 } from "./loop";
 
 // The S4b sample view (tests/data/loop_view_sample.json): a concluded toy campaign, one rejected and one completed request.
@@ -120,8 +122,8 @@ describe("words", () => {
     expect(constraintLine({ quantity: "max_temperature", op: "<=", limit: 45, unit: "degC" })).toBe("Max temperature ≤ 45 °C");
     expect(constraintLine(v.objective.constraints[0])).toBe(v.objective.constraints[0].label!);
     const done = v.requests[1];
-    expect(paramsLine(done.params)).toBe("c_rate_1 2.5C · switch_soc 0.5");
-    expect(requestTitle(done)).toBe("Simulate protocol: c_rate_1 2.5C · switch_soc 0.5");
+    expect(paramsLine(done.params)).toBe("C-rate 1 2.5C · Switch SOC 0.5");
+    expect(requestTitle(done)).toBe("Simulate protocol: C-rate 1 2.5C · Switch SOC 0.5");
   });
   test("who did it, in the product's words", () => {
     expect(actorWord("person:Ana")).toBe("Ana");
@@ -153,7 +155,190 @@ describe("category outputs", () => {
     expect(validityWarning({ categories: { validity: "ok" } })).toBeNull();
     expect(validityWarning({})).toBeNull();
     expect(validityWarning(null)).toBeNull();
-    expect(categoriesLine({ categories: { status: "ok", validity: "extrapolation", cv_entered: "no" } })).toBe("Status ok · Cv entered no");
+    expect(categoriesLine({ categories: { status: "ok", validity: "extrapolation", cv_entered: "no" } })).toBe("Status ok · CV entered no");
+  });
+  test("inside the model's range is not a warning", () => {
+    expect(validityWarning({ categories: { validity: "within_range" } })).toBeNull();
+    expect(validityWarning({ categories: { validity: "out_of_bounds" } })).toBe("Validity: out of bounds");
+  });
+});
+
+// The fast-charge case: a four-step protocol, two limits the baseline breaks, a candidate that meets both at the price
+// of a longer charge (loop-compare/2 decides by the limits).
+function fastCharge(): { v: LoopView; c: Comparison; specs: SystemSpecLite[] } {
+  const v = sample();
+  v.campaign.system = { ...v.campaign.system, id: "lgm50" };
+  v.objective = {
+    version: 1, amendments: [],
+    statement: "Charge from 10 to 80 % faster while the cell stays at or below 45 degC (anode >= +10 mV).",
+    target: { quantity: "charge_time_80", unit: "min", direction: "minimize", margin: 0, label: "Time from 10 to 80 % SOC" },
+    constraints: [
+      { quantity: "min_anode_potential", op: ">=", limit: 10, unit: "mV", label: "Plating margin: anode potential at or above +10 mV" },
+      { quantity: "max_temperature", op: "<=", limit: 45, unit: "degC", label: "Cell at or below 45 degC" },
+    ],
+  };
+  v.baseline = [{
+    basis: "computational", refs: ["chen2020"], fails: [],
+    values: { charge_time_80: { value: 28.203, unit: "min", h: 0.05 } },
+    constraints: [
+      { quantity: "min_anode_potential", value: 7.304, limit: 10, ok: false },
+      { quantity: "max_temperature", value: 51.191, limit: 45, ok: false },
+    ],
+  }];
+  const c: Comparison = {
+    id: "cmp_fc", request_id: "rq_fc", objective_version: 1, basis: "computational", verdict: "candidate_better", reasons: [],
+    target: { baseline: 28.203, candidate: 43.13, delta: -14.927, better: false },
+    constraints: [
+      { quantity: "min_anode_potential", value: 25.068, limit: 10, ok: true },
+      { quantity: "max_temperature", value: 40.654, limit: 45, ok: true },
+    ],
+  };
+  const specs: SystemSpecLite[] = [{
+    id: "lgm50",
+    quantities: [
+      { name: "min_anode_potential", label: "Lowest anode potential vs Li/Li+ (plating onset below 0)" },
+      { name: "max_temperature", label: "Peak cell temperature" },
+      { name: "plated_lithium", label: "Capacity lost to plated lithium (indicative, unvalidated)" },
+    ],
+    actions: [{
+      name: "simulate_protocol", label: "Simulate a four-step fast charge",
+      parameters: [1, 2, 3, 4].map((i) => ({ name: `c_rate_${i}`, label: `Charge C-rate, step ${i} state of charge` }))
+        .concat([{ name: "ambient", label: "Ambient temperature (cell starts at ambient)" }]),
+    }],
+  }];
+  return { v, c, specs };
+}
+
+describe("the verdict in words", () => {
+  test("server text reads with units and symbols", () => {
+    expect(prose("ambient 25 degC, c_rate_1 1.3 1/h, limit >= 10; max <= 45 degC")).toBe("ambient 25 °C, c_rate_1 1.3C, limit ≥ 10; max ≤ 45 °C");
+    expect(prose("at or below 45 degC.")).toBe("at or below 45 °C.");
+    expect(constraintLine({ quantity: "max_temperature", op: "<=", limit: 45, unit: "degC", label: "Cell at or below 45 degC" })).toBe("Cell at or below 45 °C");
+  });
+  test("labels come from the system spec, then the ids", () => {
+    const { v, specs } = fastCharge();
+    const w = wordsFor(v, specs);
+    expect(w.quantity("charge_time_80")).toBe("Time from 10 to 80 % SOC");
+    expect(w.quantity("min_anode_potential")).toBe("Lowest anode potential vs Li/Li+");
+    expect(w.note("plated_lithium")).toBe("indicative, unvalidated");
+    expect(w.quantity("max_voltage")).toBe("Peak voltage");
+    expect(w.action("simulate_protocol")).toBe("Simulate a four-step fast charge");
+    expect(idWords("cv_entered")).toBe("CV entered");
+  });
+  test("stepped parameters read in step order, with C-rates and °C", () => {
+    const { v, specs } = fastCharge();
+    const params = {
+      ambient: { value: 25, unit: "degC" }, c_rate_2: { value: 1.05, unit: "1/h" }, c_rate_1: { value: 1.3, unit: "1/h" },
+      c_rate_3: { value: 0.95, unit: "1/h" }, c_rate_4: { value: 0.75, unit: "1/h" },
+    };
+    expect(paramsLine(params, wordsFor(v, specs))).toBe("Charge C-rate 1.3C → 1.05C → 0.95C → 0.75C · Ambient temperature 25 °C");
+    expect(requestTitle({ action: "simulate_protocol", params }, wordsFor(v, specs)))
+      .toBe("Simulate a four-step fast charge: Charge C-rate 1.3C → 1.05C → 0.95C → 0.75C · Ambient temperature 25 °C");
+    expect(paramsLine(params)).toBe("C-rate 1.3C → 1.05C → 0.95C → 0.75C · Ambient 25 °C");
+  });
+  test("better by the limits: the longer charge is the price of meeting them, said once, rounded, simulated", () => {
+    const { v, c, specs } = fastCharge();
+    expect(decidedByLimits(c)).toBe(true);
+    const s = verdictSentence(v, c, wordsFor(v, specs));
+    expect(s).toBe(
+      "In simulation, the candidate’s time from 10 to 80 % SOC is 43.1 min against 28.2 min for the baseline. "
+      + "Both limits hold: lowest anode potential vs Li/Li+ 25.1 mV (limit ≥ 10 mV) and peak cell temperature 40.7 °C (limit ≤ 45 °C). "
+      + "It counts as better because the baseline breaks both limits; meeting them costs 14.9 min.",
+    );
+    expect(s).not.toMatch(/degC|1\/h|>=|<=|_/);
+  });
+  test("a plain improvement, a broken limit and an inconclusive result", () => {
+    const { v, c } = fastCharge();
+    v.baseline[0].constraints = v.baseline[0].constraints.map((x) => ({ ...x, ok: true }));
+    const better: Comparison = { ...c, target: { baseline: 28.203, candidate: 20, delta: 8.2, better: true } };
+    expect(decidedByLimits(better)).toBe(false);
+    expect(verdictSentence(v, better)).toContain("Better than the baseline by 8.2 min.");
+    const broken: Comparison = { ...c, verdict: "violates_constraints", constraints: [{ quantity: "min_anode_potential", value: 3.378, limit: 10, ok: false }, c.constraints[1]] };
+    const s = verdictSentence(v, broken);
+    expect(s).toContain("A limit is broken: lowest anode potential 3.38 mV (limit ≥ 10 mV).");
+    expect(s).toContain("This one holds: peak temperature 40.7 °C (limit ≤ 45 °C).");
+    expect(s).toContain("A broken limit rules it out");
+    expect(reasonsLine(v, broken)).toBe("breaks lowest anode potential 3.38 mV (limit ≥ 10 mV)");
+    expect(verdictSentence(v, { ...c, verdict: "inconclusive" })).toContain("Within the uncertainty it is too close to call");
+    expect(verdictSentence(v, { ...c, basis: "physical" })).toMatch(/^On the bench, /);
+  });
+  test("on screen a number keeps its unit and its relation on one line", () => {
+    expect(unbroken("from 10 to 80 % SOC (limit ≥ 10 mV) at 45 °C in 43.1 min")).toBe("from 10 to 80 % SOC (limit ≥ 10 mV) at 45 °C in 43.1 min");
+    expect(unbroken("2 steps")).toBe("2 steps");
+  });
+
+  test("the words follow the recorded verdict and never re-decide it", () => {
+    const { v, c } = fastCharge();
+    // The view leaves decided_by out: a better verdict whose target is not better is rule 5, even when the view's
+    // baseline shows no broken limit (another basis, another objective version); never "better by" a slower charge.
+    v.baseline[0].constraints = [];
+    expect(decidedByLimits(c)).toBe(true);
+    const s = verdictSentence(v, c);
+    expect(s).toContain("It counts as better because the baseline breaks a limit; meeting it costs 14.9 min.");
+    expect(s).not.toMatch(/Better than the baseline by/);
+    // Feasibility with a faster candidate (better false only for the margin): nothing is a cost.
+    const faster: Comparison = { ...c, target: { baseline: 28.203, candidate: 27.5, delta: 0.703, better: false } };
+    expect(verdictSentence(v, faster)).not.toMatch(/costs/);
+    // A negative margin accepts a slower candidate: said as worse, within what the objective accepts.
+    v.objective.target.margin = -2;
+    const slack: Comparison = { ...c, target: { baseline: 28.2, candidate: 29.2, delta: -1, better: true } };
+    expect(decidedByLimits(slack)).toBe(false);
+    expect(verdictSentence(v, slack)).toContain("It counts as better: 1 min worse, within the 2 min the objective accepts.");
+    expect(verdictSentence(v, { ...slack, verdict: "not_better", target: { ...slack.target, delta: -5, better: false } }))
+      .toContain("Not better than the baseline, even allowing the 2 min the objective accepts.");
+    // Not better although the difference clears the margin: the target's own limit was missed.
+    v.objective.target.margin = 0;
+    v.objective.target.limit = 20;
+    const missed: Comparison = { ...c, verdict: "not_better", target: { baseline: 28.2, candidate: 24, delta: 4.2, better: false } };
+    expect(verdictSentence(v, missed)).toContain("It misses the target’s own limit of 20 min.");
+    expect(verdictSentence(v, missed)).not.toMatch(/Not better than the baseline/);
+  });
+  test("inconclusive and missing limits say which, without a cause the record does not give", () => {
+    const { v, c } = fastCharge();
+    const straddle: Comparison = { ...c, verdict: "inconclusive", target: { ...c.target, better: null },
+      constraints: [{ quantity: "min_anode_potential", value: 10.2, limit: 10, ok: null }, c.constraints[1]] };
+    const s = verdictSentence(v, straddle);
+    expect(s).toContain("Too close to the limit to call: lowest anode potential 10.2 mV (limit ≥ 10 mV).");
+    expect(s).toContain("decides nothing yet");
+    expect(s).not.toMatch(/counts as better|Better than/);
+    const lacking: Comparison = { ...c, verdict: "not_comparable", constraints: [{ quantity: "min_anode_potential", value: null, limit: 10, ok: null }] };
+    expect(verdictSentence(v, lacking)).toContain("Not measured: lowest anode potential.");
+    expect(verdictSentence(v, lacking)).toContain("It can’t be compared with the baseline.");
+  });
+  test("a value beside its limit keeps its side of the limit when rounded", () => {
+    expect(limitValue(9.996, 10, "mV")).toBe("9.996 mV");
+    expect(limitValue(10.0004, 10, "mV")).toBe("10.0004 mV");
+    expect(limitValue(45.04, 45, "degC")).toBe("45.04 °C");
+    expect(limitValue(25.068, 10, "mV")).toBe("25.1 mV");
+    expect(limitValue(10, 10, "mV")).toBe("10 mV");
+    expect(limitValue(-0.0049, 0, "mV")).toBe("−0.0049 mV");
+    expect(limitValue(null, 10, "mV")).toBe("–");
+    const { v, c } = fastCharge();
+    const edge: Comparison = { ...c, verdict: "violates_constraints", constraints: [{ quantity: "min_anode_potential", value: 9.996, limit: 10, ok: false }] };
+    expect(verdictSentence(v, edge)).toContain("lowest anode potential 9.996 mV (limit ≥ 10 mV)");
+  });
+  test("the planner is named by its kind: a policy is not an agent", () => {
+    const { v } = fastCharge();
+    v.campaign.planner = { kind: "domain_baseline", models: { planner: "baseline-constrained-bo", vision: null } };
+    expect(plannerWord(v)).toBe("constrained Bayesian optimisation");
+    expect(plannerIsAgent(v)).toBe(false);
+    expect(actorIn(v, "agent:baseline-constrained-bo")).toBe("constrained Bayesian optimisation");
+    expect(actorIn(v, "person:Ana")).toBe("Ana");
+    v.campaign.planner = { kind: "domain_baseline", models: { planner: "baseline-always-escalate" } };
+    expect(plannerWord(v)).toBe("the always escalate baseline policy");
+    v.campaign.planner = { kind: "muse", models: { planner: "muse-wonder-1.0" } };
+    expect(actorIn(v, "agent:muse-wonder-1.0")).toBe("Muse Wonder");
+    expect(plannerIsAgent(v)).toBe(true);
+    v.campaign.planner = { kind: "external", models: { planner: "lab-client" } };
+    expect(actorIn(v, "agent:lab-client")).toBe("lab-client");
+    v.campaign.planner = { kind: "", models: {} };
+    expect(actorIn(v, "agent:x")).toBe("the agent (x)");
+  });
+  test("a server-cut objective ends at a word", () => {
+    const cut = "Charge the LG M50 from 10 to 80 % faster than the failing 1.5C four-step protocol while the anode potential stays at or above +10 mV vs Li/L";
+    expect(cut.length).toBe(OBJECTIVE_CUT);
+    expect(objectiveLine(cut)).toBe("Charge the LG M50 from 10 to 80 % faster than the failing 1.5C four-step protocol while the anode potential stays at or above +10 mV vs…");
+    expect(objectiveLine("Charge faster.")).toBe("Charge faster.");
   });
 });
 

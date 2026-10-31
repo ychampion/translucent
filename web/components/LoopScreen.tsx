@@ -4,14 +4,15 @@
 // and the spend. Live from the server (/w/?ledger=<lid>&id=<cid>, refreshed on each `loop.recorded` event) or a
 // recorded export (/w/?recording=<name>, or a file opened here), which has no write controls.
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, loadRecording, newIdempotencyKey, v1 } from "@/lib/api";
 import {
-  actorWord, bannerLine, baselineFor, BASIS_WORD, bestComparison, byRecency, canAct, change, constraintLine, constraintOf,
-  executorWord, humanize, limitFor, num, OUTCOME_WORD, parseLoopFile, predictedLine, RECORDING_NAME, requestTitle,
-  seriesFromBlob, spendLines, standing, STATE_SHORT, STATE_WORD, stateCounts, stateTone, targetLine, thin, valueLine,
-  categoriesLine, showsH, validityWarning, VERDICT_WORD, withUnit,
+  actorIn, actorWord, bannerLine, baselineFor, BASIS_WORD, bestComparison, byRecency, canAct, change, constraintLine, constraintOf,
+  decidedByLimits, executorWord, limitFor, limitValue, num, OUTCOME_WORD, plannerIsAgent, plannerWord, paramsLine, parseLoopFile, predictedLine, prose, reasonsLine,
+  RECORDING_NAME, requestTitle, seriesFromBlob, spendLines, standing, STATE_SHORT, STATE_WORD, stateCounts, stateTone,
+  targetLine, thin, unbroken, valueLine, categoriesLine, showsH, validityWarning, VERDICT_WORD, verdictSentence, withUnit, wordsFor,
   type Baseline, type Comparison, type LoopRequest, type LoopView, type NextAction, type PackedFile, type Series,
+  type Measurement, type SystemSpecLite, type Words,
 } from "@/lib/loop";
 import { identity } from "@/lib/people";
 import { apiConfigured } from "@/lib/sources";
@@ -182,8 +183,39 @@ function OpenFile() {
 
 // ---------------------------------------------------------------- the page
 
+/** How this campaign's quantities, parameters and actions are named (the system's labels when the server has them). */
+const WordsContext = createContext<Words | null>(null);
+function useWords(v: LoopView): Words {
+  return useContext(WordsContext) ?? wordsFor(v);
+}
+
+/** A live campaign's system labels from its ledger; a recording words things from its ids. */
+function useSpecs(origin: Origin): SystemSpecLite[] | null {
+  const [specs, setSpecs] = useState<SystemSpecLite[] | null>(null);
+  useEffect(() => {
+    if (origin.mode !== "live" || !origin.ledger) return;
+    const ctl = new AbortController();
+    v1.systems(origin.ledger, ctl.signal).then(setSpecs).catch(() => { /* the ids as words, then */ });
+    return () => ctl.abort();
+  }, [origin.mode, origin.ledger]);
+  return specs;
+}
+
+/** A comparison's verdict on an experiment's row. */
+const VERDICT_SHORT: Record<Comparison["verdict"], string> = {
+  candidate_better: "Better than the baseline", not_better: "Not better", violates_constraints: "Breaks a limit",
+  inconclusive: "Inconclusive", not_comparable: "Not comparable",
+};
+
+/** "approved by Ana" / "auto-approved by policy". */
+const upperFirst = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+const approvedWord = (actor: string) => (actor.startsWith("policy:") && actor !== "policy:registration" ? "auto-approved by policy" : `approved by ${actorWord(actor)}`);
+
 function Body({ v, origin, loadError }: { v: LoopView; origin: Origin; loadError?: unknown }) {
   useEffect(() => { document.title = `${v.campaign.title} – Translucent`; }, [v.campaign.title]);
+  const specs = useSpecs(origin);
+  const words = useMemo(() => wordsFor(v, specs), [v, specs]);
   const best = useMemo(() => bestComparison(v), [v]);
   const [chartFor, setChartFor] = useState<string | null>(null);
   const charted = useMemo(() => {
@@ -194,6 +226,7 @@ function Body({ v, origin, loadError }: { v: LoopView; origin: Origin; loadError
   }, [v, chartFor, best]);
 
   return (
+    <WordsContext.Provider value={words}>
     <div className={`screen lp-screen is-${origin.mode}`}>
       <PageHeader title={v.campaign.title}>
         {origin.mode === "live" && origin.ledger && (
@@ -211,6 +244,7 @@ function Body({ v, origin, loadError }: { v: LoopView; origin: Origin; loadError
         <Experiments v={v} origin={origin} charted={charted?.request_id ?? null} onChart={setChartFor} />
       </main>
     </div>
+    </WordsContext.Provider>
   );
 }
 
@@ -246,15 +280,15 @@ function Objective({ v }: { v: LoopView }) {
     <header className="lp-head">
       <p className="lp-eyebrow">
         {sys.title}{sys.solver ? <> · solver {sys.solver.name} {sys.solver.version}</> : null}
-        {v.campaign.planner.models.planner ? <> · agent {v.campaign.planner.models.planner}</> : null}
+        {v.campaign.planner.kind || v.campaign.planner.models.planner ? <> · {plannerIsAgent(v) ? "agent" : "planner"} {plannerWord(v)}</> : null}
       </p>
-      <h1 className="lp-statement">{o.statement}</h1>
+      <h1 className="lp-statement">{unbroken(prose(o.statement))}</h1>
       <ul className="lp-goals" aria-label="Objective">
         <li className="lp-goal is-target"><span className="lp-goal-k">Goal</span>{targetLine(o.target)}{o.target.limit != null ? ` (to ${withUnit(o.target.limit, o.target.unit)})` : ""}</li>
         {o.constraints.map((c) => <li key={c.quantity} className="lp-goal"><span className="lp-goal-k">Must hold</span>{constraintLine(c)}</li>)}
       </ul>
       {last && (
-        <p className="lp-amended">Objective version {o.version}: {last.author} amended it ({last.changes.join("; ") || "no change"}). {last.reason}</p>
+        <p className="lp-amended">Objective version {o.version}: {last.author} amended it ({last.changes.map(prose).join("; ") || "no change"}). {prose(last.reason)}</p>
       )}
       <Spend v={v} />
     </header>
@@ -277,13 +311,17 @@ const Meter = ({ share }: { share: number }) => (
 // ---------------------------------------------------------------- baseline versus the best candidate
 
 function Standing({ v, best }: { v: LoopView; best: Comparison | null }) {
+  const words = useWords(v);
   const st = standing(v);
   const base = baselineFor(v, best?.basis);
   const t = v.objective.target;
   const req = best ? v.requests.find((r) => r.request_id === best.request_id) : undefined;
   const ch = best ? change(best) : null;
-  const byLimits = best?.target.decided_by === "feasibility";
+  const byLimits = best ? decidedByLimits(best) : false;
   const warn = validityWarning(req?.result);
+  const sentence = best ? verdictSentence(v, best, words) : v.current_result ? prose(v.current_result.sentence) : null;
+  const why = best && best.verdict !== "candidate_better" ? reasonsLine(v, best, words) : "";
+  const baseBroken = base?.constraints.filter((c) => c.ok === false).length ?? 0;
   return (
     <section className="lp-standing" aria-labelledby="lp-standing-h">
       <div className="lp-section-head">
@@ -292,17 +330,17 @@ function Standing({ v, best }: { v: LoopView; best: Comparison | null }) {
           <span className={`lp-outcome is-${st.outcome}`}>{OUTCOME_WORD[st.outcome]}{st.final ? "" : " so far"}</span>
         ) : <span className="lp-outcome is-none">No result yet</span>}
       </div>
-      {v.current_result && <p className="lp-sentence">{v.current_result.sentence}</p>}
+      {sentence && <p className="lp-sentence">{unbroken(sentence)}</p>}
       <div className="lp-pair">
-        <Side title="Failing baseline" tone="base" basis={base?.basis}
+        <Side title={baseBroken ? "Failing baseline" : "Baseline"} tone="base" basis={base?.basis}
           value={base?.values[t.quantity] ? valueLine(base.values[t.quantity]) : best?.target.baseline != null ? withUnit(best.target.baseline, t.unit) : "–"}
           label={t.label} checks={base ? baseChecks(v, base) : []} sub={base ? (base.refs.length ? `From ${base.refs.join(", ")}` : "") : "No baseline recorded yet."} />
-        <Side title="Best candidate" tone={best?.verdict === "candidate_better" ? "good" : best?.verdict === "not_better" || best?.verdict === "violates_constraints" ? "bad" : "none"} basis={best?.basis}
+        <Side title="Best candidate" tone={best?.verdict === "candidate_better" ? "good" : best?.verdict === "violates_constraints" ? "bad" : "none"} basis={best?.basis}
           value={best?.target.candidate != null ? withUnit(best.target.candidate, t.unit) : "–"} label={t.label}
-          delta={ch ? `${ch.delta > 0 ? "+" : ""}${withUnit(ch.delta, t.unit)} against the baseline${byLimits ? ", the cost of meeting the limits it breaks" : ""}` : undefined}
+          delta={ch ? `${ch.delta > 0 ? "+" : ""}${withUnit(ch.delta, t.unit)} against the baseline${byLimits && ch.better !== true ? ", the price of meeting the limits it breaks" : ""}` : undefined}
           deltaGood={byLimits ? null : ch?.better ?? null} warn={warn}
-          checks={best ? best.constraints.map((c) => ({ label: constraintOf(v, c.quantity) ? constraintLine(constraintOf(v, c.quantity)!) : humanize(c.quantity), value: withUnit(c.value, constraintOf(v, c.quantity)?.unit ?? ""), ok: c.ok })) : []}
-          sub={best ? `${req ? requestTitle(req) : best.request_id} · ${VERDICT_WORD[best.verdict]}${best.reasons.length ? ` (${best.reasons.join("; ")})` : ""}` : "No experiment has returned a result yet."} />
+          checks={best ? best.constraints.map((c) => ({ label: constraintOf(v, c.quantity) ? constraintLine(constraintOf(v, c.quantity)!) : words.quantity(c.quantity), value: limitValue(c.value, c.limit, constraintOf(v, c.quantity)?.unit ?? ""), ok: c.ok })) : []}
+          sub={best ? `${req ? requestTitle(req, words) : best.request_id} · ${VERDICT_WORD[best.verdict]}${why ? ` (${why})` : ""}` : "No experiment has returned a result yet."} />
       </div>
     </section>
   );
@@ -311,7 +349,7 @@ function Standing({ v, best }: { v: LoopView; best: Comparison | null }) {
 function baseChecks(v: LoopView, b: Baseline) {
   return b.constraints.map((c) => {
     const con = constraintOf(v, c.quantity);
-    return { label: con ? constraintLine(con) : humanize(c.quantity), value: withUnit(c.value, con?.unit ?? b.values[c.quantity]?.unit ?? ""), ok: c.ok };
+    return { label: con ? constraintLine(con) : wordsFor(v).quantity(c.quantity), value: limitValue(c.value, c.limit, con?.unit ?? b.values[c.quantity]?.unit ?? ""), ok: c.ok };
   });
 }
 
@@ -321,7 +359,7 @@ function Side({ title, tone, basis, value, label, delta, deltaGood, warn, checks
 }) {
   return (
     <div className={`lp-side is-${tone}`}>
-      <p className="lp-side-title">{title}{basis && <span className={`lp-basis is-${basis}`}>{BASIS_WORD[basis] ?? basis}{basis === "computational" ? " · computational" : ""}</span>}</p>
+      <p className="lp-side-title">{title}{basis && <span className={`lp-basis is-${basis}`} title={basis === "computational" ? "A computational result from the solver, not a bench measurement" : undefined}>{BASIS_WORD[basis] ?? basis}</span>}</p>
       <p className="lp-side-value num">{value}</p>
       <p className="lp-side-label">{label}</p>
       {warn && <p className="lp-warn" role="note">{warn}</p>}
@@ -347,12 +385,12 @@ function Next({ v, origin }: { v: LoopView; origin: Origin }) {
   const n = v.next_action;
   if (n.kind === "none") {
     if (v.conclusion) return null;
-    return <section className="lp-next is-idle"><p className="lp-next-k">Next</p><p className="lp-next-title">Nothing is pending. The agent proposes the next experiment when its turn comes.</p></section>;
+    return <section className="lp-next is-idle"><p className="lp-next-k">Next</p><p className="lp-next-title">Nothing is pending. {plannerIsAgent(v) ? "The agent" : upperFirst(plannerWord(v))} proposes the next experiment when its turn comes.</p></section>;
   }
   if (n.kind === "planner_thinking") {
     return (
       <section className="lp-next is-busy" aria-live="polite">
-        <p className="lp-next-k"><Spinner size={14} /> The agent is choosing the next experiment</p>
+        <p className="lp-next-k"><Spinner size={14} /> {plannerIsAgent(v) ? "The agent is choosing" : "Choosing"} the next experiment</p>
         <p className="lp-next-title">{n.title}</p>
       </section>
     );
@@ -363,16 +401,17 @@ function Next({ v, origin }: { v: LoopView; origin: Origin }) {
     <section className={`lp-next ${n.kind === "running" ? "is-busy" : "is-wait"}`} aria-live="polite">
       <p className="lp-next-k">{n.kind === "running" ? <><Spinner size={14} /> Running now</> : "Waiting for a person"}</p>
       <p className="lp-next-title">{n.title}</p>
-      <p className="lp-next-meta">{n.kind === "running" ? executorWord(n.executor) : "Approved. A person runs it and returns the measured result (HTTP or MCP)."}{req?.approved_by ? ` · approved by ${actorWord(req.approved_by)}` : ""}</p>
+      <p className="lp-next-meta">{n.kind === "running" ? executorWord(n.executor) : "Approved. A person runs it and returns the measured result (HTTP or MCP)."}{req?.approved_by ? ` · ${approvedWord(req.approved_by)}` : ""}</p>
     </section>
   );
 }
 
 function Proposal({ v, n, req, origin }: { v: LoopView; n: Extract<NextAction, { kind: "awaiting_approval" }>; req?: LoopRequest; origin: Origin }) {
+  const words = useWords(v);
   const pred = Object.entries(n.prediction);
   return (
     <section className="lp-next is-ask" aria-labelledby="lp-next-h">
-      <p className="lp-next-k">The agent proposes{req ? ` · ${actorWord(req.proposed_by)}` : ""}{n.version > 1 ? ` · version ${n.version}` : ""}</p>
+      <p className="lp-next-k">{req ? `Proposed by ${actorIn(v, req.proposed_by)}` : plannerIsAgent(v) ? "The agent proposes" : "Proposed"}{n.version > 1 ? ` · version ${n.version}` : ""}</p>
       <h2 className="lp-next-title" id="lp-next-h">{n.title}</h2>
       <div className="lp-why">
         <div><p className="lp-why-k">Why</p><p>{n.rationale}</p></div>
@@ -385,7 +424,7 @@ function Proposal({ v, n, req, origin }: { v: LoopView; n: Extract<NextAction, {
           <tbody>
             {pred.map(([q, p]) => {
               const b = baselineFor(v, n.executor === "computational" ? "computational" : "physical")?.values[q];
-              return <tr key={q}><th scope="row">{q === v.objective.target.quantity ? v.objective.target.label : constraintOf(v, q)?.label ?? humanize(q)}</th><td className="num">{predictedLine(p)}</td><td className="num soft">{b ? valueLine(b) : "–"}</td></tr>;
+              return <tr key={q}><th scope="row">{words.quantity(q)}</th><td className="num">{predictedLine(p)}</td><td className="num soft">{b ? valueLine(b) : "–"}</td></tr>;
             })}
           </tbody>
         </table>
@@ -481,9 +520,9 @@ function ConclusionCard({ v }: { v: LoopView }) {
   return (
     <section className={`lp-conclusion is-${c.outcome}`} aria-labelledby="lp-concl-h">
       <p className="lp-next-k" id="lp-concl-h">Concluded · {OUTCOME_WORD[c.outcome]}</p>
-      <p className="lp-concl-text">{c.text}</p>
+      <p className="lp-concl-text">{prose(c.text)}</p>
       {c.unresolved_reasons.length > 0 && (
-        <ul className="lp-unresolved">{c.unresolved_reasons.map((r) => <li key={r}>{r}</li>)}</ul>
+        <ul className="lp-unresolved">{c.unresolved_reasons.map((r) => <li key={r}>{prose(r)}</li>)}</ul>
       )}
     </section>
   );
@@ -491,7 +530,14 @@ function ConclusionCard({ v }: { v: LoopView }) {
 
 // ---------------------------------------------------------------- returned measurements
 
+/** A result's measurements, the target and the limited quantities first. */
+function ordered(v: LoopView, ms: Measurement[]) {
+  const rank = (q: string) => (q === v.objective.target.quantity ? 0 : constraintOf(v, q) ? 1 : 2);
+  return [...ms].sort((a, b) => rank(a.quantity) - rank(b.quantity));
+}
+
 function Measurements({ v, r, origin }: { v: LoopView; r: LoopRequest; origin: Origin }) {
+  const words = useWords(v);
   const res = r.result!;
   const [qi, setQi] = useState(0);
   useEffect(() => { setQi(0); }, [r.request_id]);
@@ -530,36 +576,37 @@ function Measurements({ v, r, origin }: { v: LoopView; r: LoopRequest; origin: O
     <section className="lp-measure" aria-labelledby="lp-measure-h">
       <div className="lp-section-head">
         <h2 className="lp-h2" id="lp-measure-h">Returned measurements</h2>
-        <span className="lp-side-sub">{requestTitle(r)} · <span className={`lp-basis is-${res.basis}`}>{BASIS_WORD[res.basis] ?? res.basis}</span></span>
+        <span className="lp-side-sub">{requestTitle(r, words)} · <span className={`lp-basis is-${res.basis}`}>{BASIS_WORD[res.basis] ?? res.basis}</span></span>
       </div>
       {res.series.length > 1 && (
         <div className="iv-splits" role="tablist" aria-label="Series">
-          {res.series.map((s, i) => <button key={s.quantity} role="tab" aria-selected={i === qi} className={`iv-split ${i === qi ? "is-on" : ""}`} onClick={() => setQi(i)}>{humanize(s.quantity)}</button>)}
+          {res.series.map((s, i) => <button key={s.quantity} role="tab" aria-selected={i === qi} className={`iv-split ${i === qi ? "is-on" : ""}`} onClick={() => setQi(i)}>{words.quantity(s.quantity)}</button>)}
         </div>
       )}
       <div className="lp-measure-grid">
         <figure className="lp-figure">
           {lines?.cand ? (
-            <Chart cand={lines.cand} base={lines.base} limit={limit} label={humanize(ref.quantity)} simulated={res.basis === "computational"} />
+            <Chart cand={lines.cand} base={lines.base} limit={limit} label={words.quantity(ref.quantity)} simulated={res.basis === "computational"} />
           ) : (
             <div className="lp-chart-empty">{lines?.error ? lines.error : <Spinner size={18} />}</div>
           )}
           <figcaption className="lp-caption">
-            {humanize(ref.quantity)} over time{lines?.cand?.downsampled ? `, ${lines.cand.t.length} of ${lines.cand.n} points` : ""}
+            {words.quantity(ref.quantity)} over time{lines?.cand?.downsampled ? `, ${lines.cand.t.length} of ${lines.cand.n} points` : ""}
             {res.basis === "computational" ? " · computational result (simulation), not a bench measurement" : ""}
           </figcaption>
         </figure>
         <div className="lp-values">
           <table className="lp-pred">
-            <thead><tr><th scope="col">Measured</th><th scope="col">Value</th><th scope="col">Predicted</th></tr></thead>
+            <thead><tr><th scope="col">{res.basis === "computational" ? "Simulated" : "Measured"}</th><th scope="col">Value</th><th scope="col">Predicted</th></tr></thead>
             <tbody>
-              {res.measurements.map((m) => {
+              {ordered(v, res.measurements).map((m) => {
                 const e = res.prediction_error[m.quantity];
+                const note = words.note(m.quantity);
                 return (
                   <tr key={m.id}>
-                    <th scope="row">{m.quantity === v.objective.target.quantity ? v.objective.target.label : humanize(m.quantity)}</th>
+                    <th scope="row">{words.quantity(m.quantity)}{note && <span className="lp-q-note"> ({note})</span>}</th>
                     <td className="num">{withUnit(m.value, m.unit)}{showsH(m.value, m.h) ? ` ± ${num(m.h)}` : ""}</td>
-                    <td className={`num ${e ? (e.inside === false ? "is-bad" : e.inside ? "is-good" : "") : "soft"}`}>{e ? `${num(e.predicted)} ${e.inside === false ? "· outside the range" : e.inside ? "· inside" : ""}` : "–"}</td>
+                    <td className={`num ${e ? (e.inside === false ? "is-miss" : e.inside ? "is-good" : "") : "soft"}`}>{e ? `${num(e.predicted)} ${e.inside === false ? "· outside the range" : e.inside ? "· inside" : ""}` : "–"}</td>
                   </tr>
                 );
               })}
@@ -626,16 +673,20 @@ function ticks(lo: number, hi: number, n: number): number[] {
 // ---------------------------------------------------------------- every experiment
 
 function Experiments({ v, origin, charted, onChart }: { v: LoopView; origin: Origin; charted: string | null; onChart(id: string): void }) {
+  const words = useWords(v);
   const list = byRecency(v);
+  // One action throughout (every row simulates the same protocol): name it once in the heading, rows show the parameters.
+  const actions = new Set(v.requests.filter((r) => r.proposed_by !== "policy:registration").map((r) => r.action));
+  const oneAction = actions.size === 1 ? [...actions][0] : null;
   const counts = stateCounts(v);
   const nextId = v.next_action.kind === "awaiting_approval" ? v.next_action.request_id : null;
   return (
     <section className="lp-experiments" aria-labelledby="lp-exp-h">
       <div className="lp-section-head">
-        <h2 className="lp-h2" id="lp-exp-h">Experiments</h2>
+        <h2 className="lp-h2" id="lp-exp-h">Experiments{oneAction && <span className="lp-h2-sub"> · {words.action(oneAction)}</span>}</h2>
         <span className="lp-counts">{counts.map(([s, n]) => <span key={s} className={`lp-state is-${stateTone(s)}`}>{n} {STATE_SHORT[s].toLowerCase()}</span>)}</span>
       </div>
-      {list.length === 0 && <p className="lp-plain">No experiments yet. The agent’s first proposal appears here.</p>}
+      {list.length === 0 && <p className="lp-plain">No experiments yet. The first proposal appears here.</p>}
       <ol className="lp-list">
         {list.map((r) => {
           const n = v.requests.indexOf(r) + 1;
@@ -645,22 +696,28 @@ function Experiments({ v, origin, charted, onChart }: { v: LoopView; origin: Ori
               <div className="lp-req-top">
                 <span className={`lp-state is-${stateTone(r.state)}`} title={STATE_WORD[r.state]}>{STATE_SHORT[r.state]}</span>
                 <span className="lp-req-n num">#{n}{r.version > 1 ? ` v${r.version}` : ""}</span>
-                <span className="lp-req-title">{requestTitle(r)}</span>
+                <span className="lp-req-title">{oneAction && Object.keys(r.params).length ? paramsLine(r.params, words) : requestTitle(r, words)}</span>
+                {(() => {
+                  const c = v.comparisons.find((x) => x.request_id === r.request_id && x.objective_version === v.objective.version);
+                  if (!c) return null;
+                  const tone = c.verdict === "candidate_better" ? "is-good" : c.verdict === "violates_constraints" ? "is-bad" : "is-off";
+                  return <span className={`lp-verdict ${tone}`} title={verdictSentence(v, c, words)}>{VERDICT_SHORT[c.verdict]}</span>;
+                })()}
                 <span className="lp-req-exec">{r.executor === "computational" ? "simulation" : r.executor === "human" ? "bench" : r.executor}</span>
               </div>
               <p className="lp-req-who">
-                Proposed by {actorWord(r.proposed_by)}{r.approved_by ? ` · approved by ${actorWord(r.approved_by)}` : ""}
-                {last && r.state !== "awaiting_approval" && last.actor !== r.approved_by && last.actor !== r.proposed_by ? ` · ${STATE_SHORT[r.state].toLowerCase()} by ${actorWord(last.actor)}` : ""}
+                Proposed by {actorIn(v, r.proposed_by)}{r.approved_by ? ` · ${approvedWord(r.approved_by)}` : ""}
+                {last && r.state !== "awaiting_approval" && last.actor !== r.approved_by && last.actor !== r.proposed_by ? ` · ${STATE_SHORT[r.state].toLowerCase()} by ${actorIn(v, last.actor)}` : ""}
               </p>
               {r.rationale && <p className="lp-req-why">{r.rationale}</p>}
               {r.result && (
                 <p className="lp-req-result num">
-                  {r.result.measurements.slice(0, 4).map((m) => `${humanize(m.quantity)} ${withUnit(m.value, m.unit)}`).join(" · ")}
+                  {ordered(v, r.result.measurements).slice(0, 3).map((m) => `${words.quantity(m.quantity)} ${withUnit(m.value, m.unit)}`).join(" · ")}
                   {r.result.series.length > 0 && r.request_id !== charted && <> · <button className="text-link lp-chart-btn" onClick={() => onChart(r.request_id)}>show the series</button></>}
                 </p>
               )}
               {validityWarning(r.result) && <p className="lp-warn is-inline" role="note">{validityWarning(r.result)}</p>}
-              {r.rejections.map((x) => <p key={x.seq} className="lp-req-refused">A returned result was refused: {x.reasons.join("; ")}</p>)}
+              {r.rejections.map((x) => <p key={x.seq} className="lp-req-refused">A returned result was refused: {x.reasons.map(prose).join("; ")}</p>)}
               {r.state === "awaiting_approval" && r.request_id !== nextId && <Decide v={v} requestId={r.request_id} hash={r.content_hash} origin={origin} />}
             </li>
           );

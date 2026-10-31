@@ -1,7 +1,7 @@
 // The v1 API (translucent/api_v1.py): one server, many ledgers. Reads need no token; people's writes need the team
 // token, and name the person as `author`. Every write sends an Idempotency-Key: the caller passes one per decision, so
 // trying the same decision again (after a timeout, say) is recorded once.
-import type { CampaignPage, LedgerInfo, LoopView, Recording, Series } from "./loop";
+import type { CampaignPage, LedgerInfo, LoopView, Recording, Series, SystemSpecLite } from "./loop";
 import { parseLoopFile, recordingUrl } from "./loop";
 import { API_BASE } from "./sources";
 
@@ -78,6 +78,8 @@ export interface RequestReply { request_id: string; version: number; state: stri
 
 export const v1 = {
   ledgers: (signal?: AbortSignal) => call<LedgerInfo[]>("/api/v1/ledgers", { signal }),
+  /** The ledger's registered systems: the labels its quantities, parameters and actions carry. */
+  systems: (lid: string, signal?: AbortSignal) => call<SystemSpecLite[]>(`${L(lid)}/systems`, { signal }),
   campaigns: (lid: string, cursor?: number | null, signal?: AbortSignal) =>
     call<CampaignPage>(`${L(lid)}/campaigns${cursor ? `?cursor=${cursor}` : ""}`, { signal }),
   view: (lid: string, cid: string, signal?: AbortSignal) => call<LoopView>(`${C(lid, cid)}/view`, { signal }),

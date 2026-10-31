@@ -99,6 +99,15 @@ export interface CampaignSummary {
   created_at: number; updated_at: number; objective: string; next_action: NextKind; outcome: Outcome | null; spend_usd: number;
 }
 export interface CampaignPage { items: CampaignSummary[]; next_cursor: number | null }
+
+/** The list's objective is the statement's first 140 characters (api_v1, loop_view). */
+export const OBJECTIVE_CUT = 140;
+/** A summary's objective, ending at a word with "…" when the server cut it ("…vs Li/L" -> "…vs …"). */
+export function objectiveLine(text: string, cut = OBJECTIVE_CUT): string {
+  if (text.length < cut) return text;
+  const at = text.lastIndexOf(" ");
+  return `${(at > 0 ? text.slice(0, at) : text).replace(/[\s,;:–-]+$/, "")}…`;
+}
 export interface Series { t: number[]; y: number[]; unit: string; t_unit: string; n: number; downsampled: boolean }
 
 // ---------------------------------------------------------------- recorded files
@@ -201,9 +210,9 @@ export function predictedLine(p: Predicted): string {
 const OP_WORD: Record<string, string> = { "<=": "≤", ">=": "≥", "<": "<", ">": ">", "==": "=" };
 export const opWord = (op: string) => OP_WORD[op] ?? op;
 
-/** The objective's own label for a constraint, else "max_temperature ≤ 45 °C". */
+/** The objective's own label for a constraint (units tidied), else "Max temperature ≤ 45 °C". */
 export function constraintLine(c: Constraint): string {
-  return c.label?.trim() || `${humanize(c.quantity)} ${opWord(c.op)} ${withUnit(c.limit, c.unit)}`;
+  return c.label?.trim() ? prose(c.label.trim()) : `${humanize(c.quantity)} ${opWord(c.op)} ${withUnit(c.limit, c.unit)}`;
 }
 
 /** "Lower time to 80% charge" / "Higher capacity retention". */
@@ -219,18 +228,205 @@ export function humanize(name: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-/** "c_rate_1 2.5C · switch_soc 0.5". */
-export function paramsLine(params: Record<string, Param>): string {
-  return Object.entries(params)
-    .map(([k, p]) => `${k} ${typeof p.value === "number" ? withUnit(p.value, p.unit) : String(p.value)}`)
-    .join(" · ");
+/** An id as words, keeping engineering abbreviations: "c_rate_1" -> "C-rate 1", "cv_entered" -> "CV entered". */
+export function idWords(name: string): string {
+  const s = humanize(name)
+    .replace(/\bc rate\b/gi, "C-rate").replace(/\b(soc|soh|cv|cc|ocv|dod)\b/gi, (m) => m.toUpperCase())
+    .replace(/^Min /, "Lowest ").replace(/^Max /, "Peak ");
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+/** Server text made readable: "45 degC" -> "45 °C", "1.3 1/h" -> "1.3C", ">=" -> "≥". Words are left alone. */
+export function prose(text: string): string {
+  return text
+    .replace(/(\d)\s*1\/h\b/g, "$1C")
+    .replace(/\bdegC\b/g, "°C").replace(/\bdegF\b/g, "°F")
+    .replace(/(\d)\s*°C/g, "$1 °C")
+    .replace(/\s*>=\s*/g, " ≥ ").replace(/\s*<=\s*/g, " ≤ ").replace(/\+\/-/g, "±");
+}
+
+/** Display only: a number stays on one line with its unit or its relation ("80 %", "45 °C", "≥ 10 mV"). */
+export function unbroken(text: string): string {
+  return text
+    .replace(/([≥≤<>=±]) (?=[−-]?\d)/g, "$1 ")
+    .replace(/(\d) (?=(%|°C|°F|mV|V|mA|A|Ah|mAh|min|s|h|K|W)(?![\w]))/g, "$1 ");
+}
+
+// ---------------------------------------------------------------- labels from the system spec
+
+/** The parts of a SystemSpec (GET /ledgers/{lid}/systems) the page words things with. */
+export interface SystemSpecLite {
+  id: string;
+  quantities: { name: string; label?: string; unit?: string }[];
+  actions: { name: string; label?: string; parameters: { name: string; label?: string }[] }[];
+}
+
+/** How the page names quantities, parameters and actions: the system's own labels when it has them, else the ids as words. */
+export interface Words {
+  /** "Peak lumped cell temperature" (the label without its parenthetical note). */
+  quantity(q: string): string;
+  /** The parenthetical note of a quantity's label ("indicative, unvalidated"), or "". */
+  note(q: string): string;
+  /** "Ambient temperature"; a stepped parameter's group label for "c_rate_2" is "Charge C-rate". */
+  param(name: string): string;
+  action(name: string): string;
+}
+
+const NOTE = /\s*\(([^)]*)\)\s*$/;
+const stripNote = (label: string) => label.replace(NOTE, "").trim();
+
+/** Words for one campaign: the objective's target label first, then the system spec's labels, then the ids. */
+export function wordsFor(v: Pick<LoopView, "objective" | "campaign">, specs?: SystemSpecLite[] | null): Words {
+  const spec = specs?.find((s) => s.id === v.campaign.system.id) ?? null;
+  const q = new Map((spec?.quantities ?? []).filter((x) => x.label).map((x) => [x.name, x.label!]));
+  const p = new Map<string, string>(), a = new Map<string, string>();
+  for (const act of spec?.actions ?? []) {
+    if (act.label) a.set(act.name, act.label);
+    for (const par of act.parameters) if (par.label && !p.has(par.name)) p.set(par.name, par.label);
+  }
+  const t = v.objective.target;
+  return {
+    quantity: (name) => (name === t.quantity && t.label ? t.label : q.has(name) ? stripNote(q.get(name)!) : idWords(name)),
+    note: (name) => (name === t.quantity ? "" : q.get(name)?.match(NOTE)?.[1] ?? ""),
+    // "Charge C-rate, 10-27.5 % state of charge" -> "Charge C-rate": the window is the step's, the name the group's.
+    param: (name) => (p.has(name) ? stripNote(p.get(name)!.split(",")[0]) : idWords(name.replace(/_\d+$/, ""))),
+    action: (name) => a.get(name) ?? idWords(name),
+  };
+}
+
+/** Words from the ids alone (no spec, no objective): what a test or a bare request gets. */
+const ID_WORDS: Words = { quantity: idWords, note: () => "", param: (n) => idWords(n.replace(/_\d+$/, "")), action: idWords };
+
+const paramValue = (p: Param) => (typeof p.value === "number" ? withUnit(p.value, p.unit) : String(p.value));
+
+/**
+ * "Charge C-rate 1.3C → 1.05C → 0.95C → 0.75C · Ambient temperature 25 °C". Numbered parameters of one unit
+ * (c_rate_1..4) are one stepped group, read in step order; a lone parameter is "Switch SOC 0.5".
+ */
+export function paramsLine(params: Record<string, Param>, words: Words = ID_WORDS): string {
+  const groups = new Map<string, { label: string; items: [number, Param][] }>();
+  const singles: [string, Param][] = [];
+  for (const [k, p] of Object.entries(params)) {
+    const m = k.match(/^(.*)_(\d+)$/);
+    if (m) {
+      const key = `${m[1]}|${p.unit}`;
+      const g = groups.get(key) ?? { label: words.param(k), items: [] };
+      g.items.push([Number(m[2]), p]);
+      groups.set(key, g);
+    } else singles.push([k, p]);
+  }
+  const out: string[] = [];
+  for (const [key, g] of groups) {
+    if (g.items.length < 2) { singles.unshift([`${key.split("|")[0]}_${g.items[0][0]}`, g.items[0][1]]); continue; }
+    out.push(`${g.label} ${g.items.sort((x, y) => x[0] - y[0]).map(([, p]) => paramValue(p)).join(" → ")}`);
+  }
+  for (const [k, p] of singles) out.push(`${/_\d+$/.test(k) ? idWords(k) : words.param(k)} ${paramValue(p)}`);
+  return out.join(" · ");
 }
 
 /** A request's one-line title: its action and parameters. */
-export const requestTitle = (r: Pick<LoopRequest, "action" | "params">) => {
-  const p = paramsLine(r.params);
-  return p ? `${humanize(r.action)}: ${p}` : humanize(r.action);
+export const requestTitle = (r: Pick<LoopRequest, "action" | "params">, words: Words = ID_WORDS) => {
+  const p = paramsLine(r.params, words);
+  return p ? `${words.action(r.action)}: ${p}` : words.action(r.action);
 };
+
+// ---------------------------------------------------------------- the verdict, in words
+
+const lowerFirst = (s: string) => (/^[A-Z][a-z]/.test(s) ? s.charAt(0).toLowerCase() + s.slice(1) : s);
+const listWords = (xs: string[]) => (xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
+const BASIS_LEAD: Record<string, string> = { computational: "In simulation", physical: "On the bench", retrospective: "In the records" };
+
+/**
+ * Whether a better verdict was decided by the limits (loop-compare/2 rule 5, "feasibility"): the candidate meets
+ * every limit while the baseline breaks one, so its target difference, even a worse one, is the cost of meeting them.
+ * The view leaves `decided_by` out, so this reads the recorded verdict: the comparator records candidate_better with a
+ * target that is not better only under rule 5 (rules 3-4 need a better target). Nothing here re-decides it.
+ */
+export function decidedByLimits(c: Comparison): boolean {
+  return c.verdict === "candidate_better" && (c.target.decided_by === "feasibility" || c.target.better !== true);
+}
+
+const trimNum = (s: string) => (s.includes(".") && !s.includes("e") ? s.replace(/\.?0+$/, "") : s).replace(/^-/, "−");
+/**
+ * A value beside its limit, at a precision that keeps their order: 9.996 against ≥ 10 reads "9.996 mV", never
+ * "10 mV" (which would read as holding). Otherwise as `withUnit`.
+ */
+export function limitValue(value: number | null, limit: number, unit: string): string {
+  if (value == null) return withUnit(value, unit);
+  let a = num(value), b = num(limit);
+  const read = (x: string) => Number(x.replace("−", "-"));
+  for (let p = 4; p <= 8 && Math.sign(read(a) - read(b)) !== Math.sign(value - limit); p++) {
+    a = trimNum(value.toPrecision(p)); b = trimNum(limit.toPrecision(p));
+  }
+  if (unit === "1/h") return `${a}C`;
+  return unitWord(unit) ? `${a} ${unitWord(unit)}` : a;
+}
+
+/** "lowest anode potential 25.1 mV (limit ≥ 10 mV)": the check's own recorded limit, the objective's relation and unit. */
+function checkWords(v: LoopView, ch: Check, words: Words): string {
+  const con = constraintOf(v, ch.quantity);
+  const unit = con?.unit ?? "";
+  const limit = con ? ` (limit ${opWord(con.op)} ${withUnit(ch.limit, unit)})` : "";
+  return `${lowerFirst(words.quantity(ch.quantity))} ${ch.value == null ? "not reached" : limitValue(ch.value, ch.limit, unit)}${limit}`;
+}
+
+/**
+ * The recorded comparison as an engineer would say it, from its numbers (never by rewording the server's sentence,
+ * and never deciding anything the verdict did not): "In simulation, the candidate's time from 10 to 80 % SOC is
+ * 43.1 min against 28.2 min for the baseline. Both limits hold: … It counts as better because the baseline breaks
+ * both limits; meeting them costs 14.9 min."
+ */
+export function verdictSentence(v: LoopView, c: Comparison, words: Words = wordsFor(v)): string {
+  const t = v.objective.target;
+  const lead = BASIS_LEAD[c.basis] ?? "So far";
+  const name = lowerFirst(words.quantity(t.quantity));
+  const out: string[] = [];
+  out.push(c.target.candidate == null
+    ? `${lead}, the candidate returned no ${name}.`
+    : `${lead}, the candidate’s ${name} is ${withUnit(c.target.candidate, t.unit)}${c.target.baseline != null ? ` against ${withUnit(c.target.baseline, t.unit)} for the baseline` : ""}.`);
+  const holds = c.constraints.filter((x) => x.ok === true), broken = c.constraints.filter((x) => x.ok === false);
+  // ok null: not measured (no value and no window), else its uncertainty straddles the limit.
+  const missing = c.constraints.filter((x) => x.ok == null && x.value == null && x.not_reached_within == null);
+  const close = c.constraints.filter((x) => x.ok == null && !missing.includes(x));
+  if (broken.length) out.push(`${broken.length === c.constraints.length && broken.length > 1 ? "Both limits are broken" : broken.length > 1 ? "Limits broken" : "A limit is broken"}: ${listWords(broken.map((x) => checkWords(v, x, words)))}.`);
+  if (holds.length) out.push(`${holds.length === c.constraints.length ? (holds.length === 2 ? "Both limits hold" : holds.length > 2 ? "Every limit holds" : "The limit holds") : holds.length > 1 ? "These hold" : "This one holds"}: ${listWords(holds.map((x) => checkWords(v, x, words)))}.`);
+  if (close.length) out.push(`Too close to the limit to call: ${listWords(close.map((x) => checkWords(v, x, words)))}.`);
+  if (missing.length) out.push(`Not measured: ${listWords(missing.map((x) => lowerFirst(words.quantity(x.quantity))))}.`);
+  // delta is the recorded difference in the better direction (positive: better).
+  const delta = c.target.delta;
+  const by = (d: number) => withUnit(Math.abs(d), t.unit);
+  if (decidedByLimits(c)) {
+    const base = c.objective_version === v.objective.version ? baselineFor(v, c.basis) : null;
+    const failed = base?.constraints.filter((x) => x.ok === false) ?? [];
+    const which = failed.length === v.objective.constraints.length && failed.length === 2 ? "both limits"
+      : failed.length > 1 ? "those limits" : failed.length ? `the ${lowerFirst(words.quantity(failed[0].quantity))} limit` : "a limit";
+    out.push(`It counts as better because the baseline breaks ${which}${delta != null && delta < 0 ? `; meeting ${failed.length > 1 ? "them" : "it"} costs ${by(delta)}` : ""}.`);
+  } else if (c.verdict === "candidate_better") {
+    out.push(delta == null ? "Better than the baseline."
+      : delta > 0 ? `Better than the baseline by ${by(delta)}.`
+      : `It counts as better: ${delta < 0 ? `${by(delta)} worse, ` : ""}within the ${by(t.margin)} the objective accepts.`);
+  } else if (c.verdict === "violates_constraints") {
+    out.push("A broken limit rules it out, whatever the target says.");
+  } else if (c.verdict === "not_better") {
+    // Not better by more than the margin; or, when the difference alone clears the margin, its own absolute limit missed.
+    out.push(t.limit != null && delta != null && delta > t.margin ? `It misses the target’s own limit of ${withUnit(t.limit, t.unit)}.`
+      : t.margin > 0 ? `Not better than the baseline by more than the ${by(t.margin)} margin.`
+      : t.margin < 0 ? `Not better than the baseline, even allowing the ${by(t.margin)} the objective accepts.`
+      : "Not better than the baseline.");
+  } else if (c.verdict === "inconclusive") {
+    out.push("Within the uncertainty it is too close to call, so it decides nothing yet.");
+  } else {
+    out.push("It can’t be compared with the baseline.");
+  }
+  return out.join(" ");
+}
+
+/** Why a comparison went the way it did, short: the broken limits, else the server's reasons tidied. */
+export function reasonsLine(v: LoopView, c: Comparison, words: Words = wordsFor(v)): string {
+  const broken = c.constraints.filter((x) => x.ok === false);
+  if (broken.length) return `breaks ${listWords(broken.map((x) => checkWords(v, x, words)))}`;
+  return c.reasons.map(prose).join("; ");
+}
 
 // ---------------------------------------------------------------- who and what state
 
@@ -245,6 +441,40 @@ export function actorWord(actor: string | null | undefined): string {
   if (kind === "policy") return "auto-approved by policy";
   if (kind === "system") return name === "runner" ? "the runner" : `the system (${name})`;
   return actor;
+}
+
+/** Baseline policies (planner kind domain_baseline, agent "baseline-<policy>") as people say them. */
+const POLICY_WORD: Record<string, string> = { "constrained-bo": "constrained Bayesian optimisation" };
+
+/**
+ * The campaign's planner named by its kind (campaign.planner), so a fixed policy is not called an agent:
+ * "constrained Bayesian optimisation", "Muse Wonder", or an outside client's own name. `name` is an agent actor's name.
+ */
+export function plannerWord(v: Pick<LoopView, "campaign">, name?: string): string {
+  const { kind, models } = v.campaign.planner;
+  const id = name || models.planner || "";
+  if (kind === "domain_baseline") {
+    const policy = id.replace(/^baseline-/, "");
+    return POLICY_WORD[policy] ?? (policy ? `the ${policy.replace(/[-_]+/g, " ")} baseline policy` : "the baseline policy");
+  }
+  if (kind === "muse" || kind === "muse_no_feedback") {
+    const model = (models.planner || name || "").split("/").pop()!.replace(/-\d+(\.\d+)*$/, "");
+    return model ? model.split(/[-_]+/).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ") : "Muse Wonder";
+  }
+  if (kind === "scripted") return "a scripted planner";
+  if (kind === "external") return id || "an outside client";
+  return id || "the agent";
+}
+
+const PLANNER_KINDS = new Set(["domain_baseline", "muse", "muse_no_feedback", "scripted", "external"]);
+
+/** Whether the planner is an agent (a model, or an outside client planning itself), not a fixed policy or a script. */
+export const plannerIsAgent = (v: Pick<LoopView, "campaign">) => !["domain_baseline", "scripted"].includes(v.campaign.planner.kind);
+
+/** `actorWord`, with an agent actor named by the campaign's planner ("Proposed by constrained Bayesian optimisation"). */
+export function actorIn(v: Pick<LoopView, "campaign">, actor: string | null | undefined): string {
+  return actor?.startsWith("agent:") && PLANNER_KINDS.has(v.campaign.planner.kind)
+    ? plannerWord(v, actor.slice("agent:".length)) : actorWord(actor);
 }
 
 export const STATE_WORD: Record<RequestState, string> = {
@@ -413,12 +643,14 @@ export function limitFor(v: LoopView, seriesQuantity: string, seriesUnit: string
  */
 export function validityWarning(r: Pick<LoopResult, "categories"> | null | undefined): string | null {
   const v = r?.categories?.validity;
-  if (!v || v === "ok" || v === "valid" || v === "interpolation") return null;
+  if (!v || VALID.has(v)) return null;
   if (v === "extrapolation") return "Extrapolation: outside the model’s validated range. Treat this number as a lead, not a result.";
-  return `Validity: ${humanize(v)}`;
+  return `Validity: ${humanize(v).toLowerCase()}`;
 }
+/** Validity words that mean the inputs lie inside the model's range: nothing to warn about. */
+const VALID = new Set(["ok", "valid", "interpolation", "within_range", "in_range", "inside_range"]);
 
-/** Category outputs other than validity, as "Status ok · Cv entered no". */
+/** Category outputs other than validity, as "Status ok · CV entered no". */
 export function categoriesLine(r: Pick<LoopResult, "categories"> | null | undefined): string {
-  return Object.entries(r?.categories ?? {}).filter(([k]) => k !== "validity").map(([k, v]) => `${humanize(k)} ${v}`).join(" · ");
+  return Object.entries(r?.categories ?? {}).filter(([k]) => k !== "validity").map(([k, v]) => `${idWords(k)} ${humanize(v).toLowerCase()}`).join(" · ");
 }

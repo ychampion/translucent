@@ -1,6 +1,7 @@
 "use client";
 // The rounded composer docked at the bottom of a page: a growing text field, a "+" menu of actions, a quiet chip on
 // the left, a label on the right, and one round button that sends, or shows progress, or stops a live run.
+// Keys in the field: Enter sends, Shift+Enter starts a new line, Escape hands back to the page (or to onEscape).
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { IconPlus, IconStop, IconUp, Spinner } from "./Icons";
 
@@ -25,7 +26,7 @@ interface Props {
   disabled?: boolean;
   autoFocus?: boolean;
   label: string;
-  /** A thin progress line along the top edge (a replay's position), 0 to 1. */
+  /** A short progress track in the bottom row (a replay's position), 0 to 1. */
   progress?: number;
   /** Escape in the field (e.g. leave answering a question). */
   onEscape?: () => void;
@@ -79,8 +80,7 @@ export function Composer({ value, onChange, onSubmit, placeholder, canSend, busy
     <div className="composer">
       {/* outside the form: the tray may hold its own form (Join), and HTML ignores a form nested in another */}
       {tray && <div className="composer-tray">{tray}</div>}
-      <form className="composer-box" onSubmit={(e) => { e.preventDefault(); submit(); }}>
-        {progress != null && progress > 0 && progress < 1 && <span className="composer-progress" aria-hidden><span style={{ transform: `scaleX(${progress})` }} /></span>}
+      <form className={`composer-box ${disabled ? "is-disabled" : ""}`} onSubmit={(e) => { e.preventDefault(); submit(); }}>
         <label className="visually-hidden" htmlFor="composer-field">{label}</label>
         <textarea
           id="composer-field"
@@ -94,7 +94,10 @@ export function Composer({ value, onChange, onSubmit, placeholder, canSend, busy
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit(); }
-            else if (e.key === "Escape" && onEscape) { e.stopPropagation(); onEscape(); }
+            else if (e.key === "Escape") {
+              if (onEscape) { e.stopPropagation(); onEscape(); }
+              else if (!menu) e.currentTarget.blur();
+            }
           }}
         />
         <div className="composer-bar">
@@ -116,6 +119,12 @@ export function Composer({ value, onChange, onSubmit, placeholder, canSend, busy
             </div>
           )}
           <div className="composer-left">{left}</div>
+          {progress != null && (
+            <span className="composer-progress" role="progressbar" aria-label="Replay position"
+              aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(Math.min(1, Math.max(0, progress)) * 100)}>
+              <span style={{ transform: `scaleX(${Math.min(1, Math.max(0, progress))})` }} />
+            </span>
+          )}
           <div className="composer-right">{right}</div>
           {button}
         </div>

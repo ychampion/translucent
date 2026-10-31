@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, v1 } from "@/lib/api";
 import {
-  ago, KIND_WORD, loopHref, NEXT_WORD, OUTCOME_WORD, STATUS_WORD,
+  ago, KIND_WORD, loopHref, NEXT_WORD, objectiveLine, OUTCOME_WORD, STATUS_WORD,
   type CampaignSummary, type LedgerInfo,
 } from "@/lib/loop";
 import { apiConfigured } from "@/lib/sources";
@@ -145,7 +145,7 @@ function CampaignRows({ items, compact }: { items: CampaignSummary[]; compact?: 
               {c.outcome ? <span className={`lp-outcome is-${c.outcome}`}>{OUTCOME_WORD[c.outcome]}</span>
                 : <span className={`cl-status is-${c.status}`}>{STATUS_WORD[c.status] ?? c.status}</span>}
             </span>
-            {!compact && c.objective && c.objective !== c.title && <span className="cl-objective">{c.objective}</span>}
+            {!compact && c.objective && c.objective !== c.title && <span className="cl-objective">{objectiveLine(c.objective)}</span>}
             <span className="cl-meta">
               {c.next_action !== "none" && NEXT_WORD[c.next_action] ? <span className={`cl-next is-${c.next_action}`}>{NEXT_WORD[c.next_action]}</span> : null}
               <span>{KIND_WORD[c.kind] ?? c.kind}</span>

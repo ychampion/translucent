@@ -233,7 +233,7 @@ def _comparison(rec: LoopRecord) -> dict:
     return {"id": rec.id, "request_id": d["candidate"]["request_id"], "objective_version": d["objective_version"],
             "basis": d["basis"],
             "target": {"baseline": t["baseline"], "candidate": t["candidate"], "delta": t["delta"],
-                       "better": t["better"]},
+                       "better": t["better"], **({"decided_by": t["decided_by"]} if t.get("decided_by") else {})},
             "constraints": [_check(c) for c in d["constraints"]], "verdict": d["verdict"], "reasons": list(d["reasons"])}
 
 

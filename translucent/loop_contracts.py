@@ -652,6 +652,7 @@ class ComparisonTarget(TypedDict):
     candidate: float | None
     delta: float | None                           # improvement (positive is better); None unless both are values
     better: bool | None
+    decided_by: NotRequired[Literal["feasibility"]]   # loop-compare/2 rule 5: it meets limits the baseline breaks
 
 
 @with_config(_STRICT)
