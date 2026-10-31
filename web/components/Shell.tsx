@@ -14,6 +14,7 @@ import { useAttention, useRecents, useRunning, useUnread } from "@/lib/recents";
 import { apiConfigured } from "@/lib/sources";
 import { THEME_KEY } from "@/lib/theme";
 import { IconAim, IconChats, IconChevron, IconClose, IconFlask, IconMemory, IconMoon, IconNew, IconProof, IconSidebar, IconSun } from "./Icons";
+import { LogoMark } from "./Logo";
 import { Palette, ShortcutSheet } from "./Palette";
 
 type Theme = "dark" | "light";
@@ -189,10 +190,7 @@ function Sidebar({ path, onClose, theme, toggleTheme }: { path: string; onClose(
     <div className="side">
       <div className="side-head">
         <Link href="/" className="wordmark" aria-label="Translucent, new campaign">
-          <svg width="18" height="18" viewBox="0 0 20 20" aria-hidden>
-            <circle cx="8" cy="10" r="6.5" className="wm-a" />
-            <circle cx="12" cy="10" r="6.5" className="wm-b" />
-          </svg>
+          <LogoMark size={20} />
           Translucent
         </Link>
         <button className="icon-btn side-close" onClick={onClose} aria-label="Close menu"><IconClose /></button>

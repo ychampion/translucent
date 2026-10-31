@@ -259,12 +259,18 @@ function Banner({ v, origin }: { v: LoopView; origin: Origin }) {
   const since = origin.fetchedAt ? (now - origin.fetchedAt) / 1000 : undefined;
   const { tag, line } = bannerLine(origin.mode, v, { ledger: origin.ledger, secondsSince: since, file: origin.file, receipt: origin.receipt });
   const verified = v.source.kind === "recorded" ? v.source.verified : null;
+  const waiting = origin.mode === "live" ? v.requests.filter((r) => r.state === "awaiting_approval").length : 0;
   return (
     <div className={`lp-banner is-${origin.mode}`} role="status" aria-live="off">
       <span className="lp-banner-tag">{origin.mode === "live" && <span className="lp-live-dot" aria-hidden />}{tag}</span>
       <span className="lp-banner-line">{line}</span>
       {origin.mode === "live" && origin.stream && origin.stream !== "ok" && (
         <span className="lp-banner-warn">{origin.stream === "connecting" ? "connecting to updates…" : origin.stream === "retrying" ? "updates paused, reconnecting…" : "updates stopped; reload to resume"}</span>
+      )}
+      {waiting > 0 && (
+        <a className="lp-banner-ask" href="#lp-next">
+          {waiting === 1 ? "An experiment waits" : `${waiting} experiments wait`} for your approval<span aria-hidden> ↓</span>
+        </a>
       )}
       {origin.mode === "recorded" && <span className="lp-banner-note">Read only{verified?.command ? <> · <code>{verified.command}</code></> : null}</span>}
     </div>
@@ -382,6 +388,7 @@ function Side({ title, tone, basis, value, label, delta, deltaGood, warn, checks
 // ---------------------------------------------------------------- what happens next
 
 function Next({ v, origin }: { v: LoopView; origin: Origin }) {
+  const words = useWords(v);
   const n = v.next_action;
   if (n.kind === "none") {
     if (v.conclusion) return null;
@@ -400,7 +407,7 @@ function Next({ v, origin }: { v: LoopView; origin: Origin }) {
   return (
     <section className={`lp-next ${n.kind === "running" ? "is-busy" : "is-wait"}`} aria-live="polite">
       <p className="lp-next-k">{n.kind === "running" ? <><Spinner size={14} /> Running now</> : "Waiting for a person"}</p>
-      <p className="lp-next-title">{n.title}</p>
+      <p className="lp-next-title">{req ? requestTitle(req, words) : n.title}</p>
       <p className="lp-next-meta">{n.kind === "running" ? executorWord(n.executor) : "Approved. A person runs it and returns the measured result (HTTP or MCP)."}{req?.approved_by ? ` · ${approvedWord(req.approved_by)}` : ""}</p>
     </section>
   );
@@ -410,9 +417,9 @@ function Proposal({ v, n, req, origin }: { v: LoopView; n: Extract<NextAction, {
   const words = useWords(v);
   const pred = Object.entries(n.prediction);
   return (
-    <section className="lp-next is-ask" aria-labelledby="lp-next-h">
+    <section className="lp-next is-ask" id="lp-next" aria-labelledby="lp-next-h">
       <p className="lp-next-k">{req ? `Proposed by ${actorIn(v, req.proposed_by)}` : plannerIsAgent(v) ? "The agent proposes" : "Proposed"}{n.version > 1 ? ` · version ${n.version}` : ""}</p>
-      <h2 className="lp-next-title" id="lp-next-h">{n.title}</h2>
+      <h2 className="lp-next-title" id="lp-next-h">{req ? requestTitle(req, words) : n.title}</h2>
       <div className="lp-why">
         <div><p className="lp-why-k">Why</p><p>{n.rationale}</p></div>
         <div><p className="lp-why-k">What it expects</p><p>{n.expected_effect}</p></div>
@@ -440,29 +447,43 @@ function Proposal({ v, n, req, origin }: { v: LoopView; n: Extract<NextAction, {
   );
 }
 
+const SIGNED_IN = "translucent:signed-in";
+
 /** Approve or reject one version, by the content hash the person read. Live only, with a name and the team key. */
 function Decide({ v, requestId, hash, origin }: { v: LoopView; requestId: string; hash: string; origin: Origin }) {
-  const [name, setName] = useState("");
+  const [name, setName] = useState("");          // the form, as typed
   const [key, setKey] = useState("");
+  const [who, setWho] = useState({ name: "", key: "" });   // who is signed in: set by Continue, never by typing
   const [signing, setSigning] = useState(false);
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState<"" | "approve" | "reject">("");
   const [note, setNote] = useState<{ text: string; error: boolean } | null>(null);
   const idem = useRef<Record<string, string>>({});
-  useEffect(() => { setName(identity.name()); setKey(identity.key()); }, []);
+  useEffect(() => {   // one sign-in serves every request on the page
+    const load = () => { const w = { name: identity.name(), key: identity.key() }; setWho(w); setName(w.name); setKey(w.key); };
+    load();
+    window.addEventListener(SIGNED_IN, load);
+    return () => window.removeEventListener(SIGNED_IN, load);
+  }, []);
   useEffect(() => { setRejecting(false); setReason(""); setNote(null); idem.current = {}; }, [hash]);
   if (origin.mode !== "live" || !origin.ledger) return null;
   const ledger = origin.ledger;
-  const able = canAct("live", key, name);
+  const able = canAct("live", who.key, who.name);
 
   if (!able || signing) {
     return (
-      <form className="lp-sign" onSubmit={(e) => { e.preventDefault(); identity.setName(name); identity.setKey(key); setSigning(false); }}>
+      <form className="lp-sign" onSubmit={(e) => {
+        e.preventDefault();
+        identity.setName(name); identity.setKey(key);
+        setWho({ name: name.trim(), key: key.trim() }); setSigning(false); setNote(null);
+        window.dispatchEvent(new Event(SIGNED_IN));
+      }}>
         <p className="lp-sign-lead">To approve or reject, say who you are and enter the team key.</p>
         <input className="field" placeholder="Your name" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" aria-label="Your name" />
         <input className="field" type="password" placeholder="Team key" value={key} onChange={(e) => setKey(e.target.value)} autoComplete="off" aria-label="Team key" />
         <button className="btn btn-small" type="submit" disabled={!name.trim() || !key.trim()}>Continue</button>
+        {note?.error && <p className="lp-error" role="alert">{note.text}</p>}
       </form>
     );
   }
@@ -472,9 +493,9 @@ function Decide({ v, requestId, hash, origin }: { v: LoopView; requestId: string
     setNote(null);
     const k = idem.current[what] ??= newIdempotencyKey();
     try {
-      if (what === "approve") await v1.approve(ledger, v.campaign.id, requestId, { author: name.trim(), content_hash: hash }, key.trim(), k);
-      else await v1.reject(ledger, v.campaign.id, requestId, { author: name.trim(), content_hash: hash, reason: reason.trim() }, key.trim(), k);
-      setNote({ text: what === "approve" ? `Approved by ${name.trim()}. Recorded.` : `Rejected by ${name.trim()}. Recorded.`, error: false });
+      if (what === "approve") await v1.approve(ledger, v.campaign.id, requestId, { author: who.name, content_hash: hash }, who.key, k);
+      else await v1.reject(ledger, v.campaign.id, requestId, { author: who.name, content_hash: hash, reason: reason.trim() }, who.key, k);
+      setNote({ text: what === "approve" ? `Approved by ${who.name}. Recorded.` : `Rejected by ${who.name}. Recorded.`, error: false });
       setRejecting(false);
       origin.refresh?.();
     } catch (err) {
@@ -505,7 +526,7 @@ function Decide({ v, requestId, hash, origin }: { v: LoopView; requestId: string
         <div className="lp-decide-row">
           <button className="btn lp-approve" onClick={() => act("approve")} disabled={!!busy}>{busy === "approve" ? <Spinner size={14} /> : <IconCheck size={16} />}Approve and run</button>
           <button className="btn btn-quiet" onClick={() => setRejecting(true)} disabled={!!busy}>Reject…</button>
-          <span className="lp-as">as {name} · <button className="text-quiet lp-switch" onClick={() => setSigning(true)}>change</button></span>
+          <span className="lp-as">as {who.name} · <button className="text-quiet lp-switch" onClick={() => setSigning(true)}>change</button></span>
         </div>
       )}
       {note && <p className={note.error ? "lp-error" : "lp-ok"} role={note.error ? "alert" : "status"}>{note.text}</p>}
@@ -718,6 +739,7 @@ function Experiments({ v, origin, charted, onChart }: { v: LoopView; origin: Ori
               )}
               {validityWarning(r.result) && <p className="lp-warn is-inline" role="note">{validityWarning(r.result)}</p>}
               {r.rejections.map((x) => <p key={x.seq} className="lp-req-refused">A returned result was refused: {x.reasons.map(prose).join("; ")}</p>)}
+              {r.failure && <p className="lp-req-refused">Failed on attempt {r.failure.attempt}: {r.failure.reason}</p>}
               {r.state === "awaiting_approval" && r.request_id !== nextId && <Decide v={v} requestId={r.request_id} hash={r.content_hash} origin={origin} />}
             </li>
           );

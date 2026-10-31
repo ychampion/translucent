@@ -98,3 +98,30 @@ def test_the_server_runs_a_started_bo_campaign_to_a_verified_conclusion(tmp_path
     done = [r for r in view["requests"] if r["state"] == "completed" and r["proposed_by"] != "policy:registration"]
     assert 1 <= len(done) <= 8
     assert verify(root / "ledgers" / "lab").ok
+
+
+def test_without_the_solver_nothing_is_written(tmp_path, monkeypatch):
+    import importlib.util
+    real = importlib.util.find_spec
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name, *a: None if name == "pybamm" else real(name, *a))
+    with pytest.raises(StartError, match="uv sync --group dev --group solver"):
+        start_fastcharge(tmp_path / "data", person="Ana")
+    assert not (tmp_path / "data").exists()
+
+
+def test_a_team_server_has_a_key_and_admits_the_local_web_app(tmp_path, monkeypatch, capsys):
+    from translucent.cli import _team_server
+    for name in ("TRANSLUCENT_TEAM_TOKEN", "TRANSLUCENT_CORS_ORIGINS"):
+        monkeypatch.delenv(name, raising=False)
+    _team_server(tmp_path)
+    key = (tmp_path / "team-key").read_text(encoding="utf-8").strip()
+    assert len(key) >= 20 and os.environ["TRANSLUCENT_TEAM_TOKEN"] == key and key in capsys.readouterr().out
+    assert "http://localhost:3000" in os.environ["TRANSLUCENT_CORS_ORIGINS"].split(",")
+    monkeypatch.delenv("TRANSLUCENT_TEAM_TOKEN")
+    _team_server(tmp_path)                                    # a restart keeps the key the web app has
+    assert os.environ["TRANSLUCENT_TEAM_TOKEN"] == key
+    monkeypatch.setenv("TRANSLUCENT_TEAM_TOKEN", "chosen")
+    monkeypatch.setenv("TRANSLUCENT_CORS_ORIGINS", "https://lab.example")
+    _team_server(tmp_path)
+    assert os.environ["TRANSLUCENT_TEAM_TOKEN"] == "chosen" and os.environ["TRANSLUCENT_CORS_ORIGINS"] == "https://lab.example"
+    assert "chosen" not in capsys.readouterr().out

@@ -13,6 +13,7 @@ administrator token). Every request waits for a person's approval in the web app
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import runpy
 from pathlib import Path
@@ -47,6 +48,14 @@ def check_records(records: Path = RECORDS) -> None:
             raise StartError(f"{path} is not the published {name}: its sha256 differs from the pinned one")
 
 
+def check_solver() -> None:
+    """The baseline is re-run on the solver at registration: without it the campaign would start on a failed run."""
+    missing = [m for m in ("pybamm", "casadi") if importlib.util.find_spec(m) is None]
+    if missing:
+        raise StartError(f"the fast-charge solver is not installed ({', '.join(missing)} missing); install it with "
+                         "`uv sync --group dev --group solver`")
+
+
 def objective(planner: str, person: str, auto_approve: bool, dataset_id: str, baseline_ref: str) -> dict:
     data = fastcharge_objective(kind=PLANNERS[planner], profile="meta" if planner == "muse" else None,
                                 model_usd=1.5 if planner == "muse" else 0.0, registered_by=person)
@@ -62,6 +71,7 @@ def start_fastcharge(data_root: Path, *, ledger_id: str = "lab", planner: str = 
                      auto_approve: bool = False, records: Path = RECORDS) -> dict:
     """Ledger, dataset and campaign, each created only if it is not there. Returns what was found or made."""
     check_records(records)
+    check_solver()
     ws = Workspace(data_root)
     created = not ws.exists(ledger_id)
     if created:

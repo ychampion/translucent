@@ -225,7 +225,14 @@ def _request(L: Ledger, obj: ObjectiveData, st: RequestState, ledger: str, deriv
             "executor": d.executor, "params": {k: {"value": v, "unit": d.units.get(k, "")} for k, v in d.params.items()},
             "proposed_by": st.proposed_by, "approved_by": st.approved_by, "content_hash": d.content_hash,
             "rationale": d.rationale, "prediction": d.prediction, "timeline": [dict(t) for t in st.timeline],
-            "result": result, "rejections": [{"seq": x.seq, "reasons": list(x.data["reasons"])} for x in st.refused]}
+            "result": result, "rejections": [{"seq": x.seq, "reasons": list(x.data["reasons"])} for x in st.refused],
+            **({"failure": _failure(st.failure.data)} if st.failure is not None else {})}
+
+
+def _failure(d: dict) -> dict:
+    lines = [x.strip() for x in d["error"].splitlines() if x.strip()]
+    return {"attempt": d["attempt"], "reason": lines[-1] if lines else "no reason was recorded",
+            "retryable": d["retryable"]}
 
 
 def _comparison(rec: LoopRecord) -> dict:

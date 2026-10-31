@@ -59,6 +59,7 @@ export interface LoopRequest {
   params: Record<string, Param>; proposed_by: string; approved_by: string | null; content_hash: string;
   rationale: string; prediction: Record<string, Predicted>; timeline: TimelineStep[]; result: LoopResult | null;
   rejections: { seq: number; reasons: string[] }[];
+  failure?: { attempt: number; reason: string; retryable: boolean };
 }
 export interface Comparison {
   id: string; request_id: string; objective_version: number; basis: Basis;

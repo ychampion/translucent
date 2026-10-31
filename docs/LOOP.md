@@ -13,6 +13,7 @@ agent ([AGENTS.md](AGENTS.md#loop-campaigns)). This page explains how a campaign
 ## Start one
 
 ```sh
+uv sync --group dev --group solver                   # PyBaMM runs the experiments
 uv run python scripts/fetch_lgm50_data.py            # the Chen 2020 LG M50 records, 1.8 MB, checked by sha256
 uv run translucent start fastcharge --data-root ./lab --person Ana --serve
 ```
@@ -21,14 +22,19 @@ uv run translucent start fastcharge --data-root ./lab --person Ana --serve
 campaign: charge the LG M50 from 10 to 80 % faster while the anode potential stays at or above +10 mV and the cell at
 or below 45 degC, in at most 8 computational experiments. Running it again finds the same ledger, dataset and
 campaign and writes nothing. `--serve` then serves the data root; without it, run `translucent serve --data-root
-./lab` yourself.
+./lab` yourself. `start` refuses to begin without the solver, since the baseline is re-run on it at registration.
+
+The server prints the team key that people enter in the web app before they approve. It is kept in `lab/team-key`,
+or set with `TRANSLUCENT_TEAM_TOKEN`. The web app at `http://localhost:3000` may call the server; set
+`TRANSLUCENT_CORS_ORIGINS` for another origin. Start the web app with `NEXT_PUBLIC_API_BASE=http://127.0.0.1:8000 bun
+run dev` in `web/`.
 
 The planner is chosen with `--planner`:
 
 | Planner | Who proposes | Cost |
 |---|---|---|
 | `bo` (default) | the adapter's Bayesian optimisation | none |
-| `external` | your own agent, over MCP or HTTP | yours |
+| `external` | your own agent, over MCP or HTTP; `start` prints the MCP command (with `--adopt`) | yours |
 | `muse` | Muse Wonder on the meta profile, $1.50 model budget | paid: needs `--live` and `TRANSLUCENT_ADMIN_TOKEN` |
 
 Each request waits for a person's approval in the web app; `--auto-approve` lets the campaign's computational

@@ -191,7 +191,9 @@ export function ServerCampaigns({ limit = 4 }: { limit?: number }) {
         <p className="side-label" id="cl-home-h">On the server</p>
         <Link className="text-quiet" href="/campaigns/">All campaigns</Link>
       </div>
-      {items.length ? <CampaignRows items={items} compact /> : <p className="lp-plain">No loop campaigns yet.</p>}
+      {items.length ? <CampaignRows items={items} compact /> : (
+        <p className="lp-plain">No campaigns yet. Start one in a terminal with <code>translucent start</code> (see the README), or let your agent open one over MCP.</p>
+      )}
     </section>
   );
 }

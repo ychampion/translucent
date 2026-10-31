@@ -9,6 +9,7 @@ data/experiments/*
 # local state: default ledger and API state, spend ledgers, new campaign runs
 state/
 budget/
+/lab/
 runs/*
 !runs/dev-m4/
 !runs/fw-chain6/

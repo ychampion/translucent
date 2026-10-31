@@ -13,6 +13,7 @@ import { ensureMock } from "@/lib/useCampaign";
 import { AddRecording } from "./AddRecording";
 import { ServerCampaigns } from "./CampaignList";
 import { ChipMenu, Composer, type PlusAction } from "./Composer";
+import { LogoMark } from "./Logo";
 import { IconBolt, IconCheck, IconClose, IconDown, IconFilm, IconUpload } from "./Icons";
 import { PageHeader } from "./Shell";
 
@@ -185,10 +186,7 @@ export function Home() {
       <PageHeader />
       <div className="home-center">
         <div className="home-hero">
-          <svg className="home-mark" width="52" height="52" viewBox="0 0 20 20" aria-hidden>
-            <circle cx="7.6" cy="10" r="5.6" />
-            <circle cx="12.4" cy="10" r="5.6" />
-          </svg>
+          <LogoMark size={56} className="home-mark" />
           <h1 className="home-question">What should we find out?</h1>
         </div>
       </div>

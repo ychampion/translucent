@@ -74,8 +74,8 @@ def main(argv=None):
             print(f"{name}: {exc}", file=sys.stderr)
             failed += 1
     if not failed:
-        print("Import them into a ledger with:")
-        print("  translucent import data/chen2020-lgm50/manifest.json --ledger <ledger> --files data/raw/chen2020-lgm50")
+        print("Start a campaign on them with:")
+        print("  uv run translucent start fastcharge --data-root ./lab --person <your name> --serve")
     return 1 if failed else 0
 
 

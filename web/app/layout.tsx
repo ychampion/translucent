@@ -10,7 +10,7 @@ import "./loop.css";
 
 export const metadata: Metadata = {
   title: "Translucent",
-  description: "Autonomous materials research you can check, frame by frame.",
+  description: "Investigate failed tests, choose and run the next experiment, and judge whether a change helps.",
 };
 
 export const viewport: Viewport = {

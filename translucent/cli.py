@@ -27,6 +27,29 @@ def _new_ledger_note(path):
         print(f"Creating a new ledger at {path}", file=sys.stderr)
 
 
+def _team_server(data_root) -> None:
+    """A data-root server for one team: the web app on this machine (bun run dev, port 3000) may call it, and people
+    approve with the team key. Without TRANSLUCENT_TEAM_TOKEN the key is kept in the data root's team-key file, made
+    once: whoever can read that folder can already write the ledgers in it."""
+    if not os.environ.get("TRANSLUCENT_CORS_ORIGINS"):
+        os.environ["TRANSLUCENT_CORS_ORIGINS"] = "http://localhost:3000,http://127.0.0.1:3000"
+    if os.environ.get("TRANSLUCENT_TEAM_TOKEN"):
+        print("Team key: the value of TRANSLUCENT_TEAM_TOKEN")
+        return
+    import secrets
+    path = Path(data_root) / "team-key"
+    try:                                   # made once, readable by its owner only
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        pass
+    else:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(secrets.token_urlsafe(18) + "\n")
+    os.environ["TRANSLUCENT_TEAM_TOKEN"] = path.read_text(encoding="utf-8").strip()
+    print(f"Team key (the web app asks for it before an approval): {os.environ['TRANSLUCENT_TEAM_TOKEN']}  "
+          f"[kept in {path}]")
+
+
 def _add_experiment(args, parser):
     from pydantic import ValidationError
     from translucent.experiments import register
@@ -335,6 +358,10 @@ def main(argv=None):
         print(f"Ledger {out['ledger']} at {out['path']}" + (" (created)" if out["ledger_created"] else ""))
         print(f"Dataset {out['dataset']}; failing baseline {out['baseline']}")
         print(f"Campaign {out['campaign_id']}, planner {out['planner']}")
+        if args.planner == "external":
+            print("Connect your agent over MCP (--adopt lets it write to this campaign):\n"
+                  f"  uv run --directory {Path(__file__).resolve().parents[1]} python -m translucent.mcp_server "
+                  f"--ledger {Path(out['path']).resolve()} --write --adopt")
         if not args.serve:
             print(f"Serve it: translucent serve --data-root {args.data_root}")
             return 0
@@ -342,6 +369,9 @@ def main(argv=None):
         from translucent.server import create_app
         if args.live:
             os.environ["TRANSLUCENT_LIVE"] = "1"
+        _team_server(args.data_root)
+        print(f"Web app: cd web, then NEXT_PUBLIC_API_BASE=http://{args.host}:{args.port} bun run dev, "
+              "and open http://localhost:3000")
         uvicorn.run(create_app(data_root=args.data_root), host=args.host, port=args.port)
         return 0
     if args.command == "serve":
@@ -353,6 +383,7 @@ def main(argv=None):
                 parser.error("serve takes --data-root or --ledger, not both")
             if not Path(args.data_root).is_dir():
                 parser.error(f"--data-root {args.data_root} is not a folder; create ledgers with `translucent init`")
+            _team_server(args.data_root)
             uvicorn.run(create_app(state_dir=args.state, data_root=args.data_root, import_root=args.import_root),
                         host=args.host, port=args.port)
             return 0

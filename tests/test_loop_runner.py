@@ -10,13 +10,16 @@ import time
 from pathlib import Path
 
 import pytest
+from pydantic import TypeAdapter
 from support.loop_systems import HOLD_ENV, objective, register
 
 from translucent import chain
 from translucent.ledger import Ledger
 from translucent.loop import request_states
+from translucent.loop_contracts import LoopView
 from translucent.loop_runner import LoopRunner
 from translucent.loop_service import Actor, LoopService
+from translucent.loop_view import view
 
 ROOT = Path(__file__).resolve().parents[1]
 TESTS = Path(__file__).resolve().parent
@@ -182,6 +185,11 @@ def test_a_deterministic_action_abandoned_three_times_fails(L, monkeypatch):
     assert executions(L, cid, rq) == [("started", 1), ("abandoned", 1), ("started", 2), ("abandoned", 2),
                                       ("started", 3), ("abandoned", 3)]
     assert chain.problems(L, cid) == []
+    v = view(L, cid, {"kind": "live", "api": "", "ledger": "lab"})       # the person sees why it failed
+    TypeAdapter(LoopView).validate_python(v, strict=False)
+    shown = next(r for r in v["requests"] if r["request_id"] == rq)
+    assert shown["failure"]["attempt"] == 3 and "last of 3 attempts" in shown["failure"]["reason"]
+    assert all("failure" not in r for r in v["requests"] if r["request_id"] != rq)
 
 
 # ------------------------------------------------------------------ 12. inline tick and a runner thread together

@@ -392,9 +392,22 @@ Browsing, replaying, verifying and most tests do not need them.
 ### Engineering campaign
 
 ```sh
+uv sync --group dev --group solver             # adds PyBaMM, which runs the experiments
 uv run python scripts/fetch_lgm50_data.py      # the Chen 2020 LG M50 records, 1.8 MB, checked by sha256
 uv run translucent start fastcharge --data-root ./lab --person Ana --serve
 ```
+
+In a second terminal, start the web app and open http://localhost:3000:
+
+```sh
+cd web
+bun install
+NEXT_PUBLIC_API_BASE=http://127.0.0.1:8000 bun run dev       # PowerShell: $env:NEXT_PUBLIC_API_BASE="http://127.0.0.1:8000"; bun run dev
+```
+
+The server prints a team key and keeps it in `lab/team-key`; the web app asks for it, with your name, before your
+first approval. Set `TRANSLUCENT_TEAM_TOKEN` to choose the key yourself. The server accepts the web app from
+`http://localhost:3000`; for another address, set `TRANSLUCENT_CORS_ORIGINS`.
 
 `start` creates the ledger, imports the records, re-runs the failing protocol and opens the campaign. Running it
 again changes nothing. Choose who proposes with `--planner`:
@@ -406,8 +419,8 @@ again changes nothing. Choose who proposes with `--planner`:
 | `muse` | Muse Wonder, $1.50 model budget | paid: needs `--live` and `TRANSLUCENT_ADMIN_TOKEN` |
 
 Each request waits for a person's approval in the web app; `--auto-approve` lets computational requests run
-without one. Point the web app at the server with `NEXT_PUBLIC_API_BASE=http://127.0.0.1:8000` (see
-[Web demo](#web-demo)). To connect your own agent, see [docs/AGENTS.md](docs/AGENTS.md#loop-campaigns).
+without one. With `--planner external`, `start` prints the MCP command that connects your agent to the campaign
+(see [docs/AGENTS.md](docs/AGENTS.md#loop-campaigns)).
 
 ### CLI
 

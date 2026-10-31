@@ -629,6 +629,13 @@ class ResultRejection(TypedDict):
 
 
 @with_config(_STRICT)
+class ViewFailure(TypedDict):
+    attempt: int
+    reason: str                                   # the error's last line, e.g. the exception a traceback ends with
+    retryable: bool
+
+
+@with_config(_STRICT)
 class ViewRequest(TypedDict):
     request_id: str
     version: int
@@ -644,6 +651,7 @@ class ViewRequest(TypedDict):
     timeline: list[TimelineEntry]
     result: ViewResult | None
     rejections: list[ResultRejection]             # result_rejected records: uploads refused, with reasons
+    failure: NotRequired[ViewFailure]             # a failed request: why it failed
 
 
 @with_config(_STRICT)
