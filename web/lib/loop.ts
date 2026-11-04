@@ -495,12 +495,14 @@ const paramValue = paramText;
 
 /**
  * "Charge C-rate 1.3C → 1.05C → 0.95C → 0.75C · Ambient temperature 25 °C". Numbered parameters of one unit
- * (c_rate_1..4) are one stepped group, read in step order; a lone parameter is "Switch SOC 0.5".
+ * (c_rate_1..4) are one stepped group, read in step order; a lone parameter is "Switch SOC 0.5". A parameter too
+ * long to print inline (a model, a list of sources) is left out; the request's parameter table carries it.
  */
 export function paramsLine(params: Record<string, Param>, words: Words = ID_WORDS): string {
   const groups = new Map<string, { label: string; items: [number, Param][] }>();
   const singles: [string, Param][] = [];
   for (const [k, p] of Object.entries(params)) {
+    if (paramText(p) === PARAM_RECORDED) continue;   // a model or a source list: the request's table shows it
     const m = k.match(/^(.*)_(\d+)$/);
     if (m) {
       const key = `${m[1]}|${p.unit}`;

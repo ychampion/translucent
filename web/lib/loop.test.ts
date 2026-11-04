@@ -505,7 +505,7 @@ describe("thermal learning", () => {
     // The lab recording's first design carries its whole model as a parameter.
     const first = LAB.requests[0];
     const line = paramsLine(first.params);
-    expect(line).toContain(`Model ${PARAM_RECORDED}`);
+    expect(line).not.toContain(PARAM_RECORDED);   // left to the request's table, not the one-line summary
     expect(line).not.toContain("{");
     expect(LAB.requests.every((r) => !requestTitle(r).includes("{"))).toBe(true);
   });

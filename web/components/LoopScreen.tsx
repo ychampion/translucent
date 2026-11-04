@@ -1395,7 +1395,7 @@ function Experiments({ v, origin, selected, onSelect, actor }: { v: LoopView; or
             <li key={r.request_id} id={`ws-opt-${r.request_id}`} role="option" aria-selected={selected === r} className={`ws-exp-row ${selected === r ? "is-on" : ""} ${role !== "experiment" ? "is-system" : ""}`} onClick={() => onSelect(r.request_id)}>
               <span className="ws-exp-n num">#{i + 1}{r.version > 1 ? ` v${r.version}` : ""}</span>
               <span className="ws-exp-main">
-                <span className="ws-exp-params">{paramsLine(r.params, words) || words.action(r.action)}</span>
+                <span className="ws-exp-params">{requestTitle(r, words).replace(": ", " · ")}</span>
                 <span className="ws-exp-meta">
                   <StateChip v={v} r={r} />
                   {ROLE_TAG[role] && <span className="ws-chip is-role">{ROLE_TAG[role]}</span>}
