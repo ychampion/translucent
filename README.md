@@ -1,6 +1,6 @@
 # Translucent: accelerate experiments with Meta's Muse Wonder
 
-**Give an agent the experimental loop: read the evidence, test a model, choose what to try next.**
+**Give an agent the scientific experimental loop: read the evidence, test a model, choose what to try next.**
 
 Meta's Muse Wonder investigates how a physical system behaves and designs how to control it. Starting from raw instrument data it has never seen, it writes the import mapping, builds models, tests them against held-out evidence and chooses the next experiment. When the evidence cannot support a design, it asks for the physical measurement that would settle the question.
 
@@ -44,7 +44,7 @@ One scored run shows what that looks like. Given two raw Maccor exports, Muse wr
 
 Translucent recommended in **5 of 6 runs**, with **0 unsupported recommendations**. A general Muse agent using the same numerical tools recommended in **6 of 6**, at **39 % of Translucent's model spend**, with **1 unsupported recommendation**. This is a small comparison, **n = 6 per model arm**, with no claim of statistical superiority. The numerical controller received prepared inputs and still declined in all **3 cases**. [Records-intake results and reproduction scope](evals/RECORDS-INTAKE.md).
 
-The capability is an agent that carries the experimental loop from unfamiliar records through model checks to a control design, and recognises when it needs another measurement. Translucent makes that work usable by hardware and materials teams: approvals bind the exact request, the server computes the outcome, and the campaign exports for independent checking.
+The capability is an agent that carries the scientific experimental loop from unfamiliar records through model checks to a control design, and recognises when it needs another measurement. Translucent makes that work usable by hardware and materials teams: approvals bind the exact request, the server computes the outcome, and the campaign exports for independent checking.
 
 ## What this makes possible
 
