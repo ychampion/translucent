@@ -4,7 +4,7 @@
 // The microscopy question box and the other recorded examples live on /examples/.
 import Link from "next/link";
 import { useEffect } from "react";
-import { FASTCHARGE_DEMO_HREF, FASTCHARGE_HREF, FASTCHARGE_LAB_HREF } from "@/lib/loop";
+import { FASTCHARGE_DEMO_HREF, FASTCHARGE_HREF, FASTCHARGE_LAB_HREF, RECORDS_TO_DESIGN_HREF } from "@/lib/loop";
 import { canWrite, useApiConfigured, useSession } from "@/lib/session";
 import { ServerCampaigns } from "./CampaignList";
 import { IconNew } from "./Icons";
@@ -34,6 +34,13 @@ export function Home() {
 
         <section className="ws-home-section" aria-labelledby="ws-rec-h">
           <h2 className="ws-home-h2" id="ws-rec-h">Recorded engineering examples</h2>
+          <Link href={RECORDS_TO_DESIGN_HREF} className="ws-rec-card">
+            <span className="ws-rec-top">
+              <span className="ws-rec-title">From raw cell records to a charging design, with no one stepping in</span>
+              <span className="ws-chip is-recorded">Recorded</span><span className="ws-chip is-sim">Simulated</span>
+            </span>
+            <span className="ws-rec-line">Given two raw exports from published LG M50 cell tests, Muse Wonder wrote its own import and fixed four refused mappings. Its first thermal model fitted one cell and failed on the other, so it measured the simulated lab fixture instead. That model passed a held-out check, and its design charges in 35.875 min, matching a reference controller that was told the hidden lab condition. 13 Muse turns, 12 experiments, 15.7 minutes, $1.99; a standing rule approved every experiment. Its request to verify the design in the lab was refused: the lab-test budget was spent.</span>
+          </Link>
           <Link href={FASTCHARGE_LAB_HREF} className="ws-rec-card">
             <span className="ws-rec-top">
               <span className="ws-rec-title">Learning the lab fixture&rsquo;s thermal model</span>

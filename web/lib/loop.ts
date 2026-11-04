@@ -860,6 +860,8 @@ export const FASTCHARGE_HREF = "/w/?recording=fastcharge";
 export const FASTCHARGE_DEMO_HREF = "/w/?recording=fastcharge-demo";
 /** Fast charge against a simulated lab, learning a thermal model as it goes: public/fixtures/loop/fastcharge-lab.loop.json. */
 export const FASTCHARGE_LAB_HREF = "/w/?recording=fastcharge-lab";
+/** A scored records-intake run (published LG M50 cell exports to a design, every request approved by a standing rule): public/fixtures/loop/records-to-design.loop.json. */
+export const RECORDS_TO_DESIGN_HREF = "/w/?recording=records-to-design";
 
 export const recordingUrl = (name: string) => `/fixtures/loop/${name.replace(/\.loop\.json$/, "")}.loop.json`;
 

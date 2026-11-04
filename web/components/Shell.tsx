@@ -10,7 +10,7 @@ import { ApiError, v1 } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { INTERVENTION_NAV, interventionHref } from "@/lib/intervention";
 import { dispatchKey, useCommands } from "@/lib/commands";
-import { FASTCHARGE_DEMO_HREF, FASTCHARGE_HREF, FASTCHARGE_LAB_HREF, loopHref, type CampaignSummary } from "@/lib/loop";
+import { FASTCHARGE_DEMO_HREF, FASTCHARGE_HREF, FASTCHARGE_LAB_HREF, loopHref, RECORDS_TO_DESIGN_HREF, type CampaignSummary } from "@/lib/loop";
 import { useAttention, useRecents, useRunning, useUnread } from "@/lib/recents";
 import { apiConfigured } from "@/lib/sources";
 import { THEME_KEY } from "@/lib/theme";
@@ -227,6 +227,9 @@ function Sidebar({ path, onClose, theme, toggleTheme }: { path: string; onClose(
         </div>
 
         <p className="side-label">Recorded</p>
+        <Link href={RECORDS_TO_DESIGN_HREF} className={`side-row ${path === "/w" && new URLSearchParams(search).get("recording") === "records-to-design" ? "is-on" : ""}`}>
+          <span className="side-title">Raw records to a design</span>
+        </Link>
         <Link href={FASTCHARGE_LAB_HREF} className={`side-row ${path === "/w" && new URLSearchParams(search).get("recording") === "fastcharge-lab" ? "is-on" : ""}`}>
           <span className="side-title">Learning the lab&rsquo;s thermal model</span>
         </Link>
