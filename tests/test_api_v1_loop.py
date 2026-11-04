@@ -1,6 +1,6 @@
 """S5: loop campaigns over HTTP (/api/v1/ledgers/{lid}/...). A person and an agent's client complete a campaign with
-a computational and a physical request; every refusal of the loop service is its HTTP status; writes need the team
-token and people's actions a person; budgets are held to the provider caps; every write honours Idempotency-Key
+a computational and a physical request; every refusal of the loop service is its HTTP status; every route needs a
+credential, people's actions a person's key and an agent's an agent's (planner) key; budgets are held to the provider caps; every write honours Idempotency-Key
 across a server restart, and the record-writing ones even with the API's state lost. Offline: the toy cell only."""
 import asyncio
 import json
@@ -12,16 +12,19 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 from support.analytic_system import simulate
+from support.keys import add_key, bearer
 from support.loop_systems import PREDICTION, objective, register
 
-from translucent import chain, runtime, server
+from translucent import api_v1, chain, runtime, server
 from translucent.ledger import Ledger
 from translucent.verify import verify
 from translucent.workspace import init_ledger
 
 DATA = Path(__file__).parent / "data" / "import_v2"
-TEAM = {"Authorization": "Bearer team-secret"}
-ADMIN = {"Authorization": "Bearer test-administrator"}
+TEAM = {"Authorization": "Bearer team-secret-0123456789ab-32chars-minimum"}                 # TRANSLUCENT_TEAM_TOKEN: the engineer Ana
+ADMIN = {"Authorization": "Bearer test-administrator-0123-32chars-minimum"}
+AGENT_KEY, BOT_KEY, VIEW_KEY = "planner-external-agent-0123456789", "planner-bot-0123456789abcdef", "viewer-0123456789abcdef"
+AGENT, BOT, VIEW = bearer(AGENT_KEY), bearer(BOT_KEY), bearer(VIEW_KEY)
 BASE = "/api/v1/ledgers/lab"
 
 
@@ -31,9 +34,10 @@ def offline(monkeypatch):
         raise AssertionError("Paid model calls are forbidden in API tests")
     monkeypatch.setattr(runtime, "_client", denied)
     for name in ("TRANSLUCENT_LIVE", "TRANSLUCENT_ADMIN_TOKEN", "TRANSLUCENT_CORS_ORIGINS", "TRANSLUCENT_IMPORT_ROOT",
-                 "TRANSLUCENT_DATA_ROOT", "TRANSLUCENT_PROFILE"):
+                 "TRANSLUCENT_DATA_ROOT", "TRANSLUCENT_PROFILE", "TRANSLUCENT_ADMIN_NAME"):
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("TRANSLUCENT_TEAM_TOKEN", "team-secret")
+    monkeypatch.setenv("TRANSLUCENT_TEAM_TOKEN", "team-secret-0123456789ab-32chars-minimum")
+    monkeypatch.setenv("TRANSLUCENT_TEAM_NAME", "Ana")
     register(monkeypatch)
 
 
@@ -41,6 +45,9 @@ def offline(monkeypatch):
 def lab(tmp_path):
     data = tmp_path / "data"
     init_ledger(data, "lab", title="Battery lab")
+    add_key(data, "external-agent", "planner", AGENT_KEY)
+    add_key(data, "bot", "planner", BOT_KEY)
+    add_key(data, "Vic", "viewer", VIEW_KEY)
     imports = tmp_path / "imports"
     shutil.copytree(DATA, imports / "bench", ignore=shutil.ignore_patterns("v1"))
     return data, imports
@@ -89,8 +96,14 @@ def propose(c, cid, action="simulate_charge", current=2.0, who=None, key=None, *
             "expected_effect": "Under 45 degC we go higher."} | (who or {}) | extra
     if action == "cell_test":
         body["specimen"] = {"id": "cell-07"}
-    r = c.post(f"{BASE}/campaigns/{cid}/requests", json=body, headers=TEAM | ({"Idempotency-Key": key} if key else {}))
+    r = c.post(f"{BASE}/campaigns/{cid}/requests", json=body,
+               headers=writer(body) | ({"Idempotency-Key": key} if key else {}))
     return r
+
+
+def writer(body) -> dict:
+    """The key a write is sent with: the agent's when the body names one, else the engineer's."""
+    return {"external-agent": AGENT, "bot": BOT}[body["agent"]] if body.get("agent") else TEAM
 
 
 def loop_records(data, cid):
@@ -105,7 +118,7 @@ def loop_records(data, cid):
 
 def test_person_and_agent_complete_a_campaign_over_http(lab):
     data, _ = lab
-    with TestClient(app(lab)) as c:
+    with TestClient(app(lab), headers=VIEW) as c:
         assert "loop-test-cell" in {s["id"] for s in ok(c.get(f"{BASE}/systems"))}
         dataset = ok(c.post(f"{BASE}/datasets", json={"manifest": json.loads((DATA / "manifest.json").read_text(
             encoding="utf-8")), "path": "bench"}, headers=TEAM), 201)
@@ -116,7 +129,7 @@ def test_person_and_agent_complete_a_campaign_over_http(lab):
         cid = opened["campaign"]["campaign_id"]
         assert opened["campaign"]["objective"]["data"]["registered_by"] == "Ana"
         assert ok(c.get(f"{BASE}/campaigns"))["items"][0]["kind"] == "loop"
-        derived = ok(c.post(f"{BASE}/campaigns/{cid}/measurements", headers=TEAM, json={
+        derived = ok(c.post(f"{BASE}/campaigns/{cid}/measurements", headers=AGENT, json={
             "agent": "external-agent", "name": "peak", "spec": {"op": "max", "channel": "temperature",
                                                                "unit": "degC"}}))
         assert derived["record"]["actor"] == "agent:external-agent" and len(derived["measurements"]) == 1
@@ -152,8 +165,10 @@ def test_person_and_agent_complete_a_campaign_over_http(lab):
             "author": "Ana", "reason": "Cooler", "constraints": [{"quantity": "max_temperature", "op": "<=",
                                                                   "limit": 40.0, "unit": "degC", "label": "40"}]}))
         assert amended["amendment"]["data"]["version"] == 2
+        refused = c.post(f"{BASE}/campaigns/{cid}/conclusion", headers=AGENT, json={"text": "Two steps."})
+        assert refused.status_code == 403 and "planner key cannot conclude" in refused.text   # a person concludes
         concluded = ok(c.post(f"{BASE}/campaigns/{cid}/conclusion", headers=TEAM,
-                              json={"agent": "external-agent", "text": "Two steps."}))
+                              json={"author": "Ana", "text": "Two steps."}))
         assert concluded["type"] == "conclusion"
         for path, body in [("requests", {"agent": "external-agent", "action": "simulate_charge",
                                           "params": {"current_A": 3.0, "ambient_C": 25.0}, "rationale": "x",
@@ -162,7 +177,7 @@ def test_person_and_agent_complete_a_campaign_over_http(lab):
                            ("measurements", {"author": "Ana", "name": "late",
                                              "spec": {"op": "min", "channel": "temperature", "unit": "degC"}}),
                            ("conclusion", {"author": "Ana", "text": "Again"})]:
-            r = c.post(f"{BASE}/campaigns/{cid}/{path}", json=body, headers=TEAM)
+            r = c.post(f"{BASE}/campaigns/{cid}/{path}", json=body, headers=writer(body))
             assert r.status_code == 409 and "concluded" in r.json()["detail"], (path, r.text)
         assert ok(c.get(f"{BASE}/campaigns/{cid}/view"))["source"]["api"] == "http://testserver"
         export = c.get(f"{BASE}/campaigns/{cid}/export")
@@ -188,7 +203,7 @@ def test_person_and_agent_complete_a_campaign_over_http(lab):
 
 def test_wrong_ledger_is_a_404_and_creates_nothing(lab):
     data, _ = lab
-    with TestClient(app(lab, loop_workers=0)) as c:
+    with TestClient(app(lab, loop_workers=0), headers=VIEW) as c:
         for method, path, body in [("get", "/systems", None), ("get", "/campaigns/x/view", None),
                                    ("post", "/campaigns", {"author": "Ana", "title": "t", "objective": toy()}),
                                    ("post", "/campaigns/x/requests/rq_x/approve",
@@ -200,8 +215,8 @@ def test_wrong_ledger_is_a_404_and_creates_nothing(lab):
         "nope" not in {p.name for p in (data / "state").iterdir()}
 
 
-def test_writes_need_the_team_token_and_people_actions_need_a_person(lab):
-    with TestClient(app(lab, loop_workers=0)) as c:
+def test_writes_need_a_credential_and_people_actions_need_a_person(lab):
+    with TestClient(app(lab, loop_workers=0), headers=VIEW) as c:
         cid = ok(c.post(f"{BASE}/campaigns", json={"author": "Ana", "title": "t", "objective": toy()},
                         headers=TEAM), 201)["campaign"]["campaign_id"]
         req = ok(propose(c, cid), 201)
@@ -215,22 +230,25 @@ def test_writes_need_the_team_token_and_people_actions_need_a_person(lab):
                   (f"/campaigns/{cid}/amendments", {}), (f"/campaigns/{cid}/notes", {}),
                   (f"/campaigns/{cid}/conclusion", {}), ("/datasets", {})]
         for path, body in writes:
-            assert c.post(BASE + path, json=body).status_code == 403, path
-            assert c.post(BASE + path, json=body, headers={"Authorization": "Bearer wrong"}).status_code == 403
-        # an agent's client has no person's route: the body names a person, and the record says the person
+            c.app.state.translucent.auth.throttle.reset()     # wrong keys are rate-limited (tests/test_auth.py)
+            assert c.post(BASE + path, json=body, headers={"Authorization": ""}).status_code == 401, path
+            assert c.post(BASE + path, json=body, headers={"Authorization": "Bearer wrong-key-0123456789abcdef"}
+                          ).status_code == 401
+            assert c.post(BASE + path, json=body, headers=VIEW).status_code == 403, path    # a viewer only reads
+        # an agent's (planner) key has no person's route, whatever the body says
         for action in ("approve", "reject", "revise"):
-            r = c.post(f"{BASE}/campaigns/{cid}/requests/{rq}/{action}", headers=TEAM,
+            r = c.post(f"{BASE}/campaigns/{cid}/requests/{rq}/{action}", headers=AGENT,
                        json={"agent": "external-agent", "content_hash": req["content_hash"], "reason": "r",
                              "params": {}})
-            assert r.status_code == 422 and "author" in r.text, (action, r.text)
-        r = c.post(f"{BASE}/campaigns", headers=TEAM, json={"agent": "external-agent", "title": "t",
-                                                            "objective": toy(baseline_simulation=True)})
-        assert r.status_code == 422 and "cannot pre-approve" in r.text
+            assert r.status_code == 403 and "planner key cannot" in r.text, (action, r.text)
+        r = c.post(f"{BASE}/campaigns", headers=AGENT, json={"agent": "external-agent", "title": "t",
+                                                             "objective": toy(baseline_simulation=True)})
+        assert r.status_code == 403 and "cannot open a campaign" in r.text
         r = c.post(f"{BASE}/campaigns", headers=TEAM, json={"author": "Ana", "title": "t",
                                                             "objective": objective(registered_by="Ben")})
         assert r.status_code == 403 and "cannot act as Ben" in r.text
-        r = c.post(f"{BASE}/campaigns/{cid}/requests/{rq}/cancel", headers=TEAM,
-                   json={"agent": "someone-else", "reason": "not mine"})
+        r = c.post(f"{BASE}/campaigns/{cid}/requests/{rq}/cancel", headers=BOT,
+                   json={"agent": "bot", "reason": "not mine"})
         assert r.status_code == 422 and "only its own" in r.text
 
 
@@ -256,10 +274,10 @@ def asgi_write(application, path, headers=(), chunks=(), method="POST"):
 def test_writes_without_a_token_or_too_large_are_refused_before_the_body_is_read(lab):
     application = app(lab, loop_workers=0)
     huge = [("Content-Type", "application/json"), ("Content-Length", str(10**9))]
-    # no token: refused before one byte is read, whatever the body claims to be
-    assert asgi_write(application, f"{BASE}/campaigns", huge) == (403, 0)
-    assert asgi_write(application, f"{BASE}/uploads/{'a' * 32}/run.csv", huge, method="PUT") == (403, 0)
-    assert asgi_write(application, "/api/experiments", huge) == (403, 0)
+    # no credential: refused before one byte is read, whatever the body claims to be
+    assert asgi_write(application, f"{BASE}/campaigns", huge) == (401, 0)
+    assert asgi_write(application, f"{BASE}/uploads/{'a' * 32}/run.csv", huge, method="PUT") == (401, 0)
+    assert asgi_write(application, "/api/experiments", huge) == (401, 0)
     # with the token: a body over its route's limit is a 413, by its length or as it streams
     auth = [("Authorization", TEAM["Authorization"])]
     assert asgi_write(application, f"{BASE}/campaigns", auth + huge) == (413, 0)
@@ -273,13 +291,13 @@ def test_writes_without_a_token_or_too_large_are_refused_before_the_body_is_read
     assert status == 422
     with TestClient(application) as c:
         r = c.post(f"{BASE}/campaigns", content=b"{not json", headers={"Content-Type": "application/json"})
-        assert r.status_code == 403            # not parsed first (that was a 422 "JSON decode error")
+        assert r.status_code == 401            # not parsed first (that was a 422 "JSON decode error")
         r = c.post(f"{BASE}/campaigns", content=b"{not json", headers=TEAM | {"Content-Type": "application/json"})
         assert r.status_code == 422
 
 
 def test_service_refusals_are_http_statuses(lab):
-    with TestClient(app(lab, loop_workers=0)) as c:
+    with TestClient(app(lab, loop_workers=0), headers=VIEW) as c:
         cid = ok(c.post(f"{BASE}/campaigns", json={"author": "Ana", "title": "t", "objective": toy()},
                         headers=TEAM), 201)["campaign"]["campaign_id"]
         v1 = ok(propose(c, cid), 201)
@@ -294,8 +312,8 @@ def test_service_refusals_are_http_statuses(lab):
         bad = propose(c, cid, current=99.0)
         assert bad.status_code == 422 and "current_A" in bad.text
         assert propose(c, cid, action="no_such_action").status_code == 422
-        inf = c.post(f"{BASE}/campaigns/{cid}/requests", headers={**TEAM, "Content-Type": "application/json"},
-                     content=b'{"agent": "a", "action": "simulate_charge", "params": {"current_A": 1e999, '
+        inf = c.post(f"{BASE}/campaigns/{cid}/requests", headers={**AGENT, "Content-Type": "application/json"},
+                     content=b'{"agent": "external-agent", "action": "simulate_charge", "params": {"current_A": 1e999, '
                              b'"ambient_C": 25}, "rationale": "r", "prediction": {}, "expected_effect": "e"}')
         assert inf.status_code == 422
         assert ok(c.post(f"{BASE}/campaigns/{cid}/requests/{rq}/approve", headers=TEAM,
@@ -306,7 +324,7 @@ def test_service_refusals_are_http_statuses(lab):
 
 
 def test_open_reads_cost_bounded_work(lab, monkeypatch):
-    """Reads need no token, so none may cost unbounded work: an export is made once per ledger revision, series
+    """Any key may read, a viewer's included, so no read may cost unbounded work: an export is made once per ledger revision, series
     reads parse at most two blobs at once, a campaigns page is at most 50, and a loop campaign's event stream ends
     at its conclusion."""
     import gzip
@@ -317,8 +335,8 @@ def test_open_reads_cost_bounded_work(lab, monkeypatch):
     monkeypatch.setattr(loop_export, "export", lambda *a, **k: made.append(1) or real(*a, **k))
     levels, gz = [], gzip.compress
     monkeypatch.setattr(gzip, "compress", lambda d, **k: levels.append(k.get("compresslevel")) or gz(d, **k))
-    with TestClient(app(lab, loop_workers=0)) as c:
-        cid = ok(c.post(f"{BASE}/campaigns", json={"agent": "bot", "title": "t", "objective": toy()},
+    with TestClient(app(lab, loop_workers=0), headers=VIEW) as c:
+        cid = ok(c.post(f"{BASE}/campaigns", json={"author": "Ana", "title": "t", "objective": toy()},
                         headers=TEAM), 201)["campaign"]["campaign_id"]
         first, again = c.get(f"{BASE}/campaigns/{cid}/export"), c.get(f"{BASE}/campaigns/{cid}/export")
         assert first.status_code == 200 and first.content == again.content and len(made) == 1
@@ -360,7 +378,7 @@ def test_open_reads_cost_bounded_work(lab, monkeypatch):
             busy = c.get(f"{BASE}/campaigns/{cid}/export")
             assert busy.status_code == 503 and busy.headers["Retry-After"]
 
-        ok(c.post(f"{BASE}/campaigns/{cid}/conclusion", headers=TEAM, json={"agent": "bot", "text": "Done."}))
+        ok(c.post(f"{BASE}/campaigns/{cid}/conclusion", headers=TEAM, json={"author": "Ana", "text": "Done."}))
         got = {}
         stream = threading.Thread(target=lambda: got.update(r=c.get(f"{BASE}/campaigns/{cid}/events")), daemon=True)
         stream.start()
@@ -378,9 +396,9 @@ def test_campaign_free_text_is_scrubbed_before_the_ledger_keeps_it(lab):
     obj["statement"] = f"Charge faster. temp key {secret}"
     obj["constraints"] = [dict(obj["constraints"][0], label=f"limit {secret}")]
     obj["planner"] = dict(obj["planner"], client={"name": f"bot {secret}", "version": "1.0"})
-    with TestClient(app(lab, loop_workers=0)) as c:
+    with TestClient(app(lab, loop_workers=0), headers=VIEW) as c:
         opened = ok(c.post(f"{BASE}/campaigns", headers=TEAM | {"Idempotency-Key": "open-s"},
-                           json={"title": f"Title {secret}", "agent": "bot", "objective": obj}), 201)
+                           json={"title": f"Title {secret}", "author": "Ana", "objective": obj}), 201)
         cid = opened["campaign"]["campaign_id"]
         stored = opened["campaign"]["objective"]["data"]
         assert stored["statement"] == "Charge faster. temp key [secret removed]"
@@ -391,7 +409,7 @@ def test_campaign_free_text_is_scrubbed_before_the_ledger_keeps_it(lab):
         ok(c.post(f"{BASE}/campaigns/{cid}/amendments", headers=TEAM, json={
             "author": "Ana", "reason": "Cooler", "constraints": [dict(obj["constraints"][0], label=f"40 {secret}")]}))
         done = ok(c.post(f"{BASE}/campaigns/{cid}/conclusion", headers=TEAM, json={
-            "agent": "bot", "text": f"done {secret}", "unresolved_reasons": [f"pasted {secret}", "plain reason"]}))
+            "author": "Ana", "text": f"done {secret}", "unresolved_reasons": [f"pasted {secret}", "plain reason"]}))
         assert done["data"]["unresolved_reasons"] == ["pasted [secret removed]", "plain reason"]
         assert c.get(f"{BASE}/campaigns").json()["items"][0]["title"] == "Title [secret removed]"
     L = Ledger(data / "ledgers" / "lab")
@@ -404,10 +422,14 @@ def test_campaign_free_text_is_scrubbed_before_the_ledger_keeps_it(lab):
 
 
 def test_paid_planners_need_the_administrator_and_budgets_are_capped(lab, monkeypatch):
-    with TestClient(app(lab, loop_workers=0)) as c:
+    with TestClient(app(lab, loop_workers=0), headers=VIEW) as c:
         paid = toy(planner={"kind": "muse", "profile": "dev", "client": None})
         r = c.post(f"{BASE}/campaigns", json={"author": "Ana", "title": "t", "objective": paid}, headers=TEAM)
         assert r.status_code == 403 and "administrator" in r.text
+        monkeypatch.setenv("TRANSLUCENT_ADMIN_TOKEN", "test-administrator-0123-32chars-minimum")
+        r = c.post(f"{BASE}/campaigns", json={"title": "t", "objective": paid}, headers=ADMIN)
+        assert r.status_code == 403 and "live mode is off" in r.text        # never another planner instead
+        monkeypatch.delenv("TRANSLUCENT_ADMIN_TOKEN")
         for budget, why in [({"model_usd": 26, "experiments": 4}, "more than the $25 cap"),
                             ({"model_usd": -1, "experiments": 4}, "finite number of dollars"),
                             ({"model_usd": 0, "experiments": 4, "experiment_usd": -1}, "experiment_usd")]:
@@ -426,11 +448,29 @@ def test_paid_planners_need_the_administrator_and_budgets_are_capped(lab, monkey
         # a paid planner without a profile is checked against the server's and stored with it, so it runs on it
         monkeypatch.setenv("TRANSLUCENT_PROFILE", "dev")
         monkeypatch.setenv("TRANSLUCENT_LIVE", "1")
-        monkeypatch.setenv("TRANSLUCENT_ADMIN_TOKEN", "test-administrator")
+        monkeypatch.setenv("TRANSLUCENT_ADMIN_TOKEN", "test-administrator-0123-32chars-minimum")
+        monkeypatch.setenv("TRANSLUCENT_ADMIN_NAME", "Ana")
         unset = toy(planner={"kind": "muse", "client": None}, budget={"model_usd": 5, "experiments": 4})
+        monkeypatch.setattr(server, "_missing_keys", lambda profile: ["FIREWORKS_API_KEY"])
+        r = c.post(f"{BASE}/campaigns", json={"author": "Ana", "title": "t", "objective": unset}, headers=ADMIN)
+        assert r.status_code == 503 and "FIREWORKS_API_KEY" in r.text       # a paid run needs the provider keys
+        monkeypatch.setattr(server, "_missing_keys", lambda profile: [])
         opened = ok(c.post(f"{BASE}/campaigns", json={"author": "Ana", "title": "t", "objective": unset},
                            headers=ADMIN), 201)
         assert opened["campaign"]["objective"]["data"]["planner"]["profile"] == "dev"
+
+
+def test_the_paid_planner_needs_only_the_key_of_the_provider_it_calls(monkeypatch):
+    # a loop planner calls the profile's orchestrator only: a meta-profile server with the Meta key and no
+    # Fireworks key (the microscopy critic's) can run Muse Wonder
+    from translucent import providers
+    monkeypatch.setattr(providers, "dotenv_values", lambda path: {})
+    for v in ("MODEL_API_KEY", "META_API_KEY", "FIREWORKS_API_KEY"):
+        monkeypatch.delenv(v, raising=False)
+    monkeypatch.setenv("META_API_KEY", "meta-key-for-this-test")
+    assert api_v1._planner_providers("meta") == ["meta"] and api_v1._planner_missing_keys("meta") == []
+    assert [p["provider"] for p in api_v1._provider_spend("meta")] == ["meta"]
+    assert api_v1._planner_missing_keys("dev") == ["FIREWORKS_API_KEY"]
 
 
 # ------------------------------------------------------------------ 5. Idempotency-Key across a restart
@@ -441,13 +481,13 @@ def test_every_write_honours_its_idempotency_key_across_a_restart(lab):
     calls, answers = [], {}
 
     def send(c, name, path, body, key, status=200, record=True):
-        r = c.post(BASE + path, json=body, headers=TEAM | {"Idempotency-Key": key})
+        r = c.post(BASE + path, json=body, headers=writer(body) | {"Idempotency-Key": key})
         assert r.status_code == status, (name, r.text)
         calls.append((name, path, body, key, status, record))
         answers[name] = r.json()
         return r.json()
 
-    with TestClient(app(lab, loop_workers=0)) as c:
+    with TestClient(app(lab, loop_workers=0), headers=VIEW) as c:
         send(c, "dataset", "/datasets", {"manifest": manifest, "path": "bench"}, "k-ds", 201)
         cid = send(c, "open", "/campaigns", {"author": "Ana", "title": "Keyed", "objective": toy(
             datasets=["fastcharge-screen-2026q3"], baseline=["fastcharge-screen-2026q3/cell07-cc"])},
@@ -489,9 +529,9 @@ def test_every_write_honours_its_idempotency_key_across_a_restart(lab):
     assert {r.type for r in before[0]} >= {"objective", "measurement", "request", "approval", "rejection",
                                            "cancellation", "result", "amendment", "conclusion"}
 
-    with TestClient(app(lab, loop_workers=0)) as c:      # a restart with the API's state kept
+    with TestClient(app(lab, loop_workers=0), headers=VIEW) as c:      # a restart with the API's state kept
         for name, path, body, key, status, _ in calls:
-            r = c.post(BASE + path, json=body, headers=TEAM | {"Idempotency-Key": key})
+            r = c.post(BASE + path, json=body, headers=writer(body) | {"Idempotency-Key": key})
             assert (r.status_code, r.json()) == (status, answers[name]), name
         r = c.post(f"{BASE}/campaigns/{cid}/notes", json={"author": "Ana", "text": "Other"},
                    headers=TEAM | {"Idempotency-Key": "k-n"})
@@ -500,13 +540,13 @@ def test_every_write_honours_its_idempotency_key_across_a_restart(lab):
     assert [r.id for r in after[0]] == [r.id for r in before[0]] and after[1] == before[1]
 
     shutil.rmtree(data / "state" / "lab" / "idempotency")          # the API's state lost: the ledger ids remain
-    with TestClient(app(lab, loop_workers=0)) as c:
+    with TestClient(app(lab, loop_workers=0), headers=VIEW) as c:
         for name, path, body, key, status, record in calls:
             if not record:                  # a note is an event and a result's files are gone: replies only
                 continue
-            r = c.post(BASE + path, json=body, headers=TEAM | {"Idempotency-Key": key})
+            r = c.post(BASE + path, json=body, headers=writer(body) | {"Idempotency-Key": key})
             assert r.status_code == status, (name, r.text)
-        r = c.post(f"{BASE}/campaigns/{cid}/requests", headers=TEAM | {"Idempotency-Key": "k-p1"},
+        r = c.post(f"{BASE}/campaigns/{cid}/requests", headers=AGENT | {"Idempotency-Key": "k-p1"},
                    json=proposal | {"params": {"current_A": 2.5, "ambient_C": 25.0}})
         assert r.status_code == 409, r.text       # the same key, a different request: never a second record
     final = loop_records(data, cid)
@@ -517,7 +557,7 @@ def test_the_server_runs_a_baseline_campaign_to_its_conclusion_on_its_own(lab):
     """No client drives it: the planner thread proposes, the objective's rule approves, the runner executes, and
     the planner concludes when the budget is spent."""
     rule = {"executor": "computational", "max_count": 3, "max_wall_s": 60.0}
-    with TestClient(app(lab)) as c:
+    with TestClient(app(lab), headers=VIEW) as c:
         opened = ok(c.post(f"{BASE}/campaigns", headers=TEAM, json={"author": "Ana", "title": "Sweep", "objective": toy(
             planner={"kind": "domain_baseline", "profile": None, "client": None}, auto_approve=[rule],
             budget={"model_usd": 0.0, "experiments": 3, "experiment_usd": 0.0})}), 201)
@@ -531,3 +571,28 @@ def test_the_server_runs_a_baseline_campaign_to_its_conclusion_on_its_own(lab):
         assert view["campaign"]["status"] == "concluded", view["campaign"]
         done = [r for r in view["requests"] if r["state"] == "completed"]
         assert len(done) == 3 and all(r["proposed_by"].startswith("agent:baseline-") for r in done)
+
+
+def test_a_campaign_opened_from_raw_records_keeps_them_for_its_planner(lab):
+    from translucent import records
+    data, _ = lab
+    csv = b"# logger export\ntime_s,T\n0,25.0\n60,26.5\n"
+    with TestClient(app(lab, loop_workers=0), headers=VIEW) as c:
+        upload_id = uuid.uuid4().hex
+        ok(c.put(f"{BASE}/uploads/{upload_id}/run.csv", content=csv, headers=TEAM), 201)
+        body = {"author": "Ana", "title": "From records", "objective": toy(documentation="A logger export."),
+                "records_upload_id": upload_id}
+        opened = ok(c.post(f"{BASE}/campaigns", json=body, headers=TEAM | {"Idempotency-Key": "rec-1"}), 201)
+        cid = opened["campaign"]["campaign_id"]
+        uploads = opened["campaign"]["objective"]["data"]["uploads"]
+        assert uploads == records.describe({"run.csv": csv})
+        assert (data / "ledgers" / "lab" / "uploads" / cid / "run.csv").read_bytes() == csv
+        # the staging folder is gone; a keyed retry answers as the first call did and opens nothing new
+        again = ok(c.post(f"{BASE}/campaigns", json=body, headers=TEAM | {"Idempotency-Key": "rec-1"}), 201)
+        assert again["campaign"]["campaign_id"] == cid
+        assert len(ok(c.get(f"{BASE}/campaigns"))["items"]) == 1
+        r = c.post(f"{BASE}/campaigns", headers=TEAM, json=body | {"records_upload_id": uuid.uuid4().hex})
+        assert r.status_code == 404 and "Upload the records first" in r.text
+        r = c.post(f"{BASE}/campaigns", headers=TEAM, json={"author": "Ana", "title": "t", "objective": toy(
+            uploads=uploads)})
+        assert r.status_code == 422 and "records_upload_id" in r.text

@@ -324,7 +324,9 @@ def test_an_agent_registered_campaign_cannot_pre_approve(L):
     with pytest.raises(AdmissionError, match="cannot pre-approve"):
         agent.open_campaign(objective(auto_approve=[{"executor": "computational", "max_count": 5}]), "Mine")
     with pytest.raises(AdmissionError, match="external"):
-        agent.open_campaign(objective(planner={"kind": "muse", "profile": "meta", "client": None}), "Mine")
+        # with a valid model budget, so the refusal is the role rule's
+        agent.open_campaign(objective(planner={"kind": "muse", "profile": "meta", "client": None},
+                                      budget={"model_usd": 1.0, "experiments": 8, "experiment_usd": 0.0}), "Mine")
     cid = agent.open_campaign(objective(), "Mine")["campaign_id"]
     req = propose(L, cid)
     assert req["state"] == "awaiting_approval"

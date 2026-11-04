@@ -30,7 +30,9 @@ args = ["run", "--directory", "/absolute/path/to/translucent", "python", "-m", "
 env = { TRANSLUCENT_SAM = "strict" }
 ```
 
-These are standard stdio instructions; Muse Code has not been tested. The server reads one JSON-RPC message per line and writes only JSON-RPC replies to stdout. Initialize with a `clientInfo` containing a nonempty `name` and `version`, then send `notifications/initialized` before calling tools. That client identity is recorded with `via: "mcp"` in `campaign.started`, whose actor is `agent:<name>`. It is a client-supplied identity, not authentication.
+These are standard stdio instructions; Muse Code has not been tested. The server reads one JSON-RPC message per line and writes only JSON-RPC replies to stdout. Initialize with a `clientInfo` containing a nonempty `name` and `version`, then send `notifications/initialized` before calling tools.
+
+**Agent identity.** The server needs no key: it acts as the local operator who started it. Its agent tools are recorded as the agent the operator names at launch with `--agent NAME` (default `local-agent`, 1-80 characters), for example `--agent lab-bot`, which records `agent:lab-bot`. The client's self-declared `clientInfo` name is only an unverified label: it is kept with `via: "mcp"` in `campaign.started` and in a loop campaign's `planner.client`, and is never the actor. Reconnecting under another client name changes nothing. An agent that works over HTTP instead uses a planner key (see [API.md](API.md#keys-and-roles)).
 
 ## Available tools
 
@@ -44,7 +46,7 @@ Without `--write`, only `list_campaigns`, `list_findings`, `get_evidence`, `veri
 | `run_tool` | `campaign_id`, `tool`, `arguments` | Recorded run id, status, summary, output ids, result data and image paths |
 | `propose_finding` | `campaign_id`, `type`, `measurement_ids`, `params`, `statement`, optional `supersedes` | Recorded run, finding id, gate verdict, reason and failed checks with explanations |
 | `record_lesson` | `campaign_id`, `text`, `scope`, `evidence_ids` | Recorded lesson for future campaigns |
-| `finish_campaign` | `campaign_id`, `answer`, `not_proven` | A `campaign.finished` event with status `finished` and actor `agent:<name>` |
+| `finish_campaign` | `campaign_id`, `answer`, `not_proven` | A `campaign.finished` event with status `finished` and actor `agent:<--agent name>` |
 
 `list_tools` currently offers `inspect_video`, `lookup_calibration`, `track_objects`, `segment_images`, `measure_growth` and `read_cell_voltage`, from `tools.REGISTRY`. It excludes `propose_finding`, `record_lesson` and `run_analysis_code`; the first two have dedicated MCP tools, and analysis code requires the Modal sandbox. `run_tool` cannot call those excluded tools. Unknown fields, including nested measurement-tool arguments, are refused before execution.
 
@@ -60,7 +62,7 @@ conclude. The tools come from the same capability table as the HTTP routes ([API
 against the same ledger and rules.
 
 ```sh
-uv run python -m translucent.mcp_server --ledger /absolute/path/to/ledger --write --import-root /absolute/path/to/data
+uv run python -m translucent.mcp_server --ledger /absolute/path/to/ledger --write --import-root /absolute/path/to/data --agent lab-bot
 ```
 
 | Tool | Who | Arguments | Result |
@@ -78,12 +80,13 @@ uv run python -m translucent.mcp_server --ledger /absolute/path/to/ledger --writ
 Every write tool except `submit_result` and `add_note` takes an optional `idempotency_key`; the same key and
 arguments return the first result, a different call under a used key is refused.
 
-**Who approves.** Your client's name is self-declared, so it is never a person's identity. Without `--operator`, the
-person tools are not offered: a person approves your requests over HTTP or in the web app, and `wait_for_request`
-returns once they have and the work has run. The local operator who starts the server may add
-`--operator "Ana Ruiz"`: they vouch for that name, as holding the team token does over HTTP, and approvals, results
-and amendments are recorded as `person:Ana Ruiz`, never under the client's name. `open_loop_campaign` registers the
-objective under the operator's name, or else the client's, and can never pre-approve experiments.
+**Who approves.** Your proposals are recorded under the `--agent` name, never under your client's self-declared
+name. Without `--operator`, the person tools are not offered: a person approves your requests over HTTP or in the
+web app, and `wait_for_request` returns once they have and the work has run. The local operator who starts the
+server may add `--operator "Ana Ruiz"`: they vouch for that name, as an engineer's key does over HTTP, and approvals,
+results and amendments are recorded as `person:Ana Ruiz`. An operator may lower a budget by amendment, never raise
+one. `open_loop_campaign` registers the objective under the operator's name, or else the `--agent` name, and can
+never pre-approve experiments.
 
 **Files.** `import_dataset` and `submit_result` read only files under `--import-root`, named relative to it or by an
 absolute path inside it; anything outside it, or reached through a link, is refused, and without `--import-root`

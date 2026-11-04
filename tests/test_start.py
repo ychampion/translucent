@@ -1,8 +1,8 @@
 """`translucent start fastcharge`: from an empty folder to a concluded, verified campaign that the server runs alone.
 
 The first test needs only the LG M50 records (fetched with scripts/fetch_lgm50_data.py; they are git-ignored). The
-second runs the solver about nine times (about 2 minutes): opt in with TRANSLUCENT_SOLVER_TESTS=1. No model is
-called.
+second runs the solver up to 17 times (the baseline, up to 8 reference-search runs and 8 experiments): opt in with
+TRANSLUCENT_SOLVER_TESTS=1. No model is called.
 """
 import os
 import shutil
@@ -10,6 +10,7 @@ import time
 
 import pytest
 from fastapi.testclient import TestClient
+from support.keys import add_key
 
 from translucent import runtime, server
 from translucent.cli import main as cli
@@ -51,7 +52,14 @@ def test_start_creates_once_and_a_second_start_changes_nothing(tmp_path, capsys)
     cid = first.split("Campaign ")[1].split(",")[0]
     L = Ledger(root / "ledgers" / "lab")
     try:
+        # the baseline re-run, pre-approved at registration; the reference search waits for its result (it runs only
+        # if the baseline breaks the constraints, as this 1.5C one does)
         assert [s.proposed_by for s in request_states(L, cid).values()] == ["policy:registration"]
+        from translucent import chain, loop_reference
+        from translucent.loop import current_objective
+        recs = chain.records(L, cid)
+        s = loop_reference.state(L, cid, current_objective(L, cid, recs), request_states(L, cid, recs), recs)
+        assert s["status"] == "waiting_for_baseline"
     finally:
         L.db.close()
     assert verify(root / "ledgers" / "lab").ok
@@ -81,12 +89,13 @@ def test_the_paid_planner_needs_live_and_the_administrator_token(tmp_path, capsy
     assert not (tmp_path / "ledgers").exists()
 
 
-@pytest.mark.skipif(os.environ.get("TRANSLUCENT_SOLVER_TESTS") != "1", reason="runs the solver about nine times")
+@pytest.mark.skipif(os.environ.get("TRANSLUCENT_SOLVER_TESTS") != "1", reason="runs the solver up to 17 times")
 def test_the_server_runs_a_started_bo_campaign_to_a_verified_conclusion(tmp_path):
     root = tmp_path / "data"
     out = start_fastcharge(root, person="Ana", planner="bo", auto_approve=True)
     cid = out["campaign_id"]
-    with TestClient(server.create_app(data_root=root, poll_interval=0.01, loop_workers=1)) as c:
+    viewer = add_key(root, "Vic", "viewer", "viewer-0123456789abcdefghij")      # reads are private
+    with TestClient(server.create_app(data_root=root, poll_interval=0.01, loop_workers=1), headers=viewer) as c:
         deadline, view = time.time() + 540, None
         while time.time() < deadline:
             view = c.get(f"/api/v1/ledgers/lab/campaigns/{cid}/view").json()
@@ -94,9 +103,18 @@ def test_the_server_runs_a_started_bo_campaign_to_a_verified_conclusion(tmp_path
                 break
             time.sleep(0.5)
         assert view and view.get("conclusion"), view and [r["state"] for r in view["requests"]]
-    assert view["conclusion"]["outcome"] == "improved_in_simulation", view["conclusion"]
-    done = [r for r in view["requests"] if r["state"] == "completed" and r["proposed_by"] != "policy:registration"]
+    # loop-compare/3: the failing baseline is no speed reference; the reference search's answer is
+    assert view["objective"]["kind"] == "fastest_feasible"
+    assert view["conclusion"]["outcome"] in ("faster_than_reference_in_simulation", "feasible_only_in_simulation"), \
+        view["conclusion"]
+    findings = view["conclusion"]["findings"]
+    assert findings["feasibility"] == {"baseline": "fails", "best": "meets", "recovered": True,
+                                       "best_request_id": findings["feasibility"]["best_request_id"]}
+    assert findings["speed"]["reference"]["source"] == "reference_search"
+    done = [r for r in view["requests"] if r["state"] == "completed" and r["role"] == "experiment"]
     assert 1 <= len(done) <= 8
+    references = [r for r in view["requests"] if r["role"] == "reference"]
+    assert 1 <= len(references) <= 8 and view["spend"]["experiments_used"] == len(done)
     assert verify(root / "ledgers" / "lab").ok
 
 
@@ -110,18 +128,29 @@ def test_without_the_solver_nothing_is_written(tmp_path, monkeypatch):
 
 
 def test_a_team_server_has_a_key_and_admits_the_local_web_app(tmp_path, monkeypatch, capsys):
+    """The first start makes one engineer key, stored hashed, shown once and kept in the owner-only team-key file;
+    it never becomes a process-wide token. A restart keeps it. An operator's own TRANSLUCENT_TEAM_TOKEN or CORS list
+    is left alone."""
+    from translucent.auth import CredentialStore
     from translucent.cli import _team_server
     for name in ("TRANSLUCENT_TEAM_TOKEN", "TRANSLUCENT_CORS_ORIGINS"):
         monkeypatch.delenv(name, raising=False)
-    _team_server(tmp_path)
+    _team_server(tmp_path, "Ana")
     key = (tmp_path / "team-key").read_text(encoding="utf-8").strip()
-    assert len(key) >= 20 and os.environ["TRANSLUCENT_TEAM_TOKEN"] == key and key in capsys.readouterr().out
+    assert len(key) >= 20 and "TRANSLUCENT_TEAM_TOKEN" not in os.environ and key in capsys.readouterr().out
+    store = CredentialStore(tmp_path / "credentials.json")
+    assert (store.find(key).name, store.find(key).role) == ("Ana", "engineer")
+    assert key not in (tmp_path / "credentials.json").read_text(encoding="utf-8")
     assert "http://localhost:3000" in os.environ["TRANSLUCENT_CORS_ORIGINS"].split(",")
-    monkeypatch.delenv("TRANSLUCENT_TEAM_TOKEN")
-    _team_server(tmp_path)                                    # a restart keeps the key the web app has
-    assert os.environ["TRANSLUCENT_TEAM_TOKEN"] == key
-    monkeypatch.setenv("TRANSLUCENT_TEAM_TOKEN", "chosen")
+    _team_server(tmp_path, "Ana")                             # a restart keeps the key the web app has
+    assert (tmp_path / "team-key").read_text(encoding="utf-8").strip() == key and store.find(key).name == "Ana"
+    assert key not in capsys.readouterr().out and len(store.list()) == 1
+    other = tmp_path / "other"
+    other.mkdir()
+    monkeypatch.setenv("TRANSLUCENT_TEAM_TOKEN", "chosen-team-key-0123456789-32chars-minimum")
     monkeypatch.setenv("TRANSLUCENT_CORS_ORIGINS", "https://lab.example")
-    _team_server(tmp_path)
-    assert os.environ["TRANSLUCENT_TEAM_TOKEN"] == "chosen" and os.environ["TRANSLUCENT_CORS_ORIGINS"] == "https://lab.example"
-    assert "chosen" not in capsys.readouterr().out
+    _team_server(other, "Ana")
+    assert os.environ["TRANSLUCENT_TEAM_TOKEN"] == "chosen-team-key-0123456789-32chars-minimum"
+    assert os.environ["TRANSLUCENT_CORS_ORIGINS"] == "https://lab.example"
+    assert not (other / "team-key").exists() and not (other / "credentials.json").exists()
+    assert "chosen-team-key-0123456789-32chars-minimum" not in capsys.readouterr().out

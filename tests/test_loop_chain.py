@@ -35,7 +35,8 @@ def objective(**kw):
         quantities=[{"name": "charge_time_80", "unit": "s", "source": "result"},
                     {"name": "max_temperature", "unit": "degC", "source": "result"}],
         budget={"model_usd": 5.0, "experiments": 4, "experiment_usd": 0.0},
-        planner={"kind": "scripted", "profile": None, "client": None}, registered_by="Ana", **kw)
+        planner={"kind": "scripted", "profile": None, "client": None}, registered_by="Ana",
+        **({"evaluator": "loop-compare/2"} | kw))      # milestone 2 made /3 the default; these tests keep /2
 
 
 def planner(i, **payload):

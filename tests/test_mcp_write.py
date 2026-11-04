@@ -100,7 +100,7 @@ def ledger(tmp_path, imported):
 
 @pytest.fixture
 def protocol(ledger, tmp_path):
-    instance = Protocol(ledger[0], write=True, state_dir=tmp_path / "api")
+    instance = Protocol(ledger[0], write=True, state_dir=tmp_path / "api", agent="pytest-agent")
     initialize(instance)
     try:
         yield instance
@@ -281,7 +281,7 @@ def test_run_tool_has_no_gate_or_sandbox_bypass(protocol, tool):
 
 
 def test_write_requires_client_name_and_version(ledger, tmp_path):
-    instance = Protocol(ledger[0], write=True, state_dir=tmp_path / "api")
+    instance = Protocol(ledger[0], write=True, state_dir=tmp_path / "api", agent="pytest-agent")
     try:
         for client in ({}, {"name": "x"}, {"name": " ", "version": "1"}, {"name": "x", "version": 1}):
             reply = instance.handle(request("initialize", protocolVersion="2025-06-18", capabilities={}, clientInfo=client))

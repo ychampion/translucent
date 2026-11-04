@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from support.keys import add_key
 
 from translucent import diff, gate, server
 from translucent.contracts import Campaign, Claim, Measurement, Predicate, Run, Source, Uncertainty
@@ -84,7 +85,8 @@ def test_finding_and_run_diffs_in_plain_words(ledger):
 
 
 def test_compare_endpoint(ledger, tmp_path):
-    with TestClient(server.create_app(ledger.root, tmp_path / "api", poll_interval=0.01)) as c:
+    viewer = add_key(tmp_path / "api", "Vic", "viewer", "viewer-0123456789abcdefghij")   # reads are private
+    with TestClient(server.create_app(ledger.root, tmp_path / "api", poll_interval=0.01), headers=viewer) as c:
         assert c.get("/api/compare", params={"a": "a", "b": "b"}).json()["kind"] == "campaign"
         assert c.get("/api/compare", params={"a": "k_a", "b": "k_b"}).json()["kind"] == "finding"
         assert c.get("/api/compare", params={"a": "k_a", "b": "grow_b"}).status_code == 400

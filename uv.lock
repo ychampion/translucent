@@ -2271,6 +2271,7 @@ dependencies = [
     { name = "opencv-python-headless" },
     { name = "pydantic" },
     { name = "python-dotenv" },
+    { name = "typing-extensions" },
     { name = "uvicorn" },
 ]
 
@@ -2278,6 +2279,7 @@ dependencies = [
 dev = [
     { name = "httpx" },
     { name = "pytest" },
+    { name = "pyyaml" },
 ]
 solver = [
     { name = "casadi" },
@@ -2295,6 +2297,7 @@ requires-dist = [
     { name = "opencv-python-headless", specifier = ">=4.10" },
     { name = "pydantic", specifier = ">=2.8" },
     { name = "python-dotenv", specifier = ">=1.0" },
+    { name = "typing-extensions", specifier = ">=4.14" },
     { name = "uvicorn", specifier = ">=0.30" },
 ]
 
@@ -2302,6 +2305,7 @@ requires-dist = [
 dev = [
     { name = "httpx", specifier = ">=0.27" },
     { name = "pytest", specifier = ">=8" },
+    { name = "pyyaml", specifier = ">=6.0" },
 ]
 solver = [
     { name = "casadi", specifier = "==3.8.1" },

@@ -10,7 +10,7 @@ Total model spend recorded: $12.67 of the $25 limit. A further $6.48 was spent o
 
 ## Case A: 25 °C, +10 mV
 
-Reference optimum: 1.5, 1.5, 1.05, 1.1 C, 33.55 min. Best feasible single step: 1.05C, 40.0 min.
+Best found by the reference search (deterministic compass search, 0.05C lattice): 1.5, 1.5, 1.05, 1.1 C, 33.55 min. Best feasible single step: 1.05C, 40.0 min.
 
 Failing baseline (1.5C in every window, simulated): 28.20 min, 51.2 °C, +7.3 mV. It violates the plating margin and the temperature limit.
 
@@ -50,7 +50,7 @@ The improvement that may be claimed is computational, under the frozen model: th
 
 ## Case B: 25 °C, +10 mV raised to +25 mV after the fourth experiment
 
-Reference optimum: 1.5, 1.5, 1.05, 0.8 C, 37.13 min. Best feasible single step: 0.60C, 70.0 min.
+Best found by the reference search (deterministic compass search, 0.05C lattice): 1.5, 1.5, 1.05, 0.8 C, 37.13 min. Best feasible single step: 0.60C, 70.0 min.
 
 Failing baseline (1.5C in every window, simulated): 28.20 min, 51.2 °C, +7.3 mV. It violates the plating margin and the temperature limit.
 
@@ -97,7 +97,7 @@ The improvement that may be claimed is computational, under the frozen model: th
 
 ## Case C: 15 °C, +10 mV (extrapolation, held out)
 
-Reference optimum: 1.5, 1.5, 1.35, 0.85 C, 34.13 min. Best feasible single step: 0.55C, 76.4 min.
+Best found by the reference search (deterministic compass search, 0.05C lattice): 1.5, 1.5, 1.35, 0.85 C, 34.13 min. Best feasible single step: 0.55C, 76.4 min.
 
 Failing baseline (1.5C in every window, simulated): 28.72 min, 44.6 °C, -2.0 mV. It violates the plating margin.
 

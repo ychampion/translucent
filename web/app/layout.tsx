@@ -7,6 +7,7 @@ import "./chat.css";
 import "./pages.css";
 import "./intervention.css";
 import "./loop.css";
+import "./workspace.css";
 
 export const metadata: Metadata = {
   title: "Translucent",

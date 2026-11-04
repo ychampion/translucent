@@ -8,12 +8,21 @@ services:
     environment:
       TRANSLUCENT_LIVE: "0"
       TRANSLUCENT_SAM: strict
+      # optional: one engineer key from the environment, recorded under TRANSLUCENT_TEAM_NAME. Keys made with
+      # `translucent keys add` live hashed in /state/credentials.json and need no variable.
       TRANSLUCENT_TEAM_TOKEN: ${TRANSLUCENT_TEAM_TOKEN:-}
+      TRANSLUCENT_TEAM_NAME: ${TRANSLUCENT_TEAM_NAME:-team}
+      # Only Caddy (the web service, at its fixed address below) is a trusted proxy. Caddy sends one
+      # X-Forwarded-For value, the client address it resolved itself (deploy/Caddyfile), so the session cookie is
+      # Secure when the browser came over https and the failed-key limit counts the real client. Never "*" or whole
+      # private ranges: a client on the LAN or VPN could then write its own address.
+      FORWARDED_ALLOW_IPS: "172.29.80.10"
+    networks: [edge]
     volumes:
       - ${TRANSLUCENT_LEDGER:-./state/ledger}:/ledger
       - ./state/api:/state
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/campaigns', timeout=5)"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=5)"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -23,6 +32,19 @@ services:
     depends_on: [api]
     ports:
       - "127.0.0.1:${TRANSLUCENT_PORT:-8090}:8080"
+    networks:
+      edge:
+        ipv4_address: 172.29.80.10     # the API trusts this address only (FORWARDED_ALLOW_IPS)
     volumes:
       # /fixtures/... (replays, intervention bundles and their split, loop exports under loop/), seeded by seed-ledger.sh
       - ${TRANSLUCENT_FIXTURES:-./state/fixtures}:/data/fixtures:ro
+networks:
+  # Fixed addresses so each hop trusts exactly the one before it: the API trusts Caddy (.10); Caddy trusts the
+  # bridge gateway (.1), which is where a front door on this host (deploy/nginx-site.conf, via the published
+  # port) connects from. If this subnet clashes with another network on the host, change it here, in
+  # FORWARDED_ALLOW_IPS and in the Caddyfile's trusted_proxies together.
+  edge:
+    ipam:
+      config:
+        - subnet: 172.29.80.0/24
+          gateway: 172.29.80.1

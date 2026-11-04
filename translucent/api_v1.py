@@ -1,9 +1,13 @@
 """/api/v1: one server, many ledgers. Every route below /api/v1/ledgers/{lid} reaches its ledger through
 `get_ledger`, which answers 404 for an id with no ledger and creates nothing.
 
-Reads need no token (today's read policy). Writes need what the matching legacy write needs: the team token for
-people's work (uploads, dataset imports), the administrator token and live opt-in for a paid run. The tokens are
-the server's, so they are valid on every ledger it serves (one server per customer until identity lands).
+Every route needs a credential (translucent.auth; server.AuthGate checks it before a body is read), and a ledger
+outside the credential's scope is a 404 like an unknown one. Who acts is the credential: an engineer, administrator
+or viewer is the person it names, a planner key the agent it names. Bodies keep `author` / `agent` as optional
+fields for older clients; if present they must be the credential's name and kind (else 403 "This key acts as ...").
+What a role may do is translucent.auth.ROLE_CAPABILITIES: a viewer reads; a planner proposes, defines measurements
+and cancels its own requests; an engineer does a person's work; an administrator may also open a paid-planner
+campaign (with live opt-in and the provider keys) and raise a budget by amendment.
 
 Loop campaigns (design §2.9): every capability of translucent.loop_service.CAPABILITIES that an agent or a person may
 call is a route named `loop.<capability>`; the runner's and the comparator's are on no route. Each write goes through
@@ -12,8 +16,7 @@ for something else or a dataset id clash 409, a refused result 422 with its reas
 refuses 422 with the plain reason; a write to a concluded campaign is a 409. A write's Idempotency-Key becomes part
 of the record ids it writes, so a retry after a restart, even one that lost the API's state, finds the original
 records; the API also keeps the first response, as for every people's write (a note, an event rather than a record,
-relies on that alone). People act under the `author` they name, with
-the team token; an agent's own client may call the agent capabilities with the team token and `agent` instead.
+relies on that alone).
 """
 from __future__ import annotations
 
@@ -23,10 +26,10 @@ import threading
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
-from translucent import chain, datasets
+from translucent import chain, datasets, records
 from translucent.contracts import Campaign
 from translucent.executors import HumanUpload
 from translucent.workspace import UnknownLedger
@@ -39,19 +42,87 @@ SERIES_READS = threading.BoundedSemaphore(2)   # a series read parses its whole 
 BUSY_WAIT_S = 10.0     # an open read waits this long for a series slot or a busy export, then gets 503
 
 
+def principal(request: Request):
+    """The request's credential (translucent.auth.Credential), set by server.AuthGate."""
+    from translucent.server import _credential
+    return _credential(request)
+
+
 def get_ledger(lid: str, request: Request):
     """The dependency every /ledgers/{lid} route takes: the served ledger, a server.LedgerHost (open it with
-    `host.ledger()`)."""
+    `host.ledger()`). A ledger outside the credential's scope is not found, as an unknown one is."""
+    if not principal(request).reads(lid):
+        raise HTTPException(404, "Ledger not found")
     try:
         return request.app.state.translucent.host(lid)
     except UnknownLedger:
         raise HTTPException(404, "Ledger not found") from None
 
 
-def team(request: Request):
-    """The team (or administrator) token, as every legacy people's write requires."""
-    from translucent.server import _authorize_person
-    _authorize_person(request)
+def may(capability: str):
+    """A route dependency: the credential's role may do this (translucent.auth.ROLE_CAPABILITIES), else 403."""
+    def check(request: Request):
+        cred = principal(request)
+        cred.require(capability)
+        return cred
+    return Depends(check)
+
+
+# ------------------------------------------------------------ browser sessions (sign in once per session)
+
+class SignIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    key: str = Field(min_length=1, max_length=512)
+
+
+def _session_body(cred, expires_at: float | None) -> dict:
+    return {**cred.public(), "expires_at": expires_at}
+
+
+@router.post("/session")
+def sign_in(body: SignIn, request: Request, response: Response):
+    """Trade a person's key for a session cookie (HttpOnly, SameSite=Strict, Path=/api, 12 hours; Secure over
+    https). A planner key cannot open a browser session. Failed keys are rate-limited per client address: past the
+    limit a wrong key is a 429, while a key that matches always signs in."""
+    from translucent import auth
+    from translucent.server import TOO_MANY
+    gate = request.app.state.translucent.auth
+    addr = request.client.host if request.client else "unknown"
+    key = body.key.strip()
+    cred = gate.by_key(key)
+    if cred is None:
+        if gate.throttle.fail(addr):
+            raise HTTPException(429, TOO_MANY, headers={"Retry-After": "60"})
+        raise HTTPException(401, auth.SIGN_IN)
+    if cred.kind != "person":
+        raise HTTPException(403, "A planner key cannot open a browser session; an agent sends its key with each "
+                                 "request")
+    token, expires = gate.open_session(cred, key)
+    response.set_cookie(auth.SESSION_COOKIE, token, max_age=auth.SESSION_TTL_S, path="/api", httponly=True,
+                        samesite="strict", secure=request.url.scheme == "https")
+    return _session_body(cred, expires)
+
+
+@router.get("/session")
+def session(request: Request):
+    """Who this browser session (or bearer key) is, or 401. server.AuthGate checks the key or cookie, with the same
+    failed-key throttle as every other route."""
+    from translucent.server import _principal
+    principal_ = _principal(request)
+    return _session_body(principal_.credential, principal_.expires_at)
+
+
+@router.post("/session/end", status_code=204)
+def sign_out(request: Request):
+    """End this browser session: the stored session and the cookie."""
+    from translucent import auth
+    token = request.cookies.get(auth.SESSION_COOKIE)
+    if token:
+        request.app.state.translucent.auth.sessions.end(token)
+    out = Response(status_code=204)
+    out.delete_cookie(auth.SESSION_COOKIE, path="/api", httponly=True, samesite="strict",
+                      secure=request.url.scheme == "https")
+    return out
 
 
 # ------------------------------------------------------------ campaign summaries (web data contract, CampaignSummary)
@@ -71,8 +142,10 @@ def _loop_status(L, cid, records) -> tuple[str, str, str | None]:
     if pending & {"queued", "running"}:
         return "running", "running", None
     turn = next((r for r in reversed(records) if r.type == "planner"), None)
-    thinking = turn is not None and turn.data.get("phase") != "turn_finished"
-    return "running", "planner_thinking" if thinking else "none", None
+    if turn is not None and turn.data.get("phase") != "turn_finished":
+        return "running", "planner_thinking", None
+    stopped = turn is not None and (turn.data.get("payload") or {}).get("status") == "budget"
+    return "running", "planner_stopped" if stopped else "none", None
 
 
 def _legacy_status(last, job) -> tuple[str, str]:
@@ -101,12 +174,14 @@ def campaign_summary(L, lid: str, campaign, job) -> dict:
         f"FROM event WHERE campaign_id=? AND json_extract(body,'$.type') IN ({','.join('?' * len(LIFECYCLE))}) "
         "ORDER BY seq DESC LIMIT 1", (cid, *LIFECYCLE)).fetchone()
     loop = chain.records(L, cid)
-    objective = campaign.objective
+    objective, extra = campaign.objective, {}
     if loop:
         kind = "loop"
         status, next_action, outcome = _loop_status(L, cid, loop)
-        if loop[0].type == "objective":
-            objective = loop[0].data.get("statement") or objective
+        if loop[0].type == "objective":    # the current version's summary, and once concluded its three answers
+            from translucent.loop_view import summary_fields
+            extra = summary_fields(L, cid, loop)
+            objective = extra.pop("objective") or objective
     else:
         intervention = db.execute("SELECT 1 FROM record WHERE kind='intervention' AND campaign_id=? AND "
                                   "json_extract(body,'$.type')='protocol' LIMIT 1", (cid,)).fetchone()
@@ -118,17 +193,19 @@ def campaign_summary(L, lid: str, campaign, job) -> dict:
     return {"id": cid, "ledger": lid, "kind": kind, "title": campaign.title, "status": status,
             "created_at": campaign.created_at, "updated_at": max(campaign.created_at, t_last or 0.0),
             "objective": objective[:140], "next_action": next_action, "outcome": outcome,
-            "spend_usd": round(spend, 6)}
+            "spend_usd": round(spend, 6), **extra}
 
 
 # ------------------------------------------------------------ ledgers and campaigns
 
 @router.get("/ledgers")
 def ledgers(request: Request):
-    """Every ledger this server serves: [{id, title, campaigns, datasets}]."""
-    server = request.app.state.translucent
+    """Every ledger this server serves that the credential may read: [{id, title, campaigns, datasets}]."""
+    server, cred = request.app.state.translucent, principal(request)
     out = []
     for lid in server.workspace.ids():
+        if not cred.reads(lid):
+            continue
         try:
             with server.workspace.open(lid) as L:
                 count = lambda kind: L.db.execute("SELECT COUNT(*) FROM record WHERE kind=?", (kind,)).fetchone()[0]
@@ -167,7 +244,7 @@ def artifact(artifact_id: str, host=Depends(get_ledger)):
 # ------------------------------------------------------------ datasets
 
 @router.put("/ledgers/{lid}/uploads/{upload_id}/{filename}", status_code=201,
-            dependencies=[Depends(team)])
+            dependencies=[may("upload")])
 async def upload(upload_id: str, filename: str, request: Request, host=Depends(get_ledger)):
     """One file of a dataset, streamed to this ledger's upload space; import it with POST .../datasets."""
     return await request.app.state.translucent.receive_upload(
@@ -190,14 +267,15 @@ class DatasetImport(BaseModel):
         return self
 
 
-@router.post("/ledgers/{lid}/datasets", status_code=201, dependencies=[Depends(team)], name="loop.import_dataset")
+@router.post("/ledgers/{lid}/datasets", status_code=201, dependencies=[may("import_dataset")],
+             name="loop.import_dataset")
 def import_dataset(body: DatasetImport, request: Request, host=Depends(get_ledger)):
     """Import a team's dataset (a v2 manifest, or a v1 experiment manifest) into this ledger; returns its
     DatasetRecord. The same dataset again returns the stored one; a different one under a used id is a 409; a refused
     file or manifest is a 422 with the plain reason; a path the server may not read is a 403. Dataset ids are per
     ledger."""
     from translucent.loop import NotAllowed
-    from translucent.loop_service import Actor, LoopService
+    from translucent.loop_service import LoopService
     from translucent.server import _plain
     server = request.app.state.translucent
 
@@ -211,8 +289,8 @@ def import_dataset(body: DatasetImport, request: Request, host=Depends(get_ledge
                     record = datasets.import_dataset(L, body.manifest, folder).model_dump(mode="json")
                 else:
                     # LoopService's rule: no import root, no read; every named file must be a file under the root,
-                    # reached without links
-                    service = LoopService(L, Actor("person", "team", "http"), import_root=server.import_root)
+                    # reached without links. The root is this ledger's own folder when laid out per ledger.
+                    service = LoopService(L, principal(request).actor(), import_root=server.import_root_for(host.id))
                     record = service.import_dataset(body.manifest, body.path)
             except NotAllowed as e:
                 raise HTTPException(403, str(e)) from e
@@ -257,34 +335,29 @@ class _Body(BaseModel):
 
 
 class _Person(_Body):
-    """A person's action: the team token, under the name they give."""
-    author: Name
+    """A person's action, as the credential's person; `author`, if given, must be that name."""
+    author: Name | None = None
 
-    def actor(self):
-        from translucent.loop_service import Actor
-        return Actor("person", self.author, "http")
+    def actor(self, cred):
+        return cred.acting_as(author=self.author)
 
 
 class _PersonOrAgent(_Body):
-    """An action open to people and agents: `author` for a person, `agent` for an agent's client (its name)."""
+    """An action open to people and agents, as the credential's person or agent; `author` / `agent`, if given, must
+    be the credential's name and kind."""
     author: Name | None = None
     agent: Name | None = None
 
-    @model_validator(mode="after")
-    def _one(self):
-        if (self.author is None) == (self.agent is None):
-            raise ValueError("give author (a person) or agent (an agent's client), not both")
-        return self
-
-    def actor(self):
-        from translucent.loop_service import Actor
-        return Actor("person", self.author, "http") if self.author else Actor("agent", self.agent, "http")
+    def actor(self, cred):
+        return cred.acting_as(author=self.author, agent=self.agent)
 
 
 class OpenLoop(_PersonOrAgent):
     title: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
     objective: dict          # ObjectiveData without version or system snapshot; registered_by defaults to the caller
     memory: Literal["on", "off"] = "on"
+    # the engineer's raw records (PUT .../uploads/{records_upload_id}/{name}), read by the planner, never pre-imported
+    records_upload_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
 
 
 class DefineMeasurement(_PersonOrAgent):
@@ -333,6 +406,7 @@ class Amend(_Person):
     reason: Text
     target: dict | None = None
     constraints: list[dict] | None = Field(default=None, max_length=50)
+    budget: dict | None = None      # model_usd, experiments, experiment_usd, max_wall_s; raising one needs an admin
 
 
 class Note(_Person):
@@ -341,12 +415,13 @@ class Note(_Person):
 
 class ResultUpload(HumanUpload):
     """A person's returned result: the HumanUpload JSON, and the upload (PUT .../uploads/{upload_id}/{name}) that
-    holds its files; no upload when the result is scalars only. The uploader is the person named as its author."""
+    holds its files; no upload when the result is scalars only. The uploader and author is the credential's person
+    (`author`, if given, must be that name)."""
+    author: str | None = None
     upload_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
 
-    def actor(self):
-        from translucent.loop_service import Actor
-        return Actor("person", self.author, "http")
+    def actor(self, cred):
+        return cred.acting_as(author=self.author)
 
 
 def _idempotency_key(request: Request) -> str | None:
@@ -358,7 +433,7 @@ def _idempotency_key(request: Request) -> str | None:
 
 
 @contextmanager
-def _loop(host, actor, key: str | None = None, cid: str | None = None):
+def _loop(host, actor, key: str | None = None, cid: str | None = None, *, may_raise_budget: bool = False):
     """A LoopService on the served ledger (`actor` None: a reader), its refusals said as HTTP statuses (see the
     module docstring)."""
     from translucent.ledger import AdmissionError
@@ -368,7 +443,7 @@ def _loop(host, actor, key: str | None = None, cid: str | None = None):
     with host.ledger() as L:
         try:
             yield LoopService(L, actor or Actor("person", "reader", "http"), idempotency_key=key,
-                              import_root=host.server.import_root)
+                              import_root=host.server.import_root_for(host.id), may_raise_budget=may_raise_budget)
         except HTTPException:
             raise
         except NotAllowed as e:
@@ -404,30 +479,132 @@ def list_systems(host=Depends(get_ledger)):
         return service.systems()
 
 
-@router.post("/ledgers/{lid}/campaigns", status_code=201, dependencies=[Depends(team)], name="loop.open_campaign")
+# ------------------------------------------------------------ planners: who may open which, and whether it can run
+
+DEFAULT_MODEL_BUDGET_USD = 1.5
+
+
+def paid_planner_refusal(cred, profile: str) -> tuple[int, str] | None:
+    """Why this credential cannot open a paid-planner campaign on this server now, as (HTTP status, reason), or None.
+    A planner that is not ready is refused, never replaced by another planner or model."""
+    from translucent.server import _live_enabled
+    if not cred.may("paid"):
+        return 403, f"your role is {cred.role}, not admin: a paid planner needs an administrator key"
+    if not _live_enabled():
+        return 403, "live mode is off on this server (TRANSLUCENT_LIVE=1 turns it on)"
+    if missing := _planner_missing_keys(profile):
+        return 503, f"this server is missing {' and '.join(missing)} for the {profile} profile"
+    if spent := [p["provider"] for p in _provider_spend(profile) if p["remaining_usd"] <= 0]:
+        return 503, f"the {profile} profile's {' and '.join(spent)} provider has spent its cap"
+    return None
+
+
+def _planner_providers(profile: str) -> list[str]:
+    """The providers a loop campaign's paid planner calls: only the profile's orchestrator (translucent.loop_planner
+    runs its turns through intervention_chat, which calls PROFILES[profile]["orchestrator"]); the profile's other
+    roles belong to the microscopy runtime."""
+    from translucent.runtime import PROFILES
+    return [PROFILES[profile]["orchestrator"][0]]
+
+
+def _planner_missing_keys(profile: str) -> list[str]:
+    """The server's missing provider keys for this profile, kept to those of the providers the planner calls."""
+    from translucent import providers, server
+    needed = {providers.KEY_VARS[p][0] for p in _planner_providers(profile)}
+    return [k for k in server._missing_keys(profile) if k in needed]
+
+
+def _provider_spend(profile: str) -> list[dict]:
+    """Each provider the planner calls with its own cap, committed spend and remainder (translucent.budget). Each
+    cap is a separate hard limit, so they are reported apart, never summed."""
+    from translucent import budget
+    out = []
+    for provider in _planner_providers(profile):
+        cap, spent = budget.CAPS_USD[provider], round(budget.Ledger(provider).balance()["committed_usd"], 6)
+        out.append({"provider": provider, "cap_usd": cap, "spent_usd": spent,
+                    "remaining_usd": round(max(0.0, cap - spent), 6)})
+    return out
+
+
+def _free_refusal(cred) -> str | None:
+    if not cred.may("open_campaign"):
+        return f"your role is {cred.role}: it cannot open a campaign"
+    return None
+
+
+@router.get("/ledgers/{lid}/planners")
+def planners(request: Request, host=Depends(get_ledger)):
+    """The planners a campaign may be opened with, and whether each is ready for this credential on this server
+    now (with the reason when it is not). The paid one is the one a muse campaign opened without a profile runs on
+    (the server's TRANSLUCENT_PROFILE): it names the exact model the server will call, and each provider's spend
+    against its own cap (translucent.budget)."""
+    from translucent.runtime import PROFILES
+    from translucent.server import PLANNER, _profile
+    cred, profile = principal(request), _profile()
+    out = []
+    for pid, kind, label in (("bo", "domain_baseline", "Bayesian optimisation (no model)"),
+                             ("external", "external", "Your agent over MCP or HTTP (planner key)")):
+        reason = _free_refusal(cred)
+        out.append({"id": pid, "kind": kind, "label": label, "paid": False, "ready": reason is None,
+                    "reason": reason})
+    refusal = paid_planner_refusal(cred, profile)
+    providers = _provider_spend(profile)
+    main = providers[0]   # the orchestrator's provider, where most of a campaign's model spend lands
+    out.append({"id": "muse", "kind": "muse", "label": PLANNER[profile],
+                "model": PROFILES[profile]["orchestrator"][1], "profile": profile, "paid": True,
+                "ready": refusal is None, "reason": refusal[1] if refusal else None, "cap_usd": main["cap_usd"],
+                "spent_usd": main["spent_usd"], "remaining_usd": main["remaining_usd"], "providers": providers,
+                "default_budget_usd": DEFAULT_MODEL_BUDGET_USD})
+    return out
+
+
+@router.post("/ledgers/{lid}/campaigns", status_code=201, name="loop.open_campaign")
 def open_loop_campaign(body: OpenLoop, request: Request, host=Depends(get_ledger)):
     """Register a loop campaign: {campaign, view}. A planner that spends nothing (external, scripted,
-    domain_baseline) needs the team token; a paid one (muse...) also needs the administrator token and live opt-in.
-    The model budget is held to the provider caps, as a video campaign's is."""
+    domain_baseline) needs an engineer's or administrator's key; a paid one (muse...) needs an administrator's key,
+    live opt-in and the provider keys of its profile (the server's unless the objective names one; stored with it, so
+    it runs on it). A planner that is not ready is refused with the reason (GET .../planners), never replaced. The
+    model budget is held to the provider caps, as a video campaign's is."""
     from translucent.loop_surface import FREE_PLANNERS, objective_budget_problems, view
-    from translucent.server import PLANNER, _authorize, _profile
+    from translucent.server import PLANNER, _profile
+    cred = principal(request)
+    cred.require("open_campaign")
+    actor = body.actor(cred)
     objective = dict(body.objective)
     planner = objective.get("planner") if isinstance(objective.get("planner"), dict) else {}
-    if planner.get("kind") not in FREE_PLANNERS:
-        _authorize(request)
+    paid = isinstance(objective.get("planner"), dict) and planner.get("kind") not in FREE_PLANNERS
     profile = planner.get("profile") if planner.get("profile") in PLANNER else _profile()
-    if planner.get("kind") not in FREE_PLANNERS and isinstance(objective.get("planner"), dict):
+    if paid:
         objective["planner"] = {**planner, "profile": profile}   # it runs on the profile its budget was checked on
+        if refusal := paid_planner_refusal(cred, profile):
+            raise HTTPException(refusal[0], f"The {PLANNER[profile]} planner is not ready: {refusal[1]}")
     if problems := objective_budget_problems(objective, profile):
         raise HTTPException(422, "; ".join(problems))
-    objective.setdefault("registered_by", body.author or body.agent)
+    objective.setdefault("registered_by", actor.name)
     key = _idempotency_key(request)
+    if objective.get("uploads") is not None and body.records_upload_id is None:
+        raise HTTPException(422, "uploads are the files sent with records_upload_id, not listed in the objective")
 
     def act():
-        with _loop(host, body.actor(), key) as service:
+        files, folder = None, None
+        if body.records_upload_id is not None:
+            folder = host.dataset_uploads_dir / body.records_upload_id    # the server's own staging folder
+            if not folder.is_dir():
+                raise HTTPException(404, "Upload the records first")
+            files = {p.name: p.read_bytes() for p in sorted(folder.iterdir())
+                     if p.is_file() and not p.name.endswith(".part")}
+            try:
+                objective["uploads"] = records.describe(files)    # the digests every read is checked against
+            except ValueError as e:
+                raise HTTPException(422, str(e)) from e
+        with _loop(host, actor, key) as service:
             opened = service.open_campaign(objective, body.title, memory=body.memory)
+            if files is not None:
+                records.stage_uploads(service.L.root, opened["campaign_id"], files, expected=objective["uploads"])
             opened.pop("created")     # HTTP has no ownership: a keyed replay answers as the first call did
             out = {"campaign": opened, "view": view(service, opened["campaign_id"], host.id)}
+        if folder is not None:
+            shutil.rmtree(folder, ignore_errors=True)
         _wake_runner(request)     # a baseline_simulation objective pre-approves its baseline runs
         return out
     return host.once(request, body, 201, act)
@@ -460,19 +637,19 @@ def campaign_series(campaign_id: str, ref: str = Query(min_length=1, max_length=
         SERIES_READS.release()
 
 
-@router.post("/ledgers/{lid}/campaigns/{campaign_id}/measurements", dependencies=[Depends(team)],
+@router.post("/ledgers/{lid}/campaigns/{campaign_id}/measurements", dependencies=[may("define_measurement")],
              name="loop.define_measurement")
 def define_measurement(campaign_id: str, body: DefineMeasurement, request: Request, host=Depends(get_ledger)):
     """Define a derived measurement (ops/1) and apply it to the baselines and results: {record, measurements}."""
     key = _idempotency_key(request)
 
     def act():
-        with _loop(host, body.actor(), key, campaign_id) as service:
+        with _loop(host, body.actor(principal(request)), key, campaign_id) as service:
             return service.define_measurement(campaign_id, body.name, body.spec)
     return host.once(request, body, 200, act)
 
 
-@router.post("/ledgers/{lid}/campaigns/{campaign_id}/requests", status_code=201, dependencies=[Depends(team)],
+@router.post("/ledgers/{lid}/campaigns/{campaign_id}/requests", status_code=201, dependencies=[may("propose")],
              name="loop.propose")
 def propose(campaign_id: str, body: Propose, request: Request, host=Depends(get_ledger)):
     """Request an experiment: the sealed request with its content_hash, awaiting a person's approval (or approved at
@@ -481,7 +658,7 @@ def propose(campaign_id: str, body: Propose, request: Request, host=Depends(get_
     key = _idempotency_key(request)
 
     def act():
-        with _loop(host, body.actor(), key, campaign_id) as service:
+        with _loop(host, body.actor(principal(request)), key, campaign_id) as service:
             out = replay(service, "propose", campaign_id, action=body.action, params=body.params) or                 service.propose(campaign_id, body.action, body.params, rationale=body.rationale,
                                 prediction=body.prediction, expected_effect=body.expected_effect,
                                 evidence_ids=tuple(body.evidence_ids), specimen=body.specimen, due_by=body.due_by)
@@ -498,7 +675,7 @@ def get_request(campaign_id: str, request_id: str, host=Depends(get_ledger)):
         return service.request(campaign_id, request_id)
 
 
-@router.post("/ledgers/{lid}/campaigns/{campaign_id}/requests/{request_id}/approve", dependencies=[Depends(team)],
+@router.post("/ledgers/{lid}/campaigns/{campaign_id}/requests/{request_id}/approve", dependencies=[may("approve")],
              name="loop.approve")
 def approve(campaign_id: str, request_id: str, body: Approve, request: Request, host=Depends(get_ledger)):
     """Approve the version whose content_hash the person read; a hash of an older version is a 409 naming the
@@ -506,25 +683,25 @@ def approve(campaign_id: str, request_id: str, body: Approve, request: Request, 
     key = _idempotency_key(request)
 
     def act():
-        with _loop(host, body.actor(), key, campaign_id) as service:
+        with _loop(host, body.actor(principal(request)), key, campaign_id) as service:
             out = service.approve(campaign_id, request_id, body.content_hash, body.note)
         _wake_runner(request)
         return out
     return host.once(request, body, 200, act)
 
 
-@router.post("/ledgers/{lid}/campaigns/{campaign_id}/requests/{request_id}/reject", dependencies=[Depends(team)],
+@router.post("/ledgers/{lid}/campaigns/{campaign_id}/requests/{request_id}/reject", dependencies=[may("reject")],
              name="loop.reject")
 def reject(campaign_id: str, request_id: str, body: Reject, request: Request, host=Depends(get_ledger)):
     key = _idempotency_key(request)
 
     def act():
-        with _loop(host, body.actor(), key, campaign_id) as service:
+        with _loop(host, body.actor(principal(request)), key, campaign_id) as service:
             return service.reject(campaign_id, request_id, body.content_hash, body.reason)
     return host.once(request, body, 200, act)
 
 
-@router.post("/ledgers/{lid}/campaigns/{campaign_id}/requests/{request_id}/revise", dependencies=[Depends(team)],
+@router.post("/ledgers/{lid}/campaigns/{campaign_id}/requests/{request_id}/revise", dependencies=[may("revise")],
              name="loop.revise")
 def revise(campaign_id: str, request_id: str, body: Revise, request: Request, host=Depends(get_ledger)):
     """A person's correction of the parameters, as the next version; with approve, approved in the same write."""
@@ -532,7 +709,7 @@ def revise(campaign_id: str, request_id: str, body: Revise, request: Request, ho
     key = _idempotency_key(request)
 
     def act():
-        with _loop(host, body.actor(), key, campaign_id) as service:
+        with _loop(host, body.actor(principal(request)), key, campaign_id) as service:
             out = replay(service, "revise", campaign_id, request_id=request_id, params=body.params) or \
                 service.revise(campaign_id, request_id, body.params, body.reason, approve=body.approve)
         if body.approve:
@@ -541,20 +718,20 @@ def revise(campaign_id: str, request_id: str, body: Revise, request: Request, ho
     return host.once(request, body, 200, act)
 
 
-@router.post("/ledgers/{lid}/campaigns/{campaign_id}/requests/{request_id}/cancel", dependencies=[Depends(team)],
+@router.post("/ledgers/{lid}/campaigns/{campaign_id}/requests/{request_id}/cancel", dependencies=[may("cancel")],
              name="loop.cancel")
 def cancel(campaign_id: str, request_id: str, body: Cancel, request: Request, host=Depends(get_ledger)):
     """Cancel a request: a person any pending one, an agent only its own before approval."""
     key = _idempotency_key(request)
 
     def act():
-        with _loop(host, body.actor(), key, campaign_id) as service:
+        with _loop(host, body.actor(principal(request)), key, campaign_id) as service:
             return service.cancel(campaign_id, request_id, body.reason)
     return host.once(request, body, 200, act)
 
 
-@router.post("/ledgers/{lid}/campaigns/{campaign_id}/requests/{request_id}/results", dependencies=[Depends(team)],
-             name="loop.submit_result")
+@router.post("/ledgers/{lid}/campaigns/{campaign_id}/requests/{request_id}/results",
+             dependencies=[may("submit_result")], name="loop.submit_result")
 def submit_result(campaign_id: str, request_id: str, body: ResultUpload, request: Request,
                   host=Depends(get_ledger)):
     """A person returns a physical test's result against the approved content hash. It is checked as the executor
@@ -564,7 +741,8 @@ def submit_result(campaign_id: str, request_id: str, body: ResultUpload, request
     _idempotency_key(request)
     if body.request_id != request_id:
         raise HTTPException(422, f"the result names request {body.request_id}, not {request_id}")
-    upload = HumanUpload.model_validate(body.model_dump(exclude={"upload_id"}))
+    actor = body.actor(principal(request))      # the uploader is the result's author
+    upload = HumanUpload.model_validate(body.model_dump(exclude={"upload_id"}) | {"author": actor.name})
 
     def act():      # after the reply cache: a keyed retry finds its answer although the files are gone
         folder, files = None, {}
@@ -573,7 +751,7 @@ def submit_result(campaign_id: str, request_id: str, body: ResultUpload, request
             if not folder.is_dir():
                 raise HTTPException(404, "Upload the result's files first")
             files = {p.name: p for p in folder.iterdir() if p.is_file() and not p.name.endswith(".part")}
-        with _loop(host, body.actor(), None, campaign_id) as service:
+        with _loop(host, actor, None, campaign_id) as service:
             out = service.submit_result(campaign_id, upload, files)
         if folder is not None:
             shutil.rmtree(folder, ignore_errors=True)
@@ -581,34 +759,38 @@ def submit_result(campaign_id: str, request_id: str, body: ResultUpload, request
     return host.once(request, body, 200, act)
 
 
-@router.post("/ledgers/{lid}/campaigns/{campaign_id}/amendments", dependencies=[Depends(team)], name="loop.amend")
+@router.post("/ledgers/{lid}/campaigns/{campaign_id}/amendments", dependencies=[may("amend")], name="loop.amend")
 def amend(campaign_id: str, body: Amend, request: Request, host=Depends(get_ledger)):
-    """A person amends the objective's target and/or constraints as its next version: {amendment, comparisons}."""
+    """A person amends the objective's target, constraints and/or budget as its next version: {amendment,
+    comparisons}. Lowering a budget is an engineer's; raising one (model_usd, experiments, experiment_usd, max_wall_s)
+    needs an administrator's key."""
     from translucent.loop_surface import replay
     key = _idempotency_key(request)
+    cred = principal(request)
 
     def act():
-        with _loop(host, body.actor(), key, campaign_id) as service:
+        with _loop(host, body.actor(cred), key, campaign_id, may_raise_budget=cred.may("raise_budget")) as service:
             return replay(service, "amend", campaign_id, reason=body.reason, target=body.target,
-                          constraints=body.constraints) or \
-                service.amend(campaign_id, body.reason, target=body.target, constraints=body.constraints)
+                          constraints=body.constraints, budget=body.budget) or \
+                service.amend(campaign_id, body.reason, target=body.target, constraints=body.constraints,
+                              budget=body.budget)
     return host.once(request, body, 200, act)
 
 
-@router.post("/ledgers/{lid}/campaigns/{campaign_id}/notes", dependencies=[Depends(team)], name="loop.note")
+@router.post("/ledgers/{lid}/campaigns/{campaign_id}/notes", dependencies=[may("note")], name="loop.note")
 def note(campaign_id: str, body: Note, request: Request, host=Depends(get_ledger)):
     """A person's note in the campaign's event stream."""
     _idempotency_key(request)
 
     def act():
-        with _loop(host, body.actor(), None, campaign_id) as service:
+        with _loop(host, body.actor(principal(request)), None, campaign_id) as service:
             if done := chain.concluded(service.L, campaign_id):
                 raise HTTPException(409, f"Campaign concluded at seq {done.seq}; further writes are refused")
             return service.note(campaign_id, body.text)
     return host.once(request, body, 200, act)
 
 
-@router.post("/ledgers/{lid}/campaigns/{campaign_id}/conclusion", dependencies=[Depends(team)],
+@router.post("/ledgers/{lid}/campaigns/{campaign_id}/conclusion", dependencies=[may("conclude")],
              name="loop.conclude")
 def conclude(campaign_id: str, body: Conclude, request: Request, host=Depends(get_ledger)):
     """Conclude the campaign. The outcome is computed from the recorded comparisons; the caller writes only the
@@ -616,7 +798,7 @@ def conclude(campaign_id: str, body: Conclude, request: Request, host=Depends(ge
     key = _idempotency_key(request)
 
     def act():
-        with _loop(host, body.actor(), key, campaign_id) as service:
+        with _loop(host, body.actor(principal(request)), key, campaign_id) as service:
             return service.conclude(campaign_id, body.text, body.unresolved_reasons)
     return host.once(request, body, 200, act)
 

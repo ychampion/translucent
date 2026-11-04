@@ -30,8 +30,9 @@ from translucent.executors import (HumanUpload, ResultInvalid, human_uncertainti
                                    parse_human_result, upload_sha256)
 from translucent.ledger import AdmissionError, Ledger
 from translucent.loop import (OPS_DIGEST, PENDING, RESULTS, NotAllowed, NotFound, RequestState, actor_kind,
-                              adapter_for, build_request, campaign_ids, computed_outcome, current_objective,
-                              measurement_problems, open_campaign, request_states)
+                              adapter_for, bind_params, build_request, campaign_ids, computed_findings, computed_outcome,
+                              current_objective,
+                              measurement_problems, open_campaign, request_states, StaleRequest)
 from translucent.loop_contracts import (AmendmentData, ApprovalData, CancellationData, ConclusionData, Constraint,
                                         MeasurementData, ObjectiveData, OperatorSpec, RejectionData)
 
@@ -117,6 +118,21 @@ def planner_tools() -> list[str]:
     return sorted(allowed("agent"))
 
 
+def budget_raises(current: dict, new) -> list[str]:
+    """The budget fields an amendment raises. A field the objective leaves unset is unlimited, except model_usd (no
+    model budget is $0), so setting an unset field is a raise only for model_usd."""
+    if not isinstance(new, dict):
+        return []
+    out = []
+    for k, v in new.items():
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            continue        # not a number: admission refuses it
+        old = current.get(k, 0.0 if k == "model_usd" else None)
+        if old is not None and (isinstance(old, bool) or not isinstance(old, (int, float)) or v > old):
+            out.append(k)
+    return out
+
+
 class ResultRefused(AdmissionError):
     """A returned result was refused; the refusal is recorded as `record` (HTTP 422 with the reasons)."""
 
@@ -154,10 +170,12 @@ def request_view(L: Ledger, st: RequestState) -> dict:
 
 class LoopService:
     def __init__(self, L: Ledger, actor: Actor, *, idempotency_key: str | None = None,
-                 import_root: Path | str | None = None):
+                 import_root: Path | str | None = None, may_raise_budget: bool = False):
         if actor.kind not in ("agent", "person", "system") or not actor.name.strip():
             raise NotAllowed("an actor is an agent, a person or the system, with a name")
         self.L, self.actor, self.key = L, actor, idempotency_key
+        # an amendment may raise a model or experiment budget only for an administrator (translucent.auth)
+        self.may_raise_budget = may_raise_budget
         # The only folder whose files a caller may name for import. A caller's path is never trusted beyond it.
         self.import_root = Path(import_root).resolve() if import_root is not None else None
 
@@ -358,6 +376,7 @@ class LoopService:
         self._allow("propose")
         obj = current_objective(self.L, cid)
         adapter = adapter_for(obj)
+        params = bind_params(self.L, cid, obj, adapter, action, dict(params))
         rq = "rq_" + (chain.digest([cid, "request", self.actor.kind, self.key])[:20] if self.key
                       else secrets.token_hex(10))
         # free text is scrubbed before it is sealed: the ledger is insert-only, so a pasted key would stay forever
@@ -396,10 +415,16 @@ class LoopService:
 
     def cancel(self, cid: str, request_id: str, reason: str) -> dict:
         self._allow("cancel")
-        self._state(cid, request_id)
-        chain.append(self.L, cid, "cancellation",
-                     CancellationData(request_id=request_id, author=self.actor.name, reason=scrub(reason)),
-                     self.actor.label, self._rid("cnl", cid, "cancellation", chain.natural_id("cnl", request_id)))
+        st = self._state(cid, request_id)
+        try:     # the same cancellation again is the same record; another one of a cancelled request is refused
+            chain.append(self.L, cid, "cancellation",
+                         CancellationData(request_id=request_id, author=self.actor.name, reason=scrub(reason)),
+                         self.actor.label, self._rid("cnl", cid, "cancellation", chain.natural_id("cnl", request_id)))
+        except chain.ChainConflict:
+            if st.state != "cancelled":
+                raise
+            raise StaleRequest(f"{request_id} is already cancelled (an amendment withdraws the proposals still "
+                               "waiting under the older objective)") from None
         return self.request(cid, request_id)
 
     def conclude(self, cid: str, text: str, unresolved_reasons=()) -> dict:
@@ -413,7 +438,8 @@ class LoopService:
                                ConclusionData(outcome=outcome, comparison_id=comparison, text=scrub(text),
                                               unresolved_reasons=[scrub(r) if isinstance(r, str) else r
                                                                   for r in unresolved_reasons],
-                                              author=self.actor.label),
+                                              author=self.actor.label,
+                                              findings=computed_findings(self.L, cid)),     # M2 SEMANTICS: /3
                                self.actor.label, self._rid("con", cid, "conclusion", chain.natural_id("con", cid)))
         return rec.model_dump(mode="json")
 
@@ -452,7 +478,12 @@ class LoopService:
         st = self._state(cid, request_id)
         obj = current_objective(self.L, cid)
         d = st.data
-        req = build_request(adapter_for(obj), obj, d.action, {**d.params, **params}, request_id=request_id,
+        adapter = adapter_for(obj)
+        bound = set((obj.system.get("spec", {}).get("objective_template") or {}).get("bound_parameters", {})
+                    .get(d.action, ()))
+        mine = bind_params(self.L, cid, obj, adapter, d.action,
+                           {k: v for k, v in {**d.params, **params}.items() if k not in bound})
+        req = build_request(adapter, obj, d.action, mine, request_id=request_id,
                             rationale=f"{d.rationale}\n\nRevised by {self.actor.name}: {reason}", prediction={},
                             expected_effect=d.expected_effect, evidence_ids=d.evidence_ids, specimen=d.specimen,
                             version=d.version + 1, supersedes=st.record.id, due_by=d.due_by)
@@ -528,15 +559,28 @@ class LoopService:
         except chain.ChainConflict:            # this exact upload was refused before, for reasons then current
             return self.L.get("loop", rid)
 
-    def amend(self, cid: str, reason: str, *, target=None, constraints=None) -> dict:
-        """A new objective version with a changed target and/or constraints; every completed result is compared
-        again under it, in the same transaction."""
+    def amend(self, cid: str, reason: str, *, target=None, constraints=None, budget=None) -> dict:
+        """A new objective version with a changed target, constraints and/or budget; every completed result is
+        compared again under it, in the same transaction. Lowering a budget is any person's; raising one needs
+        may_raise_budget (an administrator), and a model budget stays within the provider caps."""
         self._allow("amend")
         obj = current_objective(self.L, cid)
+        if budget is not None:
+            if (raised := budget_raises(obj.budget, budget)) and not self.may_raise_budget:
+                raise NotAllowed(f"Raising a budget ({', '.join(raised)}) needs an administrator key; an engineer "
+                                 "may lower one")
+            if isinstance(budget, dict) and "model_usd" in budget:
+                from translucent.loop_surface import budget_problem
+                from translucent.runtime import PROFILES
+                profile = obj.planner.get("profile")
+                if problem := budget_problem(budget["model_usd"], profile if profile in PROFILES else "meta",
+                                             "budget.model_usd"):
+                    raise AdmissionError(problem)
         with self.L.transaction():
             rec = chain.append(self.L, cid, "amendment",
                                AmendmentData(version=obj.version + 1, author=self.actor.name, reason=scrub(reason),
-                                             target=target, constraints=_labels_scrubbed(constraints)),
+                                             target=target, constraints=_labels_scrubbed(constraints),
+                                             budget=budget),
                                self.actor.label,
                                self._rid("amd", cid, "amendment", chain.natural_id("amd", cid, obj.version + 1)))
             comparisons = loop_compare.record_comparisons(self.L, cid)

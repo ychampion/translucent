@@ -1,6 +1,7 @@
 // Loop campaigns: the LoopView (view_version 1) a live campaign and a recorded export share, the CampaignSummary the
 // campaign list shows, and the pure helpers the loop screen words them with. The shapes follow
 // translucent/loop_view.py (the server computes every field; nothing here invents one).
+import type { Assessment } from "./assessment";
 
 // ---------------------------------------------------------------- the view
 
@@ -8,10 +9,13 @@ export type Basis = "physical" | "computational" | "retrospective";
 export type RequestState =
   | "awaiting_approval" | "queued" | "running" | "awaiting_result" | "completed" | "failed" | "rejected" | "cancelled";
 export type Verdict = "candidate_better" | "not_better" | "violates_constraints" | "inconclusive" | "not_comparable";
-export type Outcome = "improved" | "improved_in_simulation" | "not_improved" | "unresolved";
+/** loop-compare/1-2 outcomes, and loop-compare/3's (each with an "_in_simulation" form when computational). */
+export type Outcome3 = "objective_met" | "faster_than_reference" | "feasible_only" | "no_feasible_result" | "unresolved";
+export type Outcome = "improved" | "improved_in_simulation" | "not_improved" | "unresolved"
+  | Outcome3 | `${Outcome3}_in_simulation`;
 export type CampaignStatus =
   | "running" | "waiting_for_approval" | "waiting_for_result" | "concluded" | "stopped" | "finished";
-export type NextKind = "awaiting_approval" | "running" | "awaiting_result" | "planner_thinking" | "none";
+export type NextKind = "awaiting_approval" | "running" | "awaiting_result" | "planner_thinking" | "planner_stopped" | "none";
 
 export interface Verified { command: string; summary: string; ok: boolean; ran_on: string }
 export type LoopSource =
@@ -42,6 +46,7 @@ export type NextAction =
   }
   | { kind: "running" | "awaiting_result"; request_id: string; version: number; title: string; executor: string; actions: string[] }
   | { kind: "planner_thinking"; title: string }
+  | { kind: "planner_stopped"; status: "budget"; title: string }
   | { kind: "none" };
 
 export interface Measurement { id: string; quantity: string; value: number; unit: string; h: number }
@@ -60,6 +65,10 @@ export interface LoopRequest {
   rationale: string; prediction: Record<string, Predicted>; timeline: TimelineStep[]; result: LoopResult | null;
   rejections: { seq: number; reasons: string[] }[];
   failure?: { attempt: number; reason: string; retryable: boolean };
+  /** M2: system reference runs and the baseline re-run are listed but marked. Absent in older views. */
+  role?: "experiment" | "baseline" | "reference";
+  /** The objective version the request was proposed under (absent in older views). */
+  objective_version?: number;
 }
 export interface Comparison {
   id: string; request_id: string; objective_version: number; basis: Basis;
@@ -70,7 +79,11 @@ export interface Comparison {
   constraints: Check[]; verdict: Verdict; reasons: string[];
 }
 export interface Spend { model_usd: number; model_budget_usd: number; experiments_used: number; experiments_budget: number }
-export interface Conclusion { outcome: Outcome; comparison_id: string | null; text: string; unresolved_reasons: string[] }
+export interface Conclusion {
+  outcome: Outcome; comparison_id: string | null; text: string; unresolved_reasons: string[];
+  /** loop-compare/3: the three answers, frozen at conclusion. */
+  findings?: Pick<Assessment, "feasibility" | "speed" | "objective">;
+}
 
 export interface LoopView {
   view_version: 1;
@@ -80,7 +93,12 @@ export interface LoopView {
     system: { id: string; version: string; title: string; solver: { name: string; version: string; validity: string } | null };
     planner: { kind: string; models: { planner?: string | null; vision?: string | null } };
   };
-  objective: { version: number; statement: string; target: Target; constraints: Constraint[]; amendments: Amendment[] };
+  objective: {
+    version: number; statement: string; target: Target; constraints: Constraint[]; amendments: Amendment[];
+    /** M2 (optional, so older recordings load): the objective's kind, a one-line summary of the CURRENT version, and
+     *  the version whose registered statement `statement` is. */
+    kind?: "fastest_feasible" | "hard_target" | "legacy"; summary?: string; statement_version?: number;
+  };
   baseline: Baseline[];
   current_result: CurrentResult | null;
   next_action: NextAction;
@@ -90,18 +108,180 @@ export interface LoopView {
   spend: Spend;
   conclusion: Conclusion | null;
   events_cursor: number;
+  /** M2: feasibility, speed and objective as three answers (absent in older recordings; see lib/assessment.ts). */
+  assessment?: Assessment;
+  /** A system that keeps model versions (pybamm-fastcharge-lab): what the campaign believes and why. Absent otherwise. */
+  learning?: Learning;
+  /** A campaign opened from the engineer's raw records: what came from the files, what the model assumes, what the
+   *  engineer set. Absent for every other campaign. */
+  investigation?: Investigation;
+}
+
+// ---------------------------------------------------------------- thermal learning (thermal-learning/1)
+// LabAdapter.campaign_summary in translucent/systems/lgm50_lab.py. Every field optional: older or partial views load.
+
+/** Model parameters by name: h (W/m^2/K) and k (thermal-mass scale, no unit). */
+export type ModelParams = Record<string, number>;
+export interface ModelCheck {
+  request_id?: string; result_id?: string; lab_tests?: number[];
+  heldout_rmse_K?: number | null; heldout_max_error_K?: number | null; coverage?: number | null;
+}
+export interface ModelVersion {
+  version: number; family?: string; estimate?: ModelParams; members?: (ModelParams & { delta_chi2?: number })[];
+  region_95?: Record<string, [number, number]> | null;
+  validity?: { ambient_degC?: [number, number]; c_rate?: [number, number]; rest_min?: [number, number] | number[]; lab_tests?: number[] } | null;
+  /** null for v0, which no held-out test has checked. */
+  adequate?: boolean | null; consistent_with_nominal?: boolean | null; fit_rmse_K?: number | null;
+  result_id?: string | null; request_id?: string | null; source?: string | null; sources?: number[]; checks?: ModelCheck[];
+}
+export interface LabTrace {
+  t_min: number[]; observed_degC: (number | null)[];
+  forecast_degC?: (number | null)[] | null; forecast_lo_degC?: (number | null)[] | null; forecast_hi_degC?: (number | null)[] | null;
+}
+/** A record test's stretch of the engineer's record: one constant-current segment, not a charge protocol. */
+export interface RecordStretch {
+  ref?: string; segment?: number; mode?: string; t_start_s?: number; t_end_s?: number;
+  /** A (magnitude), C-rate (1/h), min, °C, K, °C, and the current's largest departure from its median (relative). */
+  test_current?: number | null; test_c_rate?: number | null; test_duration?: number | null;
+  temperature_start?: number | null; temperature_rise?: number | null; ambient_temperature?: number | null; current_departure?: number | null;
+}
+export interface LabTest {
+  n: number; request_id?: string; result_id?: string; action?: string; basis?: string;
+  protocol?: Record<string, number | null>;
+  /** Present for a record test: the stretch it is; its protocol is then empty. */
+  record?: RecordStretch | null;
+  observed?: { max_temperature?: number | null; temperature_end?: number | null; charge_time_80?: number | null };
+  prediction?: unknown;
+  /** The last forecast of the same protocol made before the test ran, and the model version it came from. */
+  forecast?: { request_id?: string; result_id?: string; model_version: number; max_temperature?: number | null; min_anode_potential?: number | null } | null;
+  trace?: LabTrace | null;
+}
+export interface Design {
+  request_id?: string; result_id?: string; model_version: number; design_found?: boolean;
+  /** Whether the version's fit explains its own tests within the noise; null for v0, which has no fit. */
+  model_adequate?: boolean | null;
+  /** Whether a model with standing stands behind the design (fit adequate and met the rule on tests it did not
+   *  fit); absent in recordings made before the rule. `standing` says why, in words. */
+  model_supported?: boolean; standing?: string;
+  c_rates?: (number | null)[] | null; charge_time_80?: number | null;
+  /** Forecast, worst member; never measured. */
+  min_anode_potential?: number | null; max_temperature?: number | null;
+  limits?: { margin_mV?: number; t_limit_C?: number };
+}
+export interface RankOption {
+  option: number; label?: string; c_rates?: number[]; rest_min?: number; value_min?: number | null;
+  disagreement_K?: number | null; duration_min?: number | null;
+}
+export interface Ranking {
+  request_id?: string; result_id?: string; model_version?: number;
+  /** The option worth running, or 0 when none is worth its cost. */
+  best_measurement?: number | null; verdict?: string | null; decision_risk_min?: number | null; options?: RankOption[];
+}
+export interface NextExperiment {
+  request_id: string; action: string; state: string; params?: Record<string, unknown>;
+  rationale?: string | null; expected_effect?: string | null; prediction?: Record<string, unknown>;
+}
+export interface Learning {
+  kind?: string; versions?: ModelVersion[]; model_in_use?: number;
+  lab_tests?: LabTest[]; latest_lab_test?: number | null; next_experiment?: NextExperiment | null;
+  designs?: Design[]; first_design?: Design | null; best_design?: Design | null; ranking?: Ranking | null;
+  /** The latest design a model with standing stands behind; null when none does yet. */
+  recommended_design?: Design | null; standing_rule?: string;
+  /** What the lab measures and what is only forecast: the panels' footnote. */
+  limits?: string;
+  /** Set when every supported family was fitted to the lab's tests and none may stand behind a design. */
+  model_gap?: ModelGap | null;
+}
+export interface ModelGap {
+  established: boolean; pattern: string; summary: string;
+  needed: { kind: "evidence" | "capability"; what: string; establishes: string }[];
+}
+
+/** Why a design is not a recommendation, or null when it is one (or the recording predates the rule and its model
+ *  fits its own tests). */
+export function designCaveat(d: Design): string | null {
+  if (d.model_supported === false) return `Not a recommendation: ${d.standing ?? "its model has no standing"}. Treat it as a lead, not a result.`;
+  if (d.model_supported === undefined && d.model_adequate === false) return "This design rests on a model version that does not fit its own tests within the noise. Treat it as a lead, not a result.";
+  return null;
+}
+
+/** The design the cards lead with, and a later design shown only as a lead. With the standing rule, the recommended
+ *  design leads (else the latest, flagged); a later design without standing never hides an earlier recommendation.
+ *  A recording made before the rule shows its best design as before. */
+export function designShown(l: Learning | null | undefined): { main: Design | null; lead: Design | null } {
+  const best = l?.best_design ?? null;
+  if (!l || !("recommended_design" in l)) return { main: best, lead: null };
+  const main = l.recommended_design ?? best;
+  const lead = best && main && best.request_id !== main.request_id ? best : null;
+  return { main, lead };
+}
+
+/** One line on a later design that is not a recommendation, shown under the recommended one. */
+export function leadLine(d: Design): string {
+  return `A later design under v${d.model_version} (${cRatesLine(d.c_rates)}) is a lead, not a recommendation: ${d.standing ?? "its model has no standing"}.`;
+}
+
+/** The design card's heading: a design without a model standing behind it is never called the best. */
+export function designHeading(d: Design): string {
+  return d.model_supported === false ? "Latest design, not a recommendation" : "Best design";
+}
+
+// ---------------------------------------------------------------- investigation from the engineer's records
+// records.investigation in translucent/records.py. Every field optional: a view before the agent imported loads.
+
+export interface UploadedFile { name: string; sha256?: string; bytes?: number }
+export interface InstrumentChannel {
+  quantity: string; column?: string | null; unit?: string; n?: number; t_range_s?: number[] | null;
+  uncertainty?: { value?: number | null; kind?: string | null; method?: string | null } | null;
+}
+/** One imported record as its manifest states it: what the files established, column by column. */
+export interface InstrumentFacts {
+  record: number; ref: string;
+  specimen?: { id?: string | null; batch?: string | null; properties?: Record<string, unknown> } | null;
+  configuration?: Record<string, unknown>; configuration_units?: Record<string, string>;
+  conditions?: Record<string, unknown>; conditions_units?: Record<string, string>;
+  time?: { unit?: string; origin?: string | null; offset_s?: number | null; source?: string | null; uncertainty_s?: number | null } | null;
+  channels?: InstrumentChannel[]; ignored_columns?: string[];
+}
+export interface InvestigationTest {
+  test: number; kind: string; request_id?: string;
+  record?: number; record_ref?: string; segment?: number; mode?: string; start_soc?: number;
+}
+export interface Investigation {
+  uploads?: UploadedFile[]; documentation?: string | null;
+  instrument_facts?: InstrumentFacts[];
+  /** Record number -> its segments, one readable line each. */
+  segments?: Record<string, string[]>;
+  tests?: InvestigationTest[];
+  missing_information?: { item: string; why_it_matters?: string | null }[];
+  model_assumptions?: {
+    prior?: { version?: number; source?: string | null; [k: string]: unknown } | null;
+    families?: Record<string, string>; record_test_states?: string[];
+  } | null;
+  /** A pointer to the objective's constraints (the server's words), or the constraints themselves. */
+  engineer_constraints?: string | Constraint[] | null;
 }
 
 // ---------------------------------------------------------------- the list and the series
 
 export interface LedgerInfo { id: string; title: string; campaigns: number; datasets: number }
+/** The assessment's three answers, compact (translucent/loop_view.py summary_fields), for a concluded loop campaign. */
+export interface SummaryFindings {
+  basis: Basis;
+  feasibility: { baseline: "meets" | "fails" | "unknown"; best: "meets" | "fails" | "unknown" | "none"; recovered: boolean };
+  speed: { status: "faster" | "not_faster" | "not_compared" };
+  objective: { kind: "fastest_feasible" | "hard_target" | "legacy"; status: "met" | "not_met" | "unknown" | "open" };
+}
 export interface CampaignSummary {
   id: string; ledger: string; kind: "loop" | "video" | "intervention"; title: string; status: CampaignStatus;
   created_at: number; updated_at: number; objective: string; next_action: NextKind; outcome: Outcome | null; spend_usd: number;
+  /** M2, a concluded loop campaign: the assessment's headline and what the outcome rests on. */
+  assessment_headline?: string;
+  findings?: SummaryFindings;
 }
 export interface CampaignPage { items: CampaignSummary[]; next_cursor: number | null }
 
-/** The list's objective is the statement's first 140 characters (api_v1, loop_view). */
+/** The list's objective: a loop campaign's current-version summary, else the statement; 140 characters (api_v1, loop_view). */
 export const OBJECTIVE_CUT = 140;
 /** A summary's objective, ending at a word with "…" when the server cut it ("…vs Li/L" -> "…vs …"). */
 export function objectiveLine(text: string, cut = OBJECTIVE_CUT): string {
@@ -298,7 +478,20 @@ export function wordsFor(v: Pick<LoopView, "objective" | "campaign">, specs?: Sy
 /** Words from the ids alone (no spec, no objective): what a test or a bare request gets. */
 const ID_WORDS: Words = { quantity: idWords, note: () => "", param: (n) => idWords(n.replace(/_\d+$/, "")), action: idWords };
 
-const paramValue = (p: Param) => (typeof p.value === "number" ? withUnit(p.value, p.unit) : String(p.value));
+/** The longest string parameter printed inline; a longer one, or an object, reads "(recorded with the request)". */
+export const PARAM_INLINE_MAX = 40;
+export const PARAM_RECORDED = "(recorded with the request)";
+/** A request parameter's value as printed: never an object (or JSON text of one) or a long string inline. */
+export function paramText(p: Param): string {
+  const v = p.value as unknown;
+  if (typeof v === "number") return withUnit(v, p.unit);
+  if (v === null || v === undefined) return "–";
+  if (typeof v === "object") return PARAM_RECORDED;
+  const s = String(v);
+  if (s.length > PARAM_INLINE_MAX || /^\s*[[{]/.test(s)) return PARAM_RECORDED;
+  return s;
+}
+const paramValue = paramText;
 
 /**
  * "Charge C-rate 1.3C → 1.05C → 0.95C → 0.75C · Ambient temperature 25 °C". Numbered parameters of one unit
@@ -504,9 +697,40 @@ export const BASIS_WORD: Record<string, string> = { computational: "Simulated", 
 
 // ---------------------------------------------------------------- outcome and the best candidate
 
-export const OUTCOME_WORD: Record<Outcome, string> = {
-  improved: "Improved", improved_in_simulation: "Improved in simulation", not_improved: "Not improved", unresolved: "Unresolved",
+const OUTCOME3_WORD: Record<Outcome3, string> = {
+  objective_met: "Objective met", faster_than_reference: "Faster than the reference", feasible_only: "Feasible only",
+  no_feasible_result: "No feasible result", unresolved: "Unresolved",
 };
+export const OUTCOME_WORD: Record<Outcome, string> = {
+  improved: "Improved", improved_in_simulation: "Improved in simulation", not_improved: "Not improved",
+  ...Object.fromEntries(Object.entries(OUTCOME3_WORD).flatMap(([k, w]) => [[k, w], [`${k}_in_simulation`, `${w} in simulation`]])),
+} as Record<Outcome, string>;
+/**
+ * A concluded campaign's outcome as the campaign list says it, e.g. "Feasibility recovered (simulation)". The recorded
+ * outcome is never rewritten, but a loop-compare/1-2 "improved" whose speed was not shown faster (the limits decided
+ * it) is said as the feasibility answer it is, from the server's findings; without findings (an older server) it is
+ * said as "Concluded", never "Improved". `title` is the assessment's headline, for a tooltip.
+ */
+export function summaryOutcome(c: Pick<CampaignSummary, "outcome" | "findings" | "assessment_headline">): { word: string; tone: string; title: string } | null {
+  const o = c.outcome;
+  if (!o) return null;
+  const sim = o.endsWith("_in_simulation") ? " (simulation)" : "";
+  const base = o.replace(/_in_simulation$/, "");
+  const f = c.findings;
+  const title = c.assessment_headline ?? `Recorded outcome: ${o}`;
+  const recovered = { word: `Feasibility recovered${sim}`, tone: "feasible", title };
+  if (base === "improved") {
+    if (f?.speed.status === "faster") return { word: `Improved${sim}`, tone: "improved", title };
+    if (f?.feasibility.recovered) return recovered;
+    if (f?.feasibility.best === "meets") return { word: `Feasible${sim}, speed not compared`, tone: "feasible", title };
+    return { word: `Concluded${sim}`, tone: "unresolved", title };
+  }
+  if (base === "feasible_only" && f?.feasibility.recovered) return recovered;
+  const word = base === "not_improved" ? "Not improved" : OUTCOME3_WORD[base as Outcome3] ?? base;
+  const tone = base === "objective_met" || base === "faster_than_reference" ? "improved"
+    : base === "feasible_only" ? "feasible" : base === "no_feasible_result" ? "not_improved" : base;
+  return { word: `${word}${sim}`, tone, title };
+}
 export const VERDICT_WORD: Record<Verdict, string> = {
   candidate_better: "Better than the baseline", not_better: "Not better than the baseline",
   violates_constraints: "Breaks a constraint", inconclusive: "Inconclusive within the uncertainty",
@@ -584,9 +808,9 @@ export function spendLines(s: Spend): { model: string; experiments: string; mode
   };
 }
 
-/** Can a person act on this view? Never on a recording, and on a live one only with a team key and a name. */
-export function canAct(mode: "live" | "recorded", key: string, name: string): boolean {
-  return mode === "live" && !!key.trim() && !!name.trim();
+/** Can a person act on this view? Never on a recording; on a live one only signed in as an engineer or administrator. */
+export function canAct(mode: "live" | "recorded", role: string | null | undefined): boolean {
+  return mode === "live" && (role === "engineer" || role === "admin");
 }
 
 /** "3 s ago", "4 min ago", "2 h ago". */
@@ -617,7 +841,8 @@ export const STATUS_WORD: Record<CampaignStatus, string> = {
 };
 export const NEXT_WORD: Record<NextKind, string> = {
   awaiting_approval: "An experiment needs your approval", running: "An experiment is running",
-  awaiting_result: "Waiting for a person’s result", planner_thinking: "The agent is choosing the next experiment", none: "",
+  awaiting_result: "Waiting for a person’s result", planner_thinking: "The agent is choosing the next experiment",
+  planner_stopped: "The planner stopped: its model budget is spent", none: "",
 };
 export const KIND_WORD: Record<CampaignSummary["kind"], string> = { loop: "Experiment loop", video: "Recording analysis", intervention: "Intervention" };
 
@@ -627,15 +852,31 @@ export const recordingHref = (name: string) => `/w/?recording=${encodeURICompone
 
 /** A recording's name as the address carries it: letters, digits, dot, dash and underscore only (no paths). */
 export const RECORDING_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,120}$/;
+/** The recorded fast-charge campaign: public/fixtures/loop/fastcharge.loop.json, evaluation case B. */
+export const FASTCHARGE_HREF = "/w/?recording=fastcharge";
+/** A demonstration of case B run once through the web app (Oct 31, 2026): public/fixtures/loop/fastcharge-demo.loop.json. */
+export const FASTCHARGE_DEMO_HREF = "/w/?recording=fastcharge-demo";
+/** Fast charge against a simulated lab, learning a thermal model as it goes: public/fixtures/loop/fastcharge-lab.loop.json. */
+export const FASTCHARGE_LAB_HREF = "/w/?recording=fastcharge-lab";
+
 export const recordingUrl = (name: string) => `/fixtures/loop/${name.replace(/\.loop\.json$/, "")}.loop.json`;
 
 /**
  * The constraint limit to draw on a series chart: a constraint in the series' unit whose quantity names the series
  * (max_temperature on a temperature series). Null when none fits; the chart never guesses a conversion.
  */
-export function limitFor(v: LoopView, seriesQuantity: string, seriesUnit: string): { value: number; label: string } | null {
-  const c = v.objective.constraints.find((x) => x.unit === seriesUnit && x.quantity.split(/[_:]/).includes(seriesQuantity));
-  return c ? { value: c.limit, label: `${opWord(c.op)} ${withUnit(c.limit, c.unit)}` } : null;
+export function limitFor(v: LoopView, seriesQuantity: string, seriesUnit: string): { value: number; label: string; quantity: string } | null {
+  const c = v.objective.constraints.find((x) => x.unit === seriesUnit && limitNames(x.quantity, seriesQuantity));
+  return c ? { value: c.limit, label: `${opWord(c.op)} ${withUnit(c.limit, c.unit)}`, quantity: c.quantity } : null;
+}
+
+/**
+ * Whether a constraint's quantity limits a series: "max_temperature" limits "temperature" and "cell_temperature";
+ * "min_anode_potential" limits "anode_potential". The series must name the constrained quantity, not just share a word.
+ */
+export function limitNames(constraintQuantity: string, seriesQuantity: string): boolean {
+  const q = constraintQuantity.replace(/^[a-z]+:/, "").replace(/^(min|max|peak|lowest)_/, "");
+  return seriesQuantity === q || seriesQuantity.endsWith(`_${q}`);
 }
 
 /**
@@ -654,4 +895,171 @@ const VALID = new Set(["ok", "valid", "interpolation", "within_range", "in_range
 /** Category outputs other than validity, as "Status ok · CV entered no". */
 export function categoriesLine(r: Pick<LoopResult, "categories"> | null | undefined): string {
   return Object.entries(r?.categories ?? {}).filter(([k]) => k !== "validity").map(([k, v]) => `${idWords(k)} ${humanize(v).toLowerCase()}`).join(" · ");
+}
+
+// ---------------------------------------------------------------- thermal learning: words and chart data
+
+/** A step's C-rates as "1.5 · 1.35 · 0.9 · 0.5C"; a missing step reads "–". */
+export function cRatesLine(c: (number | null)[] | null | undefined): string {
+  if (!c || !c.length) return "–";
+  return `${c.map((x) => (x == null || !Number.isFinite(x) ? "–" : num(x))).join(" · ")}C`;
+}
+
+/** A fitted parameter to four significant digits: 14.967 -> "14.97", 6 -> "6". */
+export function fitValue(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) return "–";
+  const s = Math.abs(n) >= 1000 ? Math.round(n).toString() : n.toPrecision(4);
+  return (s.includes(".") && !s.includes("e") ? s.replace(/\.?0+$/, "") : s).replace(/^-/, "−");
+}
+
+const PARAM_WORD: Record<string, { label: string; unit: string }> = {
+  h: { label: "Heat transfer h", unit: "W/m²/K" },
+  k: { label: "Thermal-mass scale k", unit: "" },
+};
+/** A model parameter and its 95 % region: "Heat transfer h 14.97 W/m²/K (95 %: 14.9–15.1)". */
+export function paramLine(name: string, value: number, region?: [number, number] | null): string {
+  const w = PARAM_WORD[name] ?? { label: name, unit: "" };
+  const v = `${fitValue(value)}${w.unit ? ` ${w.unit}` : ""}`;
+  return `${w.label} ${v}${region ? ` (95 %: ${fitValue(region[0])}–${fitValue(region[1])})` : ""}`;
+}
+
+/** The version numbered n, or undefined. */
+export const versionOf = (l: Learning, n: number | null | undefined) => (n == null ? undefined : l.versions?.find((v) => v.version === n));
+/** The lab test numbered n, or undefined. */
+export const labTestOf = (l: Learning, n: number | null | undefined) => (n == null ? undefined : l.lab_tests?.find((t) => t.n === n));
+
+/** The worst member's anode potential against the margin: "26.3 mV, 1.28 mV above the 25 mV margin". */
+export function marginLine(d: Pick<Design, "min_anode_potential" | "limits">): string {
+  const a = d.min_anode_potential, m = d.limits?.margin_mV;
+  if (a == null) return "–";
+  if (m == null) return withUnit(a, "mV");
+  const gap = a - m;
+  return `${withUnit(a, "mV")}, ${num(Math.abs(gap))} mV ${gap >= 0 ? "above" : "below"} the ${num(m)} mV margin`;
+}
+
+/**
+ * What the next experiment is: a request already pending, else the ranking's answer ("none" when no test is worth
+ * its cost; "run" names the option), else "unranked".
+ */
+export type NextStep =
+  | { kind: "pending"; next: NextExperiment }
+  | { kind: "run"; option: RankOption | undefined; ranking: Ranking }
+  | { kind: "none"; ranking: Ranking }
+  | { kind: "unranked" };
+export function nextStepOf(l: Learning): NextStep {
+  if (l.next_experiment) return { kind: "pending", next: l.next_experiment };
+  const r = l.ranking;
+  if (!r) return { kind: "unranked" };
+  const best = r.best_measurement;
+  if (best != null && best > 0) return { kind: "run", option: r.options?.find((o) => o.option === best), ranking: r };
+  if (best === 0) return { kind: "none", ranking: r };
+  // No best named: decide from the options' values, net of the test's cost.
+  const worth = (r.options ?? []).filter((o) => (o.value_min ?? 0) > 0).sort((a, b) => (b.value_min ?? 0) - (a.value_min ?? 0));
+  return worth.length ? { kind: "run", option: worth[0], ranking: r } : { kind: "none", ranking: r };
+}
+
+/**
+ * Whether the assessment's best result (a request) was made under an older model version than the learning's best
+ * design: its `model_version` parameter is a number below the design's. False without learning, a best design, or
+ * the parameter.
+ */
+export function bestIsOlderModel(v: Pick<LoopView, "learning" | "requests">, bestRequestId: string | null | undefined): boolean {
+  const d = v.learning?.best_design;
+  if (!d || !bestRequestId || bestRequestId === d.request_id) return false;
+  const mv = v.requests.find((r) => r.request_id === bestRequestId)?.params?.model_version?.value;
+  return typeof mv === "number" && mv < d.model_version;
+}
+
+/** A shaded band's runs: contiguous stretches where both edges are known, in seconds. */
+export interface Band { t: number[]; lo: number[]; hi: number[] }
+export interface TraceChart {
+  observed: Series;
+  forecast: Series | null;
+  band: Band[];
+  /** The band's widest point in K: 0 when the version has one member (the band is the forecast line). */
+  spread: number;
+}
+
+/**
+ * The prediction-vs-observation chart's data from a lab test's trace: observed and forecast as series in seconds
+ * (the chart's time unit), nulls dropped, and the members' lo-hi band split where an edge is missing. Null without a
+ * trace or observed points.
+ */
+export function traceChart(trace: LabTrace | null | undefined): TraceChart | null {
+  if (!trace || !Array.isArray(trace.t_min) || !Array.isArray(trace.observed_degC)) return null;
+  const pick = (ys: (number | null)[] | null | undefined): Series | null => {
+    if (!ys) return null;
+    const t: number[] = [], y: number[] = [];
+    trace.t_min.forEach((tm, i) => {
+      const v = ys[i];
+      if (v != null && Number.isFinite(v) && Number.isFinite(tm)) { t.push(tm * 60); y.push(v); }
+    });
+    return t.length ? { t, y, unit: "degC", t_unit: "s", n: t.length, downsampled: false } : null;
+  };
+  const observed = pick(trace.observed_degC);
+  if (!observed) return null;
+  const band: Band[] = [];
+  let spread = 0;
+  const lo = trace.forecast_lo_degC, hi = trace.forecast_hi_degC;
+  if (lo && hi) {
+    let run: Band | null = null;
+    trace.t_min.forEach((tm, i) => {
+      const a = lo[i], b = hi[i];
+      if (a == null || b == null || !Number.isFinite(a) || !Number.isFinite(b)) { run = null; return; }
+      if (!run) { run = { t: [], lo: [], hi: [] }; band.push(run); }
+      run.t.push(tm * 60); run.lo.push(Math.min(a, b)); run.hi.push(Math.max(a, b));
+      spread = Math.max(spread, Math.abs(b - a));
+    });
+  }
+  return { observed, forecast: pick(trace.forecast_degC), band, spread };
+}
+
+// ---------------------------------------------------------------- investigation: words
+
+/** Whether a lab test is a stretch of the engineer's record (a record test) rather than a lab charge. */
+export const isRecordTest = (t: Pick<LabTest, "record">): boolean => t.record != null && typeof t.record === "object";
+
+/** A record test in one line: "lgm50-cells/cell02 segment 27 · discharge at 0.5C for 118 min · from 26.8 °C, +7.56 K". */
+export function recordStretchLine(r: RecordStretch): string {
+  const where = [r.ref, r.segment != null ? `segment ${r.segment}` : ""].filter(Boolean).join(" ") || "record";
+  const run = [r.mode ?? "", r.test_c_rate != null ? `at ${withUnit(r.test_c_rate, "1/h")}` : "", r.test_duration != null ? `for ${withUnit(r.test_duration, "min")}` : ""]
+    .filter(Boolean).join(" ");
+  const heat = r.temperature_start != null || r.temperature_rise != null
+    ? `from ${withUnit(r.temperature_start, "degC")}, ${r.temperature_rise != null && r.temperature_rise >= 0 ? "+" : ""}${withUnit(r.temperature_rise, "K")}` : "";
+  return [where, run, heat].filter(Boolean).join(" · ");
+}
+
+/** File sizes in binary units, as the server's limits are: "312 B", "584 KiB", "1.2 MiB". */
+export function bytesWord(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) return "–";
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${Math.round(n / 1024)} KiB`;
+  return `${num(n / (1024 * 1024))} MiB`;
+}
+
+/** A time span in seconds, in the unit that reads best: "0–48.2 h", "120–1800 s". */
+export function spanWord(range: number[] | null | undefined): string {
+  if (!range || range.length < 2 || !range.every(Number.isFinite)) return "–";
+  const d = Math.abs(range[1] - range[0]);
+  const [k, u] = d >= 7200 ? [3600, "h"] : d >= 600 ? [60, "min"] : [1, "s"];
+  return `${num(range[0] / k)}–${num(range[1] / k)} ${u}`;
+}
+
+/** A channel's declared uncertainty, or that the manifest declared none (never a number it did not state). */
+export function uncertaintyWord(u: InstrumentChannel["uncertainty"], unit = ""): string {
+  if (u?.value != null && Number.isFinite(u.value)) return `± ${withUnit(u.value, unit)}${u.kind && u.kind !== "none" ? ` (${u.kind.replace(/_/g, " ")})` : ""}`;
+  return "not declared";
+}
+
+/** The model's prior as parameter lines (every number but its version): "Heat transfer h 10 W/m²/K". */
+export function priorLines(prior: NonNullable<Investigation["model_assumptions"]>["prior"]): string[] {
+  if (!prior) return [];
+  return Object.entries(prior).filter(([k, x]) => k !== "version" && typeof x === "number" && Number.isFinite(x)).map(([k, x]) => paramLine(k, x as number));
+}
+
+/** The constraints the engineer set: the investigation's own list when it carries one, else the objective's (the server
+ *  points there: only an engineer's amendment changes them). */
+export function engineerConstraints(v: Pick<LoopView, "objective" | "investigation">): Constraint[] {
+  const own = v.investigation?.engineer_constraints;
+  return Array.isArray(own) ? own : v.objective.constraints;
 }

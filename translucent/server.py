@@ -1,4 +1,5 @@
-"""Disk-backed campaign API. Live POSTs require explicit opt-in and a bearer token.
+"""Disk-backed campaign API. Every read and write of ledger data needs a credential (translucent.auth); a paid run
+also needs an administrator's credential and live opt-in.
 
 Run one process per state directory (enforced by an OS file lock). Each request
 and worker uses its own SQLite connection. SSE re-reads the ledger on every
@@ -14,7 +15,6 @@ import logging
 import os
 from pathlib import Path
 import re
-import secrets
 import shutil
 import threading
 import time
@@ -29,7 +29,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError, model_validator
 
 from translucent import analysis, budget, experiments, providers, replay  # analysis registers the sandbox tool
-from translucent import api_v1, chain
+from translucent import api_v1, auth, chain
 from translucent.scrub import scrub
 from translucent.contracts import Override, ReplayBundle, Review
 from translucent.ledger import Ledger  # noqa: F401 - re-exported
@@ -89,7 +89,8 @@ class MetricRequest(BaseModel):
 
 class ProtocolRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
-    author: str = Field(min_length=1, max_length=80, pattern=r"^[^\x00-\x1f\x7f]+$")
+    # optional, for compatibility: the protocol's author is the credential's person; if given it must be that name
+    author: str | None = Field(default=None, min_length=1, max_length=80, pattern=r"^[^\x00-\x1f\x7f]+$")
     metrics: list[MetricRequest] = Field(min_length=1, max_length=10)
 
 
@@ -122,8 +123,9 @@ Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max
 
 
 class _PersonAction(BaseModel):
+    """A person's write. The person is the credential's; `author` is optional and, if given, must be that name."""
     model_config = ConfigDict(extra="forbid")
-    author: Name
+    author: Name | None = None
 
 
 class ExperimentRequest(BaseModel):
@@ -256,55 +258,101 @@ def _profile() -> str:
 
 
 def _live_enabled():
-    return os.environ.get("TRANSLUCENT_LIVE") == "1" and bool(os.environ.get("TRANSLUCENT_ADMIN_TOKEN"))
+    """Live opt-in on this process (TRANSLUCENT_LIVE=1). A paid run also needs an administrator: Server.live()."""
+    return os.environ.get("TRANSLUCENT_LIVE") == "1"
+
+
+def _principal(request: Request) -> auth.Principal:
+    """Who this request acts as, set by AuthGate (401 when a route outside the gate asks)."""
+    principal = getattr(request.state, "principal", None)
+    if principal is None:
+        raise HTTPException(401, auth.SIGN_IN)
+    return principal
+
+
+def _credential(request: Request) -> auth.Credential:
+    return _principal(request).credential
 
 
 def _authorize(request: Request):
-    token = os.environ.get("TRANSLUCENT_ADMIN_TOKEN", "")
-    supplied = request.headers.get("Authorization", "").encode("utf-8")
-    matched = secrets.compare_digest(supplied, ("Bearer " + token).encode("utf-8"))
-    if not _live_enabled() or not matched:
-        raise HTTPException(403, "Live campaigns require opt-in and an administrator token")
+    """A paid run: an administrator's credential, and live opt-in on a server that has an administrator."""
+    _credential(request).require("paid")
+    if not request.app.state.translucent.live():
+        raise HTTPException(403, "Live campaigns are off on this server (TRANSLUCENT_LIVE=1 turns them on)")
 
 
-def _team_enabled():
-    return bool(os.environ.get("TRANSLUCENT_TEAM_TOKEN") or os.environ.get("TRANSLUCENT_ADMIN_TOKEN"))
+def _authorize_person(request: Request) -> auth.Credential:
+    """A person's write to a video campaign: an engineer's or an administrator's credential."""
+    cred = _credential(request)
+    cred.require("legacy")
+    return cred
 
 
-def _server_token(supplied: bytes) -> bool:
-    """The Authorization header carries the team or the administrator token."""
-    tokens = [t for t in (os.environ.get("TRANSLUCENT_TEAM_TOKEN"), os.environ.get("TRANSLUCENT_ADMIN_TOKEN")) if t]
-    return any([secrets.compare_digest(supplied, ("Bearer " + t).encode("utf-8")) for t in tokens])
-
-
-def _authorize_person(request: Request):
-    """People's actions spend nothing: the team or administrator token is enough, live opt-in is not needed."""
-    if not _server_token(request.headers.get("Authorization", "").encode("utf-8")):
-        raise HTTPException(403, "People's actions require the team token")
+def _person_name(request: Request, author: str | None) -> str:
+    """The name a person's write is recorded under: the credential's (a given `author` must be it)."""
+    return _authorize_person(request).acting_as(author=author).name
 
 
 JSON_LIMIT = 2**20               # a write's JSON body: an objective, a proposal, a result's JSON (files go by PUT)
 MANIFEST_LIMIT = 16 * 2**20      # a manifest of up to 500 records (a real record is about 3.5 kB)
 _UPLOAD_ROUTE = re.compile(r"/api/(?:v1/ledgers/[^/]+/)?uploads/[^/]+/[^/]+")
 _MANIFEST_ROUTE = re.compile(r"/api/(?:experiments|v1/ledgers/[^/]+/datasets)")
+_V1_LEDGER = re.compile(r"/api/v1/ledgers/([^/]+)(?:/.*)?\Z", re.S)
+_PUBLIC = {"/api/session", "/api/health"}                  # GET only: booleans and liveness, no ledger data
+# sign in and out read the key or cookie themselves; GET /api/v1/session goes through the gate like any read
+_SESSION_ROUTES = {("POST", "/api/v1/session"), ("POST", "/api/v1/session/end")}
+_NOT_LEDGER = {"/api/budget"}                              # private, but no ledger's data
+TOO_MANY = "Too many failed sign-ins; try again in a minute"
+STREAM_RECHECK_S = 5.0     # an open event stream re-checks its credential (and session) this often
 
 
-class WriteGate:
-    """Every write under /api needs a server token before its body is read (FastAPI parses a body before it runs
-    a route's dependencies), and a body larger than its route takes is a 413: by Content-Length, then as it
-    streams. The routes still check their own token (an administrator's, for a paid run)."""
+def _reply(scope, receive, send, status, detail, headers=None):
+    return JSONResponse({"detail": detail}, status, headers=headers)(scope, receive, send)
+
+
+class AuthGate:
+    """Every /api route but GET /api/session, GET /api/health and signing in needs a credential, checked before a
+    body is read (FastAPI parses a body before it runs a route's dependencies): a bearer key, or a browser session
+    cookie. No or a bad credential is a 401; a ledger outside the credential's scope is a 404 like an unknown one; a
+    viewer's write, or a cookie write without X-Translucent-Client: web (the CSRF guard), is a 403. Failed keys are
+    rate-limited per client address: past the limit a wrong key is a 429, while a key that matches always works. A
+    body larger than its route takes is a 413: by Content-Length, then as it streams. Routes check the role a capability needs (translucent.auth.ROLE_CAPABILITIES)."""
 
     def __init__(self, app):
         self.app = app
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] != "http" or scope["method"] in ("GET", "HEAD", "OPTIONS") or \
-                not scope["path"].startswith("/api/"):
+        if scope["type"] != "http" or scope["method"] == "OPTIONS" or not scope["path"].startswith("/api/"):
+            return await self.app(scope, receive, send)
+        path, method = scope["path"], scope["method"]
+        reading = method in ("GET", "HEAD")
+        if reading and path in _PUBLIC:
             return await self.app(scope, receive, send)
         headers = dict(scope["headers"])
-        if not _server_token(headers.get(b"authorization", b"")):
-            return await JSONResponse({"detail": "Writes require the team token"}, 403)(scope, receive, send)
-        path = scope["path"]
+        if (method, path) not in _SESSION_ROUTES:
+            gate: auth.Auth = scope["app"].state.translucent.auth
+            addr = (scope.get("client") or ("unknown", 0))[0]
+            authorization = headers.get(b"authorization", b"").decode("latin-1")
+            principal, refused = gate.authenticate(
+                authorization, auth.cookie_value(headers.get(b"cookie", b"").decode("latin-1")))
+            if principal is None:
+                if refused and gate.throttle.fail(addr):     # only a failed key counts, and only it is refused
+                    return await _reply(scope, receive, send, 429, TOO_MANY, {"Retry-After": "60"})
+                return await _reply(scope, receive, send, 401, auth.SIGN_IN)
+            cred = principal.credential
+            v1 = _V1_LEDGER.fullmatch(path)
+            lid = v1.group(1) if v1 else None if path.startswith("/api/v1/") or path in _NOT_LEDGER else DEFAULT
+            if lid is not None and not cred.reads(lid):
+                return await _reply(scope, receive, send, 404, "Ledger not found")
+            if not reading:
+                if not auth.ROLE_CAPABILITIES.get(cred.role):
+                    return await _reply(scope, receive, send, 403, f"A {cred.role} key can only read")
+                if principal.via == "cookie" and headers.get(auth.CLIENT_HEADER.encode()) != b"web":
+                    return await _reply(scope, receive, send, 403,
+                                        "A write from a browser session needs the header X-Translucent-Client: web")
+            scope["state"] = {**(scope.get("state") or {}), "principal": principal}   # a new dict per request
+        if reading:
+            return await self.app(scope, receive, send)
         limit = UPLOAD_LIMIT if _UPLOAD_ROUTE.fullmatch(path) else \
             MANIFEST_LIMIT if _MANIFEST_ROUTE.fullmatch(path) else JSON_LIMIT
         too_large = f"The request body can be up to {limit // 2**20} MB"
@@ -355,14 +403,34 @@ class Server:
     """What one API process shares across the ledgers it serves: the workspace, the campaign factory, shutdown
     signals and the upload space. `app.state.translucent` holds it; api_v1 reaches ledgers through `host`."""
 
-    def __init__(self, app, workspace: Workspace, factory, poll_interval, import_root, loop_workers=2):
+    def __init__(self, app, workspace: Workspace, factory, poll_interval, import_root, loop_workers=2, *,
+                 credentials: Path | None = None):
         self.app, self.workspace, self.factory, self.poll_interval = app, workspace, factory, poll_interval
+        # keys beside the ledgers (data root) or in the state folder (one ledger); sessions in the state folder
+        self.auth = auth.Auth(credentials or workspace.state_root / "credentials.json",
+                              workspace.state_root / "sessions.json")
         self.import_root = Path(import_root) if import_root else None
         self.stopping, self.warm_stop = threading.Event(), threading.Event()   # stopping: workers end their waits
         self.loop_workers, self.loop_wake, self.loop_reported = loop_workers, threading.Event(), set()
         self.upload_mutex, self.in_flight = threading.Lock(), set()
         self.hosts: dict[str, LedgerHost] = {}
         self.hosts_mutex = threading.Lock()
+
+    def import_root_for(self, lid: str) -> Path | None:
+        """The folder a path import into ledger `lid` reads. Laid out per ledger (the import root holds a folder named
+        for this or any other served ledger), it is `<import_root>/<lid>/`, missing or not: a key for one ledger never
+        reads files staged for another, and a ledger with no folder reads nothing. Otherwise it is the shared root."""
+        root = self.import_root
+        if root is None:
+            return None
+        own = root / lid
+        if own.is_dir() or any((root / other).is_dir() for other in self.workspace.ids()):
+            return own
+        return root
+
+    def live(self) -> bool:
+        """Paid runs may start: live opt-in (TRANSLUCENT_LIVE=1) and an administrator credential exists."""
+        return _live_enabled() and self.auth.has_admin()
 
     def host(self, lid) -> "LedgerHost":
         """The served ledger with this id; UnknownLedger (a 404) when there is none, with nothing created."""
@@ -453,7 +521,7 @@ class Server:
                 if self.stopping.is_set():
                     break
                 try:
-                    for turn in planner_tick(self.workspace.path(lid), default_session_for(live=_live_enabled())):
+                    for turn in planner_tick(self.workspace.path(lid), default_session_for(live=self.live())):
                         if turn.get("status") not in ("proposed", "waiting", "concluded", "busy"):
                             log.info("Planner turn, ledger %s, campaign %s: %s %s", lid, turn.get("campaign_id"),
                                      turn.get("status"), turn.get("reason", ""))
@@ -488,6 +556,9 @@ class LedgerHost:
         self.mutex, self.export_mutex, self.people_mutex = threading.Lock(), threading.Lock(), threading.Lock()
         self.register_mutex, self.replies_mutex = threading.Lock(), threading.Lock()
         self.loop_export_mutex = threading.Lock()
+        # Windows refuses to open a file while another thread replaces it (PermissionError): job files are read and
+        # written under one lock, so a request never reads one mid-replace
+        self.jobs_io = threading.Lock()
         self.worker = None
         # the default ledger keeps its legacy artifact links; others link through /api/v1
         self.artifacts = "/api/artifacts/" if lid == DEFAULT else f"/api/v1/ledgers/{lid}/artifacts/"
@@ -510,9 +581,11 @@ class LedgerHost:
 
     def load_job(self, cid):
         path = self.job_path(cid)
-        if not path.exists():
-            return None
-        job = Job.model_validate_json(path.read_text(encoding="utf-8"))
+        with self.jobs_io:
+            if not path.exists():
+                return None
+            text = path.read_text(encoding="utf-8")
+        job = Job.model_validate_json(text)
         if job.campaign_id != cid:
             raise ValueError("job campaign identity mismatch")
         return job
@@ -520,7 +593,9 @@ class LedgerHost:
     def jobs(self):
         result = []
         for path in sorted(self.jobs_dir.glob("*.json")):
-            job = Job.model_validate_json(path.read_text(encoding="utf-8"))
+            with self.jobs_io:
+                text = path.read_text(encoding="utf-8")
+            job = Job.model_validate_json(text)
             if path != self.job_path(job.campaign_id):
                 raise ValueError("job filename identity mismatch")
             result.append(job)
@@ -528,7 +603,8 @@ class LedgerHost:
 
     def save(self, job, **changes):
         job = Job.model_validate({**job.model_dump(), **changes, "updated_at": time.time()})
-        _atomic_json(self.job_path(job.campaign_id), job.model_dump())
+        with self.jobs_io:
+            _atomic_json(self.job_path(job.campaign_id), job.model_dump())
         return job
 
     def require_free_slot(self):
@@ -602,11 +678,12 @@ class LedgerHost:
             queued = [job for job in self.jobs() if job.status == "queued"]
             # A queued job was previously authorized. Do not start it while
             # live execution is disabled or its administrator is unconfigured.
-            if queued and _live_enabled():
+            if queued and self.server.live():
                 self.start(queued[0].campaign_id)
 
-    def queue_video_campaign(self, body: CampaignRequest):
-        """POST /api/campaigns on this ledger: a paid agent run on a recorded experiment (authorized by the caller)."""
+    def queue_video_campaign(self, body: CampaignRequest, author: str):
+        """POST /api/campaigns on this ledger: a paid agent run on a recorded experiment (authorized by the caller;
+        `author` is the credential's person, who fixes the protocol when there is one)."""
         _within_caps(body.budget, body.profile or _profile())
         _require_keys(body.profile or _profile())
         with self.mutex:
@@ -621,7 +698,7 @@ class LedgerHost:
                 if body.protocol is not None:
                     from translucent.contracts import Metric, Predicate, Protocol
                     from translucent.protocol import protocol_problems
-                    pre = Protocol(id=f"protocol_{uuid.uuid4().hex[:10]}", campaign_id="", author=body.protocol.author,
+                    pre = Protocol(id=f"protocol_{uuid.uuid4().hex[:10]}", campaign_id="", author=author,
                                    created_at=time.time(), metrics=[
                                        Metric(id=m.id or f"metric_{n}", name=m.name, quantities=m.quantities,
                                               unit=m.unit, min_methods=m.min_methods,
@@ -686,10 +763,18 @@ class LedgerHost:
                 L.db.execute("COMMIT")
             return batch, ended or (job is not None and job.status in TERMINAL)
 
+        gate, principal = self.server.auth, getattr(request.state, "principal", None)
+
         async def stream():
             cursor, heartbeat = after, time.monotonic()
+            checked = time.monotonic()
             while not await request.is_disconnected():
                 batch, ended = await asyncio.to_thread(poll, cursor)
+                # after the read, before sending it: a key revoked or a session ended by now gets nothing more
+                if principal is not None and time.monotonic() - checked >= STREAM_RECHECK_S:
+                    if not await asyncio.to_thread(gate.current, principal, self.id):
+                        break
+                    checked = time.monotonic()
                 for event in batch:
                     body = event.model_dump(mode="json")
                     if isinstance(body["data"].get("review"), dict):
@@ -805,13 +890,14 @@ class LedgerHost:
 
     def once(self, request: Request, body: BaseModel, status: int, act):
         """A person's write with an Idempotency-Key header runs once: the same key and body again returns the first
-        response; the same key with a different body is a 409. Keys are per token, method and path (so per ledger)."""
+        response; the same key with a different body is a 409. Keys are per credential (a browser session and a bearer
+        key of one credential share them; two credentials never do), method and path (so per ledger)."""
         key = request.headers.get("Idempotency-Key")
         if key is None:
             return act()
         if not re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", key):
             raise HTTPException(400, "Idempotency-Key must be 1-128 letters, digits or _.:-")
-        principal = hashlib.sha256(request.headers.get("Authorization", "").encode("utf-8")).hexdigest()
+        principal = _credential(request).id
         slot = hashlib.sha256(json.dumps([principal, request.method, request.url.path, key]).encode()).hexdigest()
         digest = hashlib.sha256(body.model_dump_json().encode("utf-8")).hexdigest()
         path = self.replies_dir / f"{slot}.json"
@@ -882,10 +968,18 @@ def create_app(ledger_dir=None, state_dir=None, *, campaigner_factory=None, poll
                 await asyncio.to_thread(warmer.join)
             lock.close()
 
-    app = FastAPI(title="Translucent", lifespan=lifespan)
+    # the API is private: its schema and docs pages are served only when TRANSLUCENT_API_DOCS=1
+    docs = {} if os.environ.get("TRANSLUCENT_API_DOCS") == "1" else {"docs_url": None, "redoc_url": None,
+                                                                     "openapi_url": None}
+    app = FastAPI(title="Translucent", lifespan=lifespan, **docs)
     ctx = Server(app, workspace, campaigner_factory or Campaigner, poll_interval,
-                 import_root or os.environ.get("TRANSLUCENT_IMPORT_ROOT"), loop_workers)
+                 import_root or os.environ.get("TRANSLUCENT_IMPORT_ROOT"), loop_workers,
+                 credentials=Path(data_root) / "credentials.json" if data_root else None)
     app.state.translucent = ctx
+
+    @app.exception_handler(auth.Refused)
+    async def refused(request, exc):
+        return JSONResponse({"detail": str(exc)}, status_code=403)
 
     @app.exception_handler(RequestValidationError)
     async def invalid(request, exc):
@@ -902,9 +996,16 @@ def create_app(ledger_dir=None, state_dir=None, *, campaigner_factory=None, poll
     origins = [x.strip() for x in os.environ.get("TRANSLUCENT_CORS_ORIGINS", "").split(",") if x.strip()]
     if "*" in origins:
         raise ValueError("TRANSLUCENT_CORS_ORIGINS must list explicit origins")
-    app.add_middleware(WriteGate)     # inside CORS, so a refused write still carries the CORS headers
+    from translucent.auth import ENV_TOKEN_MIN, env_credentials
+    if short := [c.id for token, c in env_credentials() if len(token) < ENV_TOKEN_MIN]:
+        # a correct key is never throttled, so a key's length is what stops guessing: generated keys are 43 random characters
+        raise ValueError(f"{', '.join('TRANSLUCENT_' + c.split(':')[1].upper() + '_TOKEN' for c in short)} must be at "
+                         f"least {ENV_TOKEN_MIN} characters; use `translucent keys add` for a generated key")
+    app.add_middleware(AuthGate)      # inside CORS, so a refusal still carries the CORS headers
     app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["GET", "POST", "PUT"],
-                       allow_headers=["Authorization", "Last-Event-ID", "Content-Type", "Idempotency-Key"])
+                       allow_credentials=True,     # the browser session cookie; origins are explicit, never *
+                       allow_headers=["Authorization", "Last-Event-ID", "Content-Type", "Idempotency-Key",
+                                      "X-Translucent-Client"])
 
     def default() -> LedgerHost:
         return ctx.host(DEFAULT)    # UnknownLedger (404) on a data root without a default ledger
@@ -994,16 +1095,22 @@ def create_app(ledger_dir=None, state_dir=None, *, campaigner_factory=None, poll
         return budget.balances()
 
     @app.post("/api/campaigns", status_code=202, dependencies=[Depends(_authorize)])
-    def post_campaign(body: CampaignRequest):
-        return default().queue_video_campaign(body)
+    def post_campaign(body: CampaignRequest, request: Request):
+        author = _person_name(request, body.protocol.author if body.protocol else None)
+        return default().queue_video_campaign(body, author)
 
     # ------------------------------------------------------------ people in the loop
 
     @app.get("/api/session")
     def session():
-        # live only when a campaign on the server's profile could run: opted in, with the profile's provider keys
-        return {"live": _live_enabled() and not _missing_keys(_profile()), "team": _team_enabled(),
+        # public: no ledger data. live only when a campaign on the server's profile could run: opted in, with an
+        # administrator and the profile's provider keys; team when any key can sign in
+        return {"live": ctx.live() and not _missing_keys(_profile()), "team": ctx.auth.any_credential(),
                 "model": PLANNER[_profile()]}
+
+    @app.get("/api/health")
+    def health():
+        return {"ok": True}
 
     @app.get("/api/experiments")
     def recorded_experiments():
@@ -1050,20 +1157,22 @@ def create_app(ledger_dir=None, state_dir=None, *, campaigner_factory=None, poll
     @app.post("/api/campaigns/{campaign_id}/notes", status_code=201, dependencies=[Depends(_authorize_person)])
     def post_note(campaign_id: str, body: NoteRequest, request: Request):
         h = default()
+        who = _person_name(request, body.author)
 
         def act():
             text = scrub(body.text)
             with h.ledger() as L:
                 get_campaign(L, campaign_id)
                 h.require_active(L, campaign_id)
-                ev = L.emit(campaign_id, "human.note", "person:" + body.author, f"{body.author} left a note",
-                            detail=text, data={"text": text, "author": body.author})
+                ev = L.emit(campaign_id, "human.note", "person:" + who, f"{who} left a note",
+                            detail=text, data={"text": text, "author": who})
             return {"event": ev.model_dump(mode="json")}
         return h.once(request, body, 201, act)
 
     @app.post("/api/campaigns/{campaign_id}/answers", status_code=201, dependencies=[Depends(_authorize_person)])
     def post_answer(campaign_id: str, body: AnswerRequest, request: Request):
         h = default()
+        who = _person_name(request, body.author)
 
         def act():
             text = scrub(body.text)
@@ -1074,15 +1183,16 @@ def create_app(ledger_dir=None, state_dir=None, *, campaigner_factory=None, poll
                     raise HTTPException(404, "Question not found")
                 if q["status"] != "open":
                     raise HTTPException(409, f"The question is no longer open ({q['status']})")
-                ev = L.emit(campaign_id, "question.answered", "person:" + body.author,
-                            f"{body.author} answered: {text}", detail=text,
-                            data={"question_id": body.question_id, "text": text, "author": body.author})
+                ev = L.emit(campaign_id, "question.answered", "person:" + who,
+                            f"{who} answered: {text}", detail=text,
+                            data={"question_id": body.question_id, "text": text, "author": who})
             return {"event": ev.model_dump(mode="json")}
         return h.once(request, body, 201, act)
 
     @app.post("/api/campaigns/{campaign_id}/reviews", status_code=201, dependencies=[Depends(_authorize_person)])
     def post_review(campaign_id: str, body: ReviewRequest, request: Request):
         h = default()
+        who = _person_name(request, body.author)
         agree = body.verdict == "agree"
 
         def act():
@@ -1092,11 +1202,11 @@ def create_app(ledger_dir=None, state_dir=None, *, campaigner_factory=None, poll
                 if claim is None or claim.campaign_id != campaign_id:
                     raise HTTPException(404, "Finding not found in this campaign")
                 rv = L.add(Review(id=f"rev_{uuid.uuid4().hex[:12]}", claim_id=claim.id, reviewer="human",
-                                  verdict="supported" if agree else "refuted", author=body.author,
+                                  verdict="supported" if agree else "refuted", author=who,
                                   created_at=time.time(),
-                                  reason=scrub(body.reason) or f"{body.author} agrees with this finding."))
-                L.emit(campaign_id, "claim.reviewed", "person:" + body.author,
-                       f"{body.author} {'agreed with' if agree else 'challenged'} a finding", detail=rv.reason,
+                                  reason=scrub(body.reason) or f"{who} agrees with this finding."))
+                L.emit(campaign_id, "claim.reviewed", "person:" + who,
+                       f"{who} {'agreed with' if agree else 'challenged'} a finding", detail=rv.reason,
                        refs=[claim.id, rv.id], data={"review": rv.model_dump()})
             return {"review": rv.model_dump(mode="json")}
         return h.once(request, body, 201, act)
@@ -1104,14 +1214,15 @@ def create_app(ledger_dir=None, state_dir=None, *, campaigner_factory=None, poll
     @app.post("/api/campaigns/{campaign_id}/control", status_code=202, dependencies=[Depends(_authorize_person)])
     def post_control(campaign_id: str, body: ControlRequest, request: Request):
         h = default()
+        who = _person_name(request, body.author)
 
         def act():
             with h.ledger() as L:
                 get_campaign(L, campaign_id)
                 h.require_active(L, campaign_id)
-                ev = L.emit(campaign_id, "campaign.control", "person:" + body.author,
-                            f"{body.author} asked to {body.action} the campaign",
-                            data={"action": body.action, "author": body.author})
+                ev = L.emit(campaign_id, "campaign.control", "person:" + who,
+                            f"{who} asked to {body.action} the campaign",
+                            data={"action": body.action, "author": who})
             return {"event": ev.model_dump(mode="json")}
         return h.once(request, body, 202, act)
 
@@ -1157,6 +1268,7 @@ def create_app(ledger_dir=None, state_dir=None, *, campaigner_factory=None, poll
         administrator token, live opt-in and a budget."""
         from translucent import rerun
         h = default()
+        who = _person_name(request, body.author)
 
         def validate(L):
             get_campaign(L, campaign_id)
@@ -1172,7 +1284,7 @@ def create_app(ledger_dir=None, state_dir=None, *, campaigner_factory=None, poll
 
         def record(L):
             validate(L)
-            return rerun.create_fork(L, campaign_id, author=body.author, reason=body.reason,
+            return rerun.create_fork(L, campaign_id, author=who, reason=body.reason,
                                      overrides=body.overrides, claim_id=body.claim_id)
 
         with h.ledger() as L:
@@ -1224,10 +1336,10 @@ def create_app(ledger_dir=None, state_dir=None, *, campaigner_factory=None, poll
             return {"campaign": c.model_dump(), "job": job.model_dump()}
 
     @app.post("/api/v1/ledgers/{lid}/video-campaigns", status_code=202, dependencies=[Depends(_authorize)])
-    def post_video_campaign(body: CampaignRequest, host: LedgerHost = Depends(api_v1.get_ledger)):
+    def post_video_campaign(body: CampaignRequest, request: Request, host: LedgerHost = Depends(api_v1.get_ledger)):
         """POST /api/campaigns on any ledger: the same body, administrator token and live opt-in, and one queued,
         running or paused job per ledger (a second in the same ledger is a 409; other ledgers are not held up)."""
-        return host.queue_video_campaign(body)
+        return host.queue_video_campaign(body, _person_name(request, body.protocol.author if body.protocol else None))
 
     app.include_router(api_v1.router)
     return app

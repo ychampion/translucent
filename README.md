@@ -11,10 +11,14 @@ Every proposal, approval, run and comparison is kept in an insert-only, hash-cha
 campaign offline without our keys. The agent is Muse Wonder on the Meta Model API. A team can connect its own agent
 over MCP instead. It gets the same tools and the same rules, and it can never approve its own work.
 
-Batteries come first. On a fast-charge problem for the LG M50 cell, the agent's campaigns came within 0.24 min of
-the fastest protocol the battery model allows and found the exact optimum on a held-out case. With the same eight
-experiments, the same model without feedback and constrained Bayesian optimisation both ended slower. These results
-are simulated under one frozen model; no physical cell was charged.
+Batteries come first, on a fast-charge problem for the LG M50 cell. In the earlier fixed-model study, case-median
+charging times were within 0.24 minutes of a reference search (a deterministic compass search on a 0.05C lattice;
+no search proves a protocol optimal), and all three held-out-case runs matched its best result. These were
+simulation results under an eight-query budget. In the later learning-and-design study, adaptive Muse matched the
+adaptive numerical controller under the registered comparison rule, using more simulated lab tests. In the
+records-intake study, a general Muse agent produced six feasible recommendations at 39% of Translucent's model
+spend; Translucent produced five feasible recommendations and enforced its standing rule in every run. Every lab
+result is simulated; no physical cell was charged.
 
 Earlier work used the same evidence record to [check microscopy measurements](#microscopy-campaigns) and to
 [test interventions on NIST heating-interruption records](#nist-heating-interruption). Every finding there links to
@@ -60,22 +64,33 @@ cell to 15 °C and was held out while the system was built.
 
 Median best protocol that meets every limit, minutes from 10 to 80 %:
 
-| Case | Agent campaign | Same model, no feedback | Constrained BO | Fastest the model allows |
+| Case | Agent campaign | Same model, no feedback | Constrained BO | Best found by the reference search |
 |---|---|---|---|---|
 | A, 25 °C | **33.79** | 36.29 | 42.62 | 33.55 |
 | B, margin raised to +25 mV | **37.17** | 44.29 | 42.62 | 37.13 |
 | C, 15 °C, held out | **34.13** | 39.50 | 45.98 | 34.13 |
 
-The agent ran 3 campaigns per case and found the optimum in all 3 for case C. The no-feedback arm is the same model
+The agent ran 3 campaigns per case and reached the best protocol found by the reference search in all 3 for case C. The no-feedback arm is the same model
 planning all eight experiments at once without seeing a result. The BO arm ran 5 seeds per case.
 
 The amendment in case B changed what the agent did next. We replayed its fifth turn from the same history, with and
 without the amendment, three times. Without it, the agent proposed 1.1C in the last window. With it, the agent
 proposed 0.7 to 0.8C and predicted a lowest anode potential of +25.0 to +28.0 mV.
 
-The records alone cannot answer the question. The best protocol they support is 0.3C constant current then
-constant voltage, 140.0 min measured, and they hold no anode potential, so the plating margin cannot be checked on
-them.
+The first case B campaign ships as a recording, `web/public/fixtures/loop/fastcharge.loop.json`. The web app opens it
+from its home screen (`/w/?recording=fastcharge`): the agent's eight experiments with their reasoning, the amendment,
+and baseline against candidate. Check it offline with `uv run translucent verify web/public/fixtures/loop/fastcharge.loop.json`.
+
+A second recording, `web/public/fixtures/loop/fastcharge-demo.loop.json` (`/w/?recording=fastcharge-demo`), is a
+demonstration, not part of the benchmark: case B run once through the web app on October 31, 2026, with every
+request approved by hand, the margin raised to +25 mV after the fourth experiment, and the campaign concluded by hand.
+The planner stopped on its $1.50 model budget after five experiments ($1.27 spent). The best, 1.5, 1.4, 1.1 then 0.8C,
+takes 37.17 min with the anode at +25.9 mV and the cell at 44.5 °C, against 70 min for the fastest single-step
+constant-current charge the product's reference search found under the same limits (0.6C). It is simulated.
+
+The records alone cannot answer the question. They include a 0.3C constant-current then constant-voltage charge
+taking 140.0 minutes; that is a recorded protocol, not a matched physical baseline for the simulated fast-charge
+designs. They hold no anode potential, so the plating margin cannot be checked on them.
 
 What the agent pays for its result:
 
@@ -83,14 +98,42 @@ What the agent pays for its result:
   boundary on purpose, and on real hardware each of those runs would cost cell time.
 - Its model calls cost a median of $1.13 to $1.22 per campaign, against $0.23 to $0.25 without feedback. A campaign
   took 4.1 to 4.8 min against 1.4 to 1.6 min.
-- Two of the three case C campaigns ended on the $1.50 budget, after finding the optimum.
+- Two of the three case C campaigns ended on the $1.50 budget, after reaching the best protocol found by the reference search.
 
 All of this is computational. The result says that the loop finds good protocols under this model. A physical test
 of the case A protocol on a real cell is the next step, and it needs qualified operators. Translucent issues that
 request and records its result. It does not run hardware. Full tables, per-run results and spend are in
 [evals/FASTCHARGE.md](evals/FASTCHARGE.md).
 
+![What the agent has learned, in a simulated-lab recording: model v1 in use with v0 ruled out, the latest lab test, the best design at 47.4 min](docs/images/lab-learning.png)
+
+In a simulated lab the agent fitted model v1 (5 members, h 14.95–15.1 W/m²/K), checked it on two held-out lab tests
+(RMSE 0.15 K) and lab-tested its best design: 1.5, 1.35, 0.9 then 0.5C, 47.4 min from 10 to 80 %. All of it is
+simulated. More in [docs/OVERVIEW.md](docs/OVERVIEW.md).
+
 ## Battery research
+
+### Simulated learning and records-intake evaluations
+
+The [learned-model evaluation](evals/FASTCHARGE-LAB.md) compares adaptive Muse with an adaptive numerical
+controller under a [fixed protocol](evals/FASTCHARGE-LAB-PROTOCOL.md). They matched under the registered criteria;
+Muse did not outperform the numerical controller.
+
+In the [records-intake evaluation](evals/RECORDS-INTAKE.md), Translucent recommended a design in five of six runs.
+All five were feasible, with no unsupported recommendations. A general Muse agent using the same underlying parser,
+solver and simulated lab, through its own tool interface and prompt, recommended in six of six runs at about 39% of
+Translucent's model spend, with one unsupported recommendation. The numerical controller on prepared inputs
+declined in all three cases. These are simulated outcomes with six runs per model arm, without a claim of
+statistical superiority. The reports identify the frozen plan, copied scores and the evidence still required for
+exact historical reproduction.
+
+In a records investigation, Muse reads the supplied exports and their documentation, writes the import mapping
+(refused imports come back with the line and the reason), chooses record tests, model families and held-out checks,
+and asks for the next experiment. Import notes record every skipped line, repeated time and unit taken from the
+mapping. When no supported model family explains the lab's tests, no design is recommended and the campaign names
+the evidence and modelling capability it lacks. A bench test, once approved, shows its procedure, configuration,
+specimen and the series to log; the engineer returns the logged file in the browser, the server checks it against
+the approved request, and the campaign continues from it.
 
 In 2023, lithium-ion battery fires killed 18 people in New York City alone. Samsung recalled 3.1 million Galaxy
 Note 7 phones over faulty batteries, at an estimated $5.3 billion. GM recalled all 143,000 Chevy Bolts in a battery
@@ -115,7 +158,8 @@ clock and calibration, and whether the evidence supports the proposed finding.
 
 1. A scientist asks about a recorded experiment: "How fast do the lithium filaments grow, does the battery
    short when they bridge it, and does it recover when they retract?"
-2. A Muse model plans tests. A Muse model locates objects in the frame, and SAM 3.1 outlines them.
+2. A Muse model plans tests. A Muse model locates objects in the frame, using the lab's recorded frame layout
+   (where the sample and electrodes sit), and SAM 3.1 outlines them.
 3. Fixed code measures lengths, speeds and times using the lab's clock and scale bar. Playback speed is never
    used as lab time.
 4. The rulebook re-computes each proposed finding from its recorded measurements. It returns proven, disproven,
@@ -182,7 +226,7 @@ playback produces the following error:
 | | Speed |
 |---|---|
 | Truth | 6.203 µm/s |
-| Translucent | **6.200 ± 0.018 µm/s** (95% interval), proven |
+| Translucent | **6.200 ± 0.018 µm/s** (95% interval), passed the rulebook's checks on this synthetic control |
 | Normal pipeline | 112.82 µm/s, 18.2× too fast: it timed playback frames (each image is 6.9 s of lab time, 0.4 s of playback) |
 
 #### Agreement with the paper
@@ -209,8 +253,9 @@ computed the speed using only points before the short. The rulebook proved that 
 The campaign did not prove that the filaments bridge the gap. It recorded a lesson: an outline measured from one
 electrode can merge with the far electrode. The tip must be checked against both electrode edges first.
 
-The campaign produced 12 findings; `translucent verify` re-checks 12 of 12 offline. Every analysis number passed
-the input check described below.
+The campaign proposed 12 findings: the rulebook supported 7, found 4 inconclusive and rejected 1.
+`translucent verify` reconstructs all 12 and their recorded statuses offline. Every analysis number passed the input
+check described below.
 
 #### Detecting numbers typed by our own agent
 
@@ -246,8 +291,8 @@ On Meta's models, model calls for the Movie 4 team campaign cost $3.00. The grap
   that one advisory review.
 - Loading lessons has not improved the next campaign in the tested task. In a real memory test (Muse Spark Open,
   3 repeats per arm, $0.37), a lesson about bridging led the agent into unnecessary video analysis for a question
-  about short timing. It took 11 steps instead of 6 and produced the same 3 findings. Every lesson is loaded
-  regardless of the question. Selecting relevant lessons remains future work. See [evals/MEMORY.md](evals/MEMORY.md).
+  about short timing. It took 11 steps instead of 6 and produced the same 3 findings. Retrieval was then restricted
+  to relevant lessons; that change has not been re-evaluated. See [evals/MEMORY.md](evals/MEMORY.md).
 
 ## NIST heating-interruption
 
@@ -283,9 +328,9 @@ stand-downs and 2–4 fewer missed rescues than always-escalate. The differences
 
 The deterministic gate refused the agent's own claim that it beat always-escalate at 3.4 versus 3.8 mean cost
 (p = 0.5, Holm p = 1). The operating procedure the agent then wrote cites only supported claims.
-On the same trials, Muse Wonder deciding alone made 4 and then 6 unsafe stand-downs; every procedure the agent
-wrote through the harness made none. The pattern held in both campaigns, but it was not a registered comparison
-and does not survive the correction (raw p = 0.125 and 0.031).
+On the same trials, Muse Wonder deciding alone made 4 and then 6 unsafe stand-downs; the final selected procedure
+in each campaign made none, while other candidate policies made 1, 4 or 5. The comparison with Muse deciding alone
+was selected after the fact, was not registered, and does not survive the correction (raw p = 0.125 and 0.031).
 
 The gate records wins over the fixed 170 °C rule and the two physics models. Those wins reflect a decision-rule
 asymmetry and baselines that never discriminate under their classification rules. The temperature cut is
@@ -402,12 +447,43 @@ In a second terminal, start the web app and open http://localhost:3000:
 ```sh
 cd web
 bun install
-NEXT_PUBLIC_API_BASE=http://127.0.0.1:8000 bun run dev       # PowerShell: $env:NEXT_PUBLIC_API_BASE="http://127.0.0.1:8000"; bun run dev
+NEXT_PUBLIC_API_BASE=http://localhost:8000 bun run dev       # PowerShell: $env:NEXT_PUBLIC_API_BASE="http://localhost:8000"; bun run dev
 ```
 
-The server prints a team key and keeps it in `lab/team-key`; the web app asks for it, with your name, before your
-first approval. Set `TRANSLUCENT_TEAM_TOKEN` to choose the key yourself. The server accepts the web app from
-`http://localhost:3000`; for another address, set `TRANSLUCENT_CORS_ORIGINS`.
+Use `localhost` for the server too, not `127.0.0.1`: the sign-in cookie is sent only to the same site as the page.
+
+The first start makes an engineer key for `--person`, prints it once and keeps it in `lab/team-key` (readable by
+you only). Sign in with it once in the web app; the session lasts 12 hours and survives a server restart. From there
+**New campaign** walks through system, dataset (with its records and units), objective and constraints, planner,
+budgets and approval policy. The server accepts the web app from `http://localhost:3000`; for another address, set
+`TRANSLUCENT_CORS_ORIGINS`.
+
+New campaigns ask for the fastest protocol meeting the constraints, unless the engineer sets a hard time target, and
+keep three answers apart. A result that meets limits a failing baseline breaks is *feasible*; it is called *faster*
+only against a reference that meets the same limits (the baseline when it does, else the fastest single-step
+constant-current charge a reference search finds on the solver, run again after a constraint is amended); the
+objective is *met* only against a hard target. Solver tolerance and the model's own error against cells are shown
+separately.
+
+#### Keys and roles
+
+Every read and write needs a key. Make one per person or agent; each is shown once and only its hash is kept:
+
+```sh
+uv run translucent keys add --name Ana --role engineer --data-root ./lab     # runs campaigns
+uv run translucent keys add --name Vic --role viewer --data-root ./lab       # read-only
+uv run translucent keys add --name lab-bot --role planner --ledger lab --data-root ./lab   # an agent over HTTP
+uv run translucent keys list --data-root ./lab
+uv run translucent keys revoke KEY_ID --data-root ./lab                      # ends its browser sessions too
+```
+
+`viewer` reads. `engineer` also opens campaigns with the free planners, approves, rejects, revises, submits results,
+uploads, imports datasets, notes, concludes and lowers budgets. `admin` also raises budgets and starts paid runs
+(with `TRANSLUCENT_LIVE=1` and the provider keys). `planner` is an agent's key: it proposes, defines measurements and
+cancels its own requests, never a person's work. `--ledger ID` (repeatable) limits a key to some ledgers; other
+ledgers answer 404. Who acts is always the key's person or agent, never a name in the request body. HTTP clients send
+`Authorization: Bearer KEY`. `TRANSLUCENT_TEAM_TOKEN` and `TRANSLUCENT_ADMIN_TOKEN` still work as one engineer and
+one admin key (32 characters or more).
 
 `start` creates the ledger, imports the records, re-runs the failing protocol and opens the campaign. Running it
 again changes nothing. Choose who proposes with `--planner`:
@@ -416,7 +492,7 @@ again changes nothing. Choose who proposes with `--planner`:
 |---|---|---|
 | `bo` (default) | constrained Bayesian optimisation | none |
 | `external` | your own agent, over MCP or HTTP | yours |
-| `muse` | Muse Wonder, $1.50 model budget | paid: needs `--live` and `TRANSLUCENT_ADMIN_TOKEN` |
+| `muse` | Muse Wonder, $1.50 model budget | paid: needs `--live` and an admin key |
 
 Each request waits for a person's approval in the web app; `--auto-approve` lets computational requests run
 without one. With `--planner external`, `start` prints the MCP command that connects your agent to the campaign
@@ -429,8 +505,9 @@ without one. With `--planner external`, `start` prints the MCP command that conn
 # --profile meta = Muse Wonder + Muse Spark on the Meta Model API)
 uv run translucent run --ledger runs/m4 --movie 4 --profile dev --budget 1 --steps 30 --memory on
 
-# Export a campaign for the web demo or for sharing (no provider calls)
-uv run translucent export <campaign-id> <out-dir> --ledger <ledger-dir>
+# Export a campaign for the web demo or for sharing (no provider calls). An engineering campaign is written as one
+# <name>.loop.json file that `translucent verify` re-checks
+uv run translucent export <campaign-id> <out> --ledger <ledger-dir>
 
 # Read provider balances (read-only)
 uv run translucent budget
@@ -479,12 +556,14 @@ uv run translucent resume <campaign-id> --budget 0.5   # continue a stopped or i
 ### Agent access
 
 To connect an agent over MCP, use `claude mcp add translucent -- uv run python -m translucent.mcp_server
---ledger <dir> --write` ([docs/AGENTS.md](docs/AGENTS.md)).
+--ledger <dir> --write --agent <name>` ([docs/AGENTS.md](docs/AGENTS.md)). The MCP server acts as the operator who
+started it: proposals are recorded as `agent:<name>`, whatever name the client gives itself, and person tools need
+`--operator NAME`.
 
 ### API server
 
-The API is read-only by default. People's actions, including notes, answers, sign-offs and uploads, need
-`TRANSLUCENT_TEAM_TOKEN`. Starting campaigns over HTTP requires `TRANSLUCENT_LIVE=1` and an admin token.
+Every route needs a key (see Keys and roles); only `/api/session` and `/api/health` are open. Starting paid
+campaigns over HTTP requires `TRANSLUCENT_LIVE=1` and an admin key.
 
 ```sh
 uv run translucent serve --ledger <ledger-dir> --state <state-dir>   # http://127.0.0.1:8000/api/campaigns
@@ -507,7 +586,9 @@ bun run dev        # http://localhost:3000
 bun run build      # static export to web/out; `bun run start` serves it
 ```
 
-The home screen offers `m4-team` and `lu-live`, exported from real paid campaigns on Meta's models over the HTTP API
+The home screen leads with the server's engineering campaigns and the recorded fast-charge campaign
+(`fixtures/loop/fastcharge.loop.json`). Below them it offers the NIST benchmark and the microscopy replays `m4-team`
+and `lu-live`, exported from real paid campaigns on Meta's models over the HTTP API
 (Oct 29). The thread labels each as a recorded replay and names the model used for each role. The earlier Meta
 runs, `m4-meta` and `lu-meta`, predate the analysis code check and remain as evidence. The Fireworks exports,
 `m4-dev` and `lu-dev`, remain for comparison.

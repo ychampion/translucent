@@ -51,19 +51,20 @@ def test_export_reuses_graph_and_campaign_diff(campaign,tmp_path):
 
 
 def test_server_intervention_reads_are_projected_and_read_only(campaign,tmp_path,monkeypatch):
-    monkeypatch.setenv('TRANSLUCENT_TEAM_TOKEN','team-secret')
+    monkeypatch.setenv('TRANSLUCENT_TEAM_TOKEN','team-secret-0123456789ab-32chars-minimum')
     from fastapi.testclient import TestClient
     from translucent.server import create_app
     L,c=campaign
     before=L.db.execute('SELECT COUNT(*) FROM record').fetchone()[0]
+    team={'Authorization':'Bearer team-secret-0123456789ab-32chars-minimum'}
     with TestClient(create_app(L.root,tmp_path/'api')) as client:
-        data=client.get(f'/api/campaigns/{c.id}/intervention')
+        data=client.get(f'/api/campaigns/{c.id}/intervention',headers=team)
         assert data.status_code==200 and 'receipt' not in data.json()
-        assert client.get(f'/api/campaigns/{c.id}/intervention/updates').json()==[]
-        assert client.get(f'/api/campaigns/{c.id}/bundle').json()['intervention']['procedure']
-        assert client.get(f'/api/campaigns/{c.id}/graph').status_code==200
+        assert client.get(f'/api/campaigns/{c.id}/intervention/updates',headers=team).json()==[]
+        assert client.get(f'/api/campaigns/{c.id}/bundle',headers=team).json()['intervention']['procedure']
+        assert client.get(f'/api/campaigns/{c.id}/graph',headers=team).status_code==200
+        assert client.get(f'/api/campaigns/{c.id}/intervention').status_code==401      # reads are private
         # no write route: a token holder gets 405; without a token, every write is refused before routing
-        team={'Authorization':'Bearer team-secret'}
         assert client.post(f'/api/campaigns/{c.id}/intervention/updates',json={},headers=team).status_code==405
-        assert client.post(f'/api/campaigns/{c.id}/intervention/updates',json={}).status_code==403
+        assert client.post(f'/api/campaigns/{c.id}/intervention/updates',json={}).status_code==401
     assert L.db.execute('SELECT COUNT(*) FROM record').fetchone()[0]==before

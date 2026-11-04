@@ -367,7 +367,9 @@ def register_visual_evidence(ledger, cid):
     )
     root = DATA / "visual"
     files = []
-    for path in sorted(root.rglob("*")):
+    # the published order on every OS: Windows compares path parts case-insensitively, POSIX by byte, so a plain
+    # sorted() listed "out/S3_ocr.csv" before "out/chunks/..." on Linux and changed the receipt's bytes
+    for path in sorted(root.rglob("*"), key=lambda p: [part.lower() for part in p.relative_to(root).parts]):
         if not path.is_file() or path.suffix not in (".csv", ".json"):
             continue
         artifact = ledger.put_file(

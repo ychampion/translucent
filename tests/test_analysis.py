@@ -239,6 +239,29 @@ def test_typed_in_numbers_are_refused(ctx, fake):
                                                                b["value"] + [b["uncertainty"]["value"]]))
 
 
+def test_typed_in_numbers_are_refused_after_two_independent_nudges(ctx, fake):
+    fake.depends = False
+    assert_failure(ctx, invoke(ctx))
+    _, first, _ = fake.calls[1]
+    _, second, _ = fake.calls[2]
+    assert len(fake.calls) == 3 and first["input_0.json"] != second["input_0.json"]
+
+
+def test_a_ratio_whose_inputs_moved_together_is_nudged_again_not_refused(ctx, fake, monkeypatch):
+    # length = px / scale does not move when one nudge happens to move px and scale by the same factor (the
+    # intermittent test_protocol failure, about 1 analysis in 2,400); the second, independent nudge moves it
+    calls = []
+
+    def coincident_first_nudge(code, files, timeout_s):   # the real run, a nudge that leaves it put, one that moves it
+        calls.append(files)
+        return SimpleNamespace(**{**vars(fake), "outputs": {"speed.json": b"2.5025" if len(calls) == 3 else b"2.5"}})
+    monkeypatch.setattr(analysis, "run_untrusted", coincident_first_nudge)
+    result = invoke(ctx)
+    assert result.status == "ok", result.summary
+    assert len(calls) == 3 and calls[1]["input_0.json"] != calls[2]["input_0.json"]
+    assert ctx.ledger.get("measurement", result.data["measurements"]["speed"]).value == 2.5
+
+
 def test_typed_in_uncertainty_is_refused(ctx, fake, monkeypatch):
     fake.outputs["speed.json"] = b'{"value":2.5,"uncertainty":{"kind":"std","value":8.0,"method":"guess"}}'
     real = fake.outputs["speed.json"]

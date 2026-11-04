@@ -46,12 +46,20 @@ def load_adapter(system_id: str, ref: dict | None):
     return adapter
 
 
-def encode_output(output) -> dict:
+def _named(p, workdir: Path) -> str:
+    """A file inside the work folder by its relative name; one outside stays absolute, and the parent refuses it."""
+    path, root = Path(p).resolve(), workdir.resolve()
+    return path.relative_to(root).as_posix() if path.is_relative_to(root) else str(path)
+
+
+def encode_output(output, workdir: Path) -> dict:
+    """Files are named relative to the run's work folder: the result is kept as evidence, and the folder's
+    place on this machine is not part of it."""
     table = output.table
     return {"table": {"time_unit": table.time_unit, "t": list(table.t),
                       "series": {q: [u, list(v)] for q, (u, v) in table.series.items()},
                       "scalars": {q: [v, u] for q, (v, u) in table.scalars.items()}},
-            "files": {name: str(Path(p).resolve()) for name, p in output.files.items()},
+            "files": {name: _named(p, workdir) for name, p in output.files.items()},
             "solver": dict(output.solver), "executed": dict(output.executed)}
 
 
@@ -82,7 +90,8 @@ def main() -> int:
         watchdog.daemon = True
         watchdog.start()
         try:
-            result = {"output": encode_output(adapter.execute(req["action"], req["params"], Path(req["workdir"])))}
+            workdir = Path(req["workdir"])
+            result = {"output": encode_output(adapter.execute(req["action"], req["params"], workdir), workdir)}
         finally:
             watchdog.cancel()
     except Exception as e:  # noqa: BLE001 - every failure goes back to the parent, typed, and becomes a record

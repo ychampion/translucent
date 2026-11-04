@@ -271,8 +271,8 @@ def test_declared_scale_counts_only_for_findings_of_its_own_branch(parent):
     assert verify(p.root).ok, verify(p.root).problems
 
 
-TEAM = {"Authorization": "Bearer team-secret"}
-ADMIN = {"Authorization": "Bearer admin-secret"}
+TEAM = {"Authorization": "Bearer team-secret-0123456789ab-32chars-minimum"}
+ADMIN = {"Authorization": "Bearer admin-secret-0123456789-32chars-minimum"}
 
 
 @pytest.fixture
@@ -285,7 +285,8 @@ def no_providers(monkeypatch):
 
 def test_local_rerun_runs_in_the_request_without_providers(parent, tmp_path, monkeypatch, no_providers):
     p = parent
-    monkeypatch.setenv("TRANSLUCENT_TEAM_TOKEN", "team-secret")
+    monkeypatch.setenv("TRANSLUCENT_TEAM_TOKEN", "team-secret-0123456789ab-32chars-minimum")
+    monkeypatch.setenv("TRANSLUCENT_TEAM_NAME", "Ana")             # the team key is Ana's
     for var in ("TRANSLUCENT_LIVE", "TRANSLUCENT_ADMIN_TOKEN"):
         monkeypatch.delenv(var, raising=False)
     scale = tools.call(tools.Context(p.L, "P"), "propose_finding", {
@@ -293,7 +294,7 @@ def test_local_rerun_runs_in_the_request_without_providers(parent, tmp_path, mon
         "statement": "The scale bar reads about 200 px per mm."})
     body = {"author": "Ana", "claim_id": scale.data["claim_id"], "reason": "a longer scale bar",
             "overrides": [{"quantity": "spatial_scale", "value": 150, "uncertainty": 1, "unit": "px/mm"}]}
-    with TestClient(server.create_app(p.root, tmp_path / "api", poll_interval=0.01)) as c:
+    with TestClient(server.create_app(p.root, tmp_path / "api", poll_interval=0.01), headers=TEAM) as c:
         made = c.post("/api/campaigns/P/forks", json=body, headers=TEAM)
         assert made.status_code == 201, made.text
         assert made.json()["status"] == "done" and made.json()["job"] is None
@@ -305,8 +306,10 @@ def test_local_rerun_runs_in_the_request_without_providers(parent, tmp_path, mon
 
 def test_rerun_reaching_the_sandbox_is_an_authorized_queued_job(parent, tmp_path, monkeypatch):
     p = parent
-    monkeypatch.setenv("TRANSLUCENT_TEAM_TOKEN", "team-secret")
-    monkeypatch.setenv("TRANSLUCENT_ADMIN_TOKEN", "admin-secret")
+    monkeypatch.setenv("TRANSLUCENT_TEAM_TOKEN", "team-secret-0123456789ab-32chars-minimum")
+    monkeypatch.setenv("TRANSLUCENT_ADMIN_TOKEN", "admin-secret-0123456789-32chars-minimum")
+    for var in ("TRANSLUCENT_TEAM_NAME", "TRANSLUCENT_ADMIN_NAME"):  # Ben holds both: an engineer's and an admin's key
+        monkeypatch.setenv(var, "Ben")
     monkeypatch.delenv("TRANSLUCENT_LIVE", raising=False)
     calls = []
     sandbox = analysis.run_untrusted
@@ -314,7 +317,7 @@ def test_rerun_reaching_the_sandbox_is_an_authorized_queued_job(parent, tmp_path
     body = {"author": "Ben", "claim_id": p.claim, "reason": "the scale bar may be misread",
             "overrides": [{"quantity": "spatial_scale", "value": 150, "uncertainty": 1, "unit": "px/mm"}]}
     with TestClient(server.create_app(p.root, tmp_path / "api", poll_interval=0.01)) as c:
-        assert c.post("/api/campaigns/P/forks", json=body).status_code == 403
+        assert c.post("/api/campaigns/P/forks", json=body).status_code == 401                 # no key: sign in
         assert c.post("/api/campaigns/P/forks", json=body, headers=TEAM).status_code == 403   # team token only
         assert c.post("/api/campaigns/P/forks", json=body, headers=ADMIN).status_code == 403  # live not opted in
         monkeypatch.setenv("TRANSLUCENT_LIVE", "1")
@@ -327,12 +330,12 @@ def test_rerun_reaching_the_sandbox_is_an_authorized_queued_job(parent, tmp_path
         assert view["status"] == "queued" and view["job"]["rerun"] == view["fork"]["id"]
         branch = view["branch"]["id"]
         deadline = time.time() + 30
-        while c.get(f"/api/campaigns/{branch}").json()["job"]["status"] not in ("finished", "failed"):
+        while c.get(f"/api/campaigns/{branch}", headers=TEAM).json()["job"]["status"] not in ("finished", "failed"):
             assert time.time() < deadline
             time.sleep(0.05)
-        assert c.get(f"/api/campaigns/{branch}").json()["job"]["status"] == "finished"
+        assert c.get(f"/api/campaigns/{branch}", headers=TEAM).json()["job"]["status"] == "finished"
         assert calls                                                     # the sandbox ran, in the job
-        listed = c.get("/api/campaigns/P/forks").json()
+        listed = c.get("/api/campaigns/P/forks", headers=TEAM).json()
         assert [x["fork"]["id"] for x in listed] == [view["fork"]["id"]]
         assert listed[0]["status"] == "done" and listed[0]["findings"][0]["status"] == "refuted"
         assert c.post("/api/campaigns/P/forks", json={**body, "mode": "agent", "budget": 1},
@@ -342,4 +345,5 @@ def test_rerun_reaching_the_sandbox_is_an_authorized_queued_job(parent, tmp_path
         assert c.post("/api/campaigns/P/forks", json=bad, headers=TEAM).status_code == 422
         nan = {**body, "overrides": [{"quantity": "spatial_scale", "value": "NaN", "unit": "px/mm"}]}
         assert c.post("/api/campaigns/P/forks", json=nan, headers=TEAM).status_code == 422
-        assert c.get(f"/api/findings/{p.claim}/branches").json()["forks"][0]["branch_campaign_id"] == branch
+        assert c.get(f"/api/findings/{p.claim}/branches", headers=TEAM).json()["forks"][0][
+            "branch_campaign_id"] == branch

@@ -96,13 +96,6 @@ The resulting procedure renders the declared world model and decision rule with 
 
 ## Related work and alternatives
 
-The owner's supplied literature validation motivates the architecture: [Asking the World](https://arxiv.org/abs/2609.39135)
-uses executable worlds and probes; [RSI-Anything](https://arxiv.org/abs/2610.13912) motivates compatibility-checked
-model/policy retention; [AbsorbEvo](https://arxiv.org/abs/2610.01119) motivates cheap screening before expensive
-submissions; [CausaLab](https://arxiv.org/abs/2605.26029) distinguishes predictive success from recovering a
-mechanism. Here, simulated probes and mechanism discrimination are explicitly separated from measured evidence.
-These connections are design inspirations, not replications of those systems or claims about their performance.
-
 Other battery data have different targets. [Attia et al.](https://doi.org/10.1038/s41586-020-1994-5) report nine
 charging protocols with five final validation lifetimes each; many optimization-round lifetimes were predictions.
 [Severson et al.](https://doi.org/10.1038/s41560-019-0356-8) concern cycle-life prediction.

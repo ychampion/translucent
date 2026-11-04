@@ -40,7 +40,7 @@ def inline(monkeypatch):
     """Run computational requests in this process (no child), as test_loop_planner's `inline` does."""
     def run(L, cid, req, adapter, *, worker, workdir, timeout_s):
         out = adapter.execute(req.action, dict(req.data.params), workdir)
-        body = exec_child.encode_output(out)
+        body = exec_child.encode_output(out, workdir)
         body.pop("files")
         return ingest_output(L, cid, req, out, adapter=adapter, basis="computational", submitted_by=RUNNER,
                              attempt=req.attempt, payload_sha256=chain.digest(body), run_params={"worker": worker})

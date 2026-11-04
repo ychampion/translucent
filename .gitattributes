@@ -3,3 +3,4 @@ data/** binary
 web/public/fixtures/** binary
 budget/** binary
 evals/critic_cases/** binary
+tests/data/import_v2/cell02_export_excerpt.csv binary

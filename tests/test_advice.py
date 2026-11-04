@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
+from support.keys import add_key
 
 from translucent import advice, analysis, experiments, server, tools
 from translucent.contracts import (Campaign, Claim, Lesson, Measurement, Predicate, Review, Run, Source,
@@ -15,7 +16,7 @@ from translucent.contracts import (Campaign, Claim, Lesson, Measurement, Predica
 from translucent.ledger import Ledger
 
 SECRET = "sk-" + "a1B2c3D4e5F6g7H8i9J0"
-TEAM = {"Authorization": "Bearer team-secret"}
+TEAM = {"Authorization": "Bearer team-secret-0123456789ab-32chars-minimum"}              # Ana's key (the env team token, named Ana)
 
 
 @pytest.fixture
@@ -137,9 +138,14 @@ def test_manifest_text_is_scrubbed():
 
 @pytest.fixture
 def client(world, monkeypatch):
-    monkeypatch.setenv("TRANSLUCENT_TEAM_TOKEN", "team-secret")
-    with TestClient(server.create_app(world.root, world.state, poll_interval=0.01)) as c:
+    monkeypatch.setenv("TRANSLUCENT_TEAM_TOKEN", "team-secret-0123456789ab-32chars-minimum")
+    monkeypatch.setenv("TRANSLUCENT_TEAM_NAME", "Ana")
+    add_key(world.state, "Ben", "engineer", BEN_KEY)
+    with TestClient(server.create_app(world.root, world.state, poll_interval=0.01), headers=TEAM) as c:
         yield c
+
+
+BEN_KEY = "ben-0123456789abcdefghij"
 
 
 def test_people_text_is_scrubbed_and_writes_are_idempotent(world, client):
@@ -158,7 +164,7 @@ def test_people_text_is_scrubbed_and_writes_are_idempotent(world, client):
     volts = w.voltage()
     k = w.claim(volts, {"lo": 80, "hi": 100, "unit": "s"})
     review = {"author": "Ben", "claim_id": k, "verdict": "challenge", "reason": f"see {SECRET}"}
-    rk = {**TEAM, "Idempotency-Key": "review-1"}
+    rk = {"Authorization": f"Bearer {BEN_KEY}", "Idempotency-Key": "review-1"}
     assert client.post("/api/campaigns/C/reviews", json=review, headers=rk).json() == \
         client.post("/api/campaigns/C/reviews", json=review, headers=rk).json()
     humans = [r for r in w.L.list("review", ref=k) if r.reviewer == "human"]

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import random
 import shutil
@@ -274,7 +275,11 @@ class Ledger:
         campaign = getattr(rec, "campaign_id", None) or (rec.id if kind == "campaign" else None)
         ref = getattr(rec, "run_id", None) or getattr(rec, "claim_id", None)
         identity = getattr(self, "intervention_identity", None)
-        inserted_at = identity.timestamp() if identity is not None else time.time()
+        if identity is not None:
+            inserted_at = identity.timestamp()
+        else:   # strictly after any invalidation: verify orders the two by time (see invalidate_run)
+            last = self.db.execute("SELECT MAX(at) FROM invalidation").fetchone()[0]
+            inserted_at = time.time() if last is None else max(time.time(), math.nextafter(last, math.inf))
         try:
             self.db.execute("INSERT INTO record VALUES (?,?,?,?,?,?)",
                             (rec.id, kind, campaign, ref, rec.model_dump_json(), inserted_at))
@@ -308,7 +313,11 @@ class Ledger:
     def invalidate_run(self, run_id: str, reason: str):
         """Mark a run's outputs as no longer trusted (e.g. wrong calibration found). Dependents become stale."""
         self._require([run_id], ("run",), "invalidated run")
-        self.db.execute("INSERT OR IGNORE INTO invalidation VALUES (?,?,?)", (run_id, reason, time.time()))
+        # strictly after every record already in the ledger: verify re-checks a review with the invalidations made
+        # before it (at <= the review's time), and a coarse clock (about 15 ms on Windows) can give both one time
+        last = self.db.execute("SELECT MAX(inserted_at) FROM record").fetchone()[0]
+        at = time.time() if last is None else max(time.time(), math.nextafter(last, math.inf))
+        self.db.execute("INSERT OR IGNORE INTO invalidation VALUES (?,?,?)", (run_id, reason, at))
 
     def invalid_runs(self) -> dict[str, str]:
         return dict(self.db.execute("SELECT run_id, reason FROM invalidation"))

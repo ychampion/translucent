@@ -7,6 +7,14 @@ has installed or on the clock, except `source`, so verify recomputes a recorded 
 replay; the web app renders it as a persistent banner.
 
 `summary(L, cid, ledger)` is the CampaignSummary the campaign list shows.
+
+Milestone 2 added optional fields, computed for every campaign (loop-compare/1 and /2 included): objective.kind,
+objective.summary (one line from the current version's target and constraints; objective.statement stays the text
+as registered, at objective.statement_version), requests[].role, `assessment` (feasibility, speed against a reference
+that meets the same constraints, the objective's status, solver against model uncertainty, a headline and lines),
+and conclusion.findings for a loop-compare/3 conclusion. Fields that existed before are computed exactly as before,
+so an export written earlier still verifies (loop_export compares a pre-M2 view without the added fields). The view
+never words a feasibility recovery as an improvement or as faster.
 """
 from __future__ import annotations
 
@@ -15,8 +23,10 @@ import time
 
 from translucent import chain, units
 from translucent.ledger import Ledger
-from translucent.loop import RequestState, actor_kind, current_objective, experiments_used, request_states
-from translucent.loop_compare import baseline_side, check_constraint, constraint_reason, half_width
+from translucent.loop import (REFERENCE, REGISTRATION, RequestState, actor_kind, actor_name, adapter_for,
+                              current_objective, experiments_used, request_states)
+from translucent.loop_compare import (assess, baseline_side, check_constraint, constraint_reason, half_width,
+                                      never_reached, objective_kind)
 from translucent.loop_contracts import AmendmentData, LoopRecord, ObjectiveData, RequestData
 
 VIEW_VERSION = 1
@@ -54,11 +64,15 @@ def quantity_label(obj: ObjectiveData, name: str) -> str:
     return (q or {}).get("label") or name
 
 
+TITLE_TEXT_MAX = 40          # a longer text parameter (a model definition, a commitment) is named, not printed
+
+
 def request_title(obj: ObjectiveData, d: RequestData) -> str:
     """The action's label with its parameters, from the frozen spec (not the installed adapter)."""
     action = next((a for a in _spec(obj).get("actions", []) if a.get("name") == d.action), None)
     label = (action or {}).get("label") or d.action
-    values = ", ".join(f"{k} {v:g} {d.units.get(k, '')}".strip() if isinstance(v, (int, float)) else f"{k} {v}"
+    values = ", ".join(f"{k} {v:g} {d.units.get(k, '')}".strip() if isinstance(v, (int, float)) else
+                       f"{k} {v}" if len(str(v)) <= TITLE_TEXT_MAX else f"{k} (recorded with the request)"
                        for k, v in d.params.items())
     return f"{label}: {values}" if values else label
 
@@ -78,7 +92,8 @@ def status(states: dict[str, RequestState], concluded: bool) -> str:
 
 def next_action(obj: ObjectiveData, states: dict[str, RequestState], records: list[LoopRecord],
                 concluded: bool) -> dict:
-    """What the campaign waits for: a person's approval, a run, a person's result, the planner, or nothing."""
+    """What the campaign waits for: a person's approval, a run, a person's result, the planner, a person's decision
+    after the planner stopped on its model budget, or nothing."""
     if concluded:
         return {"kind": "none"}
     by_recency = sorted(states.values(), key=lambda s: s.timeline[-1]["seq"], reverse=True)
@@ -99,6 +114,10 @@ def next_action(obj: ObjectiveData, states: dict[str, RequestState], records: li
     if planner is not None and planner.data["phase"] != "turn_finished":
         return {"kind": "planner_thinking",
                 "title": planner.data["payload"].get("title") or "The planner is choosing the next step"}
+    if planner is not None and planner.data["payload"].get("status") == "budget":
+        # every later turn starts the same way until a person raises the budget or concludes, so say so
+        return {"kind": "planner_stopped", "status": "budget",
+                "title": planner.data["payload"].get("reason") or "The campaign's model budget is spent"}
     return {"kind": "none"}
 
 
@@ -226,7 +245,19 @@ def _request(L: Ledger, obj: ObjectiveData, st: RequestState, ledger: str, deriv
             "proposed_by": st.proposed_by, "approved_by": st.approved_by, "content_hash": d.content_hash,
             "rationale": d.rationale, "prediction": d.prediction, "timeline": [dict(t) for t in st.timeline],
             "result": result, "rejections": [{"seq": x.seq, "reasons": list(x.data["reasons"])} for x in st.refused],
-            **({"failure": _failure(st.failure.data)} if st.failure is not None else {})}
+            **({"failure": _failure(st.failure.data)} if st.failure is not None else {}),
+            "role": role(st), **({"revision": revision(st)} if d.version > 1 else {})}
+
+
+def revision(st: RequestState) -> dict:
+    """Who wrote the current version of a revised request; proposed_by keeps the original proposer."""
+    by = st.record.actor
+    return {"by": by, "version": st.data.version, "words": f"revised by {actor_name(by)} (v{st.data.version})"}
+
+
+def role(st: RequestState) -> str:
+    """"baseline" (a registration re-run), "reference" (a reference-search run) or "experiment"."""
+    return {REGISTRATION: "baseline", REFERENCE: "reference"}.get(st.proposed_by, "experiment")
 
 
 def _failure(d: dict) -> dict:
@@ -237,15 +268,65 @@ def _failure(d: dict) -> dict:
 
 def _comparison(rec: LoopRecord) -> dict:
     d, t = rec.data, rec.data["target"]
-    return {"id": rec.id, "request_id": d["candidate"]["request_id"], "objective_version": d["objective_version"],
-            "basis": d["basis"],
-            "target": {"baseline": t["baseline"], "candidate": t["candidate"], "delta": t["delta"],
-                       "better": t["better"], **({"decided_by": t["decided_by"]} if t.get("decided_by") else {})},
-            "constraints": [_check(c) for c in d["constraints"]], "verdict": d["verdict"], "reasons": list(d["reasons"])}
+    out = {"id": rec.id, "request_id": d["candidate"]["request_id"], "objective_version": d["objective_version"],
+           "basis": d["basis"],
+           "target": {"baseline": t["baseline"], "candidate": t["candidate"], "delta": t["delta"],
+                      "better": t["better"], **({"decided_by": t["decided_by"]} if t.get("decided_by") else {})},
+           "constraints": [_check(c) for c in d["constraints"]], "verdict": d["verdict"], "reasons": list(d["reasons"])}
+    if d["evaluator"] == "loop-compare/3":      # delta and better are against the speed reference, never a failing
+        out["target"] |= {"reference": t["reference"], "against": t["against"]}          # baseline
+        out |= {"feasibility": dict(d["feasibility"]), "speed": dict(d["speed"]), "objective": dict(d["objective"])}
+    return out
+
+
+def _unreached(d: dict) -> bool:
+    """A comparison whose candidate never reaches its minimised target within its window (loop_compare.never_reached)."""
+    t = d["target"]
+    return d["verdict"] != "not_comparable" and \
+        never_reached(t.get("direction", "minimize"), d["candidate"].get("values", {}).get(t["quantity"]))
+
+
+def _sentence3(obj: ObjectiveData, rec: LoopRecord, title: str) -> str:
+    """loop-compare/3: what ran, the target against the speed reference (never a failing baseline), the
+    constraints, then feasibility, speed and the hard target, each in its own words."""
+    d, t = rec.data, rec.data["target"]
+    s, feas = d["speed"], d["feasibility"]["candidate"]
+    parts = []
+    if t["candidate"] is not None:
+        parts.append(f"{quantity_label(obj, t['quantity'])} {t['candidate']:g} {t['unit']}" +
+                     (f" against {t['reference']:g} {t['unit']} for the reference" if t.get("reference") is not None
+                      else ""))
+    parts += [f"{c['quantity']} {c['value']:g} {c['unit']} (limit {c['op']} {c['limit']:g})"
+              for c in d["constraints"] if c["value"] is not None]
+    ref = (s.get("reference") or {}).get("label", "the reference")
+    if d["verdict"] == "not_comparable":
+        words = "not comparable" + (f" ({d['reasons'][0]})" if d["reasons"] else "")
+    elif feas == "fails" and _unreached(d):
+        words = "never reaches its target within its window, so it is not feasible"
+    elif feas == "fails":
+        words = "outside a constraint"
+    elif feas == "unknown":
+        words = "a constraint is undecided within its uncertainty"
+    elif s["status"] == "faster":
+        words = f"meets every constraint; {s['delta']:g} {t['unit']} faster than {ref}" if s["delta"] is not None \
+            else f"meets every constraint; faster than {ref}"
+    elif s["status"] == "not_faster":
+        words = f"meets every constraint; not shown faster than {ref}"
+    else:
+        words = f"meets every constraint; speed not compared ({s['reason']})"
+    if d["objective"]["kind"] == "hard_target":
+        words += {"met": f"; meets the hard target of {t['limit']:g} {t['unit']}",
+                  "not_met": f"; does not meet the hard target of {t['limit']:g} {t['unit']}",
+                  "unknown": f"; the hard target of {t['limit']:g} {t['unit']} is undecided"}[d["objective"]["status"]]
+    lead = _BASIS_WORDS.get(d["basis"])
+    head = f"{lead}, {title}" if lead else title
+    return f"{head}: {'; '.join(parts)}; {words}." if parts else f"{head}: {words}."
 
 
 def sentence(obj: ObjectiveData, rec: LoopRecord, title: str) -> str:
     """One plain sentence for the current result: what ran, the target against the baseline, the constraints."""
+    if rec.data["evaluator"] == "loop-compare/3":
+        return _sentence3(obj, rec, title)
     d, t = rec.data, rec.data["target"]
     parts = []
     if t["candidate"] is not None:
@@ -266,6 +347,162 @@ def sentence(obj: ObjectiveData, rec: LoopRecord, title: str) -> str:
     lead = _BASIS_WORDS.get(d["basis"])
     head = f"{lead}, {title}" if lead else title
     return f"{head}: {'; '.join(parts)}; {words}." if parts else f"{head}: {words}."
+
+
+# ------------------------------------------------------------------ objective summary and assessment (M2)
+
+def _lower(text: str) -> str:
+    return text[:1].lower() + text[1:] if text[1:2].islower() or len(text) < 2 else text
+
+
+def objective_summary(obj: ObjectiveData) -> str:
+    """One line from the current version's target and constraints, in the system's wording when its frozen spec
+    gives one, e.g. "Fastest 10-80 % charge with anode potential >= +25 mV and peak temperature <= 45 degC". Each
+    constraint is said from its quantity, op, limit and unit, never from its label: a label is free text that an
+    amendment of the limit may leave stale."""
+    words = (_spec(obj).get("objective_template") or {}).get("summary") or {}
+    terms = words.get("terms") or {}
+    t, kind = obj.target, objective_kind(obj)
+    if kind in ("fastest_feasible", "hard_target") and words.get(kind):
+        head = words[kind].format(limit=t.limit, unit=t.unit)
+    else:
+        verb = "Minimise" if t.direction == "minimize" else "Maximise"
+        head = f"{verb} {_lower(quantity_label(obj, t.quantity))}"
+        if t.limit is not None:
+            head += f" to {'at most' if t.direction == 'minimize' else 'at least'} {t.limit:g} {t.unit}"
+    parts = []
+    for c in obj.constraints:
+        term = terms.get(c.quantity)
+        if term:
+            parts.append(f"{term['name']} {c.op} {c.limit:+g} {c.unit}" if term.get("signed") else
+                         f"{term['name']} {c.op} {c.limit:g} {c.unit}")
+        else:
+            parts.append(f"{_lower(quantity_label(obj, c.quantity))} {c.op} {c.limit:g} {c.unit}")
+    return head + (" with " + " and ".join(parts) if parts else "")
+
+
+_IN = {"computational": "in simulation", "physical": "on the bench", "retrospective": "in the records"}
+
+
+def _num(v: float | None, unit: str) -> str:
+    return "an unknown value" if v is None else f"{v:g} {unit}"
+
+
+def _uncertainty(L: Ledger, obj: ObjectiveData, states: dict[str, RequestState], basis: str,
+                 best: LoopRecord | None) -> dict:
+    """Solver tolerance (numerical: the tolerances the solver ran with, as its result recorded them, and the bounds
+    the system declares on its outputs) apart from model uncertainty (the system's own statement, frozen at
+    registration; never a number made up here)."""
+    spec = _spec(obj)
+    template = spec.get("objective_template") or {}
+    if basis != "computational":
+        return {"solver": None, "model": "Measured: each value carries the uncertainty stated by the person who "
+                                         "returned it; no model is involved."}
+    st = states.get(best.data["candidate"]["request_id"]) if best is not None else None
+    results = [st.result] if st is not None and st.result is not None else \
+        [s.result for s in states.values() if s.result is not None and s.result.data["basis"] == "computational"]
+    ran = (results[0].data.get("executed") or {}).get("solver") or {} if results else {}
+
+    def number(x):
+        try:
+            return float(x)
+        except (TypeError, ValueError):
+            return None
+    compared = list(dict.fromkeys([obj.target.quantity] + [c.quantity for c in obj.constraints]))
+    bounds = [f"{q['name']} ±{q['tolerance']:g} {q['unit']}" for name in compared
+              for q in spec.get("quantities", []) if q.get("name") == name and q.get("tolerance")]
+    note = ("Numerical error of the solver, not the model's error against a cell. " +
+            (f"Bounds the system declares on its outputs: {', '.join(bounds)}." if bounds else
+             "The system declares no bound on its outputs.") +
+            ("" if ran.get("rtol") is not None else " The solver's tolerances were not recorded with the result."))
+    model = template.get("model_uncertainty")
+    if not model:
+        validity = (spec.get("solver") or {}).get("validity")
+        model = ("Not quantified: the system stated no model error against measurements when this campaign was "
+                 "registered" + (f"; its stated validity: {validity}" if validity else "") +
+                 ". Confirm on a physical cell.")
+    return {"solver": {"rtol": number(ran.get("rtol")), "atol": number(ran.get("atol")), "note": note},
+            "model": model}
+
+
+def _headline(obj: ObjectiveData, states: dict[str, RequestState], a: dict) -> str:
+    """The assessment's one sentence, from loop_compare.assess's answer. A feasibility recovery is never called an
+    improvement or faster; results that were compared but none decided are said so, with why."""
+    f, best = a["findings"], a["best"]
+    fe, sp, ob = f["feasibility"], f["speed"], f["objective"]
+    where, unit = _IN.get(a["basis"], ""), obj.target.unit
+    st = states.get(best.data["candidate"]["request_id"]) if best is not None else None
+    title = request_title(obj, st.data) if st is not None else None
+    ref = sp["reference"]
+    best_value = (sp["best"] or {}).get("value") if sp["best"] else \
+        (best.data["target"]["candidate"] if best is not None else None)
+    if best is None:
+        return "No result has been compared yet."
+    if ob["kind"] == "hard_target" and ob["status"] == "met":
+        return (f"Objective met {where}: {title} takes {_num(best_value, unit)}, within the hard target of "
+                f"{ob['target_limit']:g} {unit}, and meets every constraint.")
+    if sp["status"] == "faster":
+        return (f"Faster than the reference {where}: {title} takes {_num(best_value, unit)} against "
+                f"{_num(ref['value'], unit)} for {ref['label']}, and meets every constraint.")
+    if fe["best"] == "meets":
+        return (f"{'Feasibility recovered' if fe['recovered'] else 'Feasible'} {where}: {title} meets every "
+                f"constraint{' the baseline breaks' if fe['recovered'] else ''}; " +
+                ("speed not compared." if sp["status"] == "not_compared" else
+                 f"not shown faster than {ref['label']}."))
+    if fe["best"] == "fails" and _unreached(best.data):
+        return f"No result is feasible {where}: {title} never reaches its target within its window."
+    if fe["best"] == "fails":
+        return f"No result meets the constraints {where}."
+    n = a["compared"]                    # compared, none decided: not comparable, or within a limit's uncertainty
+    why = best.data["reasons"][0] if best.data["reasons"] else \
+        "none is shown to meet or to break the constraints within its uncertainty"
+    return f"{n} result{'' if n == 1 else 's'}, none decided {where}: {why.rstrip('.')}."
+
+
+def assessment(L: Ledger, cid: str, obj: ObjectiveData, states: dict[str, RequestState],
+               records: list[LoopRecord]) -> dict:
+    """Feasibility, speed and the objective as loop-compare/3 separates them (loop_compare.assess), for every
+    campaign, with the uncertainty and plain words. A feasibility recovery is never called an improvement or faster."""
+    a = assess(L, cid, records)
+    f, best, basis = a["findings"], a["best"], a["basis"]
+    fe, sp, ob = f["feasibility"], f["speed"], f["objective"]
+    unit = obj.target.unit
+    st = states.get(best.data["candidate"]["request_id"]) if best is not None else None
+    title = request_title(obj, st.data) if st is not None else None
+    ref = sp["reference"]
+    headline = _headline(obj, states, a)
+
+    lines = []
+    v = f"objective version {obj.version}"
+    lines.append({"meets": f"The baseline meets the constraints of {v}.",
+                  "fails": f"The baseline fails the constraints of {v}.",
+                  "unknown": f"The baseline's feasibility under {v} is not known."}[fe["baseline"]])
+    if fe["recovered"]:
+        lines.append(f"Feasibility recovered: {title} meets the constraints the baseline breaks. That is a "
+                     "feasibility result, not a speed result.")
+        b_value = best.data["target"].get("baseline") if best is not None else None
+        if b_value is not None:
+            lines.append(f"The failing baseline takes {_num(b_value, unit)}; it is not a speed reference, because "
+                         "it breaks the constraints.")
+    if ref is not None:
+        lines.append(f"Speed reference: {ref['label']}, {_num(ref['value'], unit)} (constraints of objective "
+                     f"version {ref['objective_version']}).")
+    lines.append(f"Speed: {sp['reason']}." if sp["reason"] else f"Speed: {sp['status'].replace('_', ' ')}.")
+    if ob["kind"] == "hard_target":
+        lines.append(f"Hard target: {obj.target.quantity} at most {ob['target_limit']:g} {unit}, "
+                     f"{ob['status'].replace('_', ' ')}. Only an engineer's amendment changes it.")
+    elif ob["kind"] == "fastest_feasible":
+        lines.append("Objective open: the fastest protocol meeting the constraints is asked for; no result is "
+                     "proven to be the fastest possible.")
+    else:
+        lines.append(f"Assessed by the loop-compare/3 rules; this campaign's own comparisons and conclusion keep the "
+                     f"words its {obj.evaluator} rules recorded.")
+    unc = _uncertainty(L, obj, states, basis, best)
+    if unc["solver"] is not None:
+        lines.append("Solver: " + unc["solver"]["note"])
+    lines.append("Model: " + unc["model"])
+    return {"basis": basis, "feasibility": fe, "speed": sp, "objective": ob, "uncertainty": unc,
+            "headline": headline, "lines": lines}
 
 
 # ------------------------------------------------------------------ the view
@@ -323,7 +560,10 @@ def view(L: Ledger, cid: str, source: dict, *, ledger: str | None = None) -> dic
                      "planner": {"kind": str(obj.planner.get("kind", "")), "models": dict(models)}},
         "objective": {"version": obj.version, "statement": obj.statement, "target": target,
                       "constraints": [c.model_dump(mode="json") for c in obj.constraints],
-                      "amendments": _amendments(recs)},
+                      "amendments": _amendments(recs),
+                      "kind": objective_kind(obj), "summary": objective_summary(obj),
+                      "statement_version": 1},           # the statement is registered once; amendments never change it
+        "assessment": assessment(L, cid, obj, states, recs),
         "baseline": _baselines(L, cid, obj, states),
         "current_result": current_result,
         "next_action": next_action(obj, states, recs, done is not None),
@@ -335,10 +575,46 @@ def view(L: Ledger, cid: str, source: dict, *, ledger: str | None = None) -> dic
                   "experiments_used": experiments_used(states),
                   "experiments_budget": obj.budget.get("experiments", 0)},
         "conclusion": {"outcome": done.data["outcome"], "comparison_id": done.data["comparison_id"],
-                       "text": done.data["text"], "unresolved_reasons": list(done.data["unresolved_reasons"])}
+                       "text": done.data["text"], "unresolved_reasons": list(done.data["unresolved_reasons"]),
+                       **({"findings": done.data["findings"]} if done.data.get("findings") is not None else {})}
         if done else None,
         "events_cursor": cursor,
+        **_learning(L, cid, obj, states),
     }
+
+
+def _learning(L: Ledger, cid: str, obj: ObjectiveData, states: dict) -> dict:
+    """{"learning": ...} when the campaign's system keeps model versions (adapter.campaign_summary), else {}."""
+    try:
+        summary = getattr(adapter_for(obj), "campaign_summary", None)
+    except KeyError:
+        return {}
+    if summary is None:
+        return {}
+    out = {"learning": summary(L, cid, states)}
+    if getattr(obj, "uploads", None):     # an investigation from the engineer's records: what the planner sees of it
+        from translucent import records
+        out["investigation"] = records.investigation(L, cid, obj, states=states)
+    return out
+
+
+def summary_fields(L: Ledger, cid: str, records: list[LoopRecord] | None = None) -> dict:
+    """The CampaignSummary fields the list takes from the loop semantics: "objective", the current version's one-line
+    summary (objective_summary, cut to 140 characters; the registered statement stays in the view); and, once the
+    campaign is concluded, "assessment_headline" (the view's assessment headline) and "findings" (basis,
+    feasibility, speed status and objective status), so a list never shows a feasibility recovery as "improved"."""
+    recs = chain.records(L, cid) if records is None else records
+    obj = current_objective(L, cid, recs)
+    out = {"objective": objective_summary(obj)[:140]}
+    if any(r.type == "conclusion" for r in recs):
+        a = assess(L, cid, recs)
+        f = a["findings"]
+        out |= {"assessment_headline": _headline(obj, request_states(L, cid, recs), a),
+                "findings": {"basis": a["basis"],
+                             "feasibility": {k: f["feasibility"][k] for k in ("baseline", "best", "recovered")},
+                             "speed": {"status": f["speed"]["status"]},
+                             "objective": {k: f["objective"][k] for k in ("kind", "status")}}}
+    return out
 
 
 def summary(L: Ledger, cid: str, ledger: str) -> dict:
@@ -349,6 +625,7 @@ def summary(L: Ledger, cid: str, ledger: str) -> dict:
     done = next((r for r in recs if r.type == "conclusion"), None)
     return {"id": cid, "ledger": ledger, "kind": "loop", "title": campaign.title,
             "status": status(states, done is not None), "created_at": campaign.created_at,
-            "updated_at": _last_event_t(L, cid) or campaign.created_at, "objective": obj.statement[:140],
+            "updated_at": _last_event_t(L, cid) or campaign.created_at,
             "next_action": next_action(obj, states, recs, done is not None)["kind"],
-            "outcome": done.data["outcome"] if done else None, "spend_usd": model_spend(L, cid)}
+            "outcome": done.data["outcome"] if done else None, "spend_usd": model_spend(L, cid),
+            **summary_fields(L, cid, recs)}

@@ -108,7 +108,7 @@ def standin_run_child(calls: list):
             executed = fc.canonical(action, params)
         out = ExecutionOutput(table=table, files={"result.json": workdir / "result.json"},
                               solver={"name": "stand-in"}, executed=executed)
-        body = {"output": exec_child.encode_output(out)}
+        body = {"output": exec_child.encode_output(out, workdir)}
         return body, executors.result_digest(body)
     return run_child
 
@@ -417,7 +417,9 @@ def test_metrics_judge_feasibility_with_the_margin_in_force(tmp_path, records, s
 # ------------------------------------------------------------------ 1. BO, case A, seed 0, on the real solver
 
 def _real_records() -> Path | None:
-    for p in (os.environ.get("TRANSLUCENT_LGM50_RECORDS"), fc.DATA, ROOT.parents[2] / "data" / "raw" / "chen2020-lgm50"):
+    # the last candidate is a checkout two levels up; a repository near the filesystem root has none
+    above = ROOT.parents[2] / "data" / "raw" / "chen2020-lgm50" if len(ROOT.parents) > 2 else None
+    for p in (os.environ.get("TRANSLUCENT_LGM50_RECORDS"), fc.DATA, above):
         if p and all((Path(p) / n).is_file() for n in fc.RECORDS):
             return Path(p)
     return None

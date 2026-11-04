@@ -74,6 +74,11 @@ class SystemSpec:
     licence: str | None = None
     solver: dict[str, str] | None = None  # name, version, model, validity
     vision: bool = False
+    # JSON: how a new campaign's objective is filled in (the web's New campaign form reads it from GET .../systems):
+    # statements per kind, target, constraints {quantity, op, limit, unit, label}, quantities, the hard-target
+    # quantity a person may set, summary wording, the reference search (loop_reference) with its parameter
+    # defaults, and the system's own statement of model uncertainty. Frozen into each objective with the spec.
+    objective_template: dict[str, Any] | None = None
 
     def action(self, name: str) -> ActionSpec:
         for a in self.actions:
@@ -96,6 +101,7 @@ class ExecutionOutput:
     files: dict[str, Path]  # raw outputs kept as artifacts
     solver: dict[str, str]  # exact name, version and settings used
     executed: dict[str, float | str]  # configuration actually run
+    import_note: dict | None = None  # a returned table: what reading it did (datasets._import_note)
 
 
 class NotExecutable(RuntimeError):

@@ -1,0 +1,69 @@
+{
+ "author": "Chen et al. 2020",
+ "citation": "Chen et al. 2020, Development of Experimental Techniques for Parameterization of Multi-scale Lithium-ion Battery Models, J. Electrochem. Soc. 167, 080534; data on Zenodo, doi:10.5281/zenodo.4032561",
+ "id": "chen2020-lg-m50-validation-cell02-cell04",
+ "licence": "CC BY 4.0",
+ "manifest_version": 2,
+ "records": [
+  {
+   "conditions": {
+    "chamber": "cell sat in a thermal chamber; chamber setpoint not stated in the documentation",
+    "procedure": "C/10 discharge; after each discharge a 0.3C constant-current charge to 4.2 V with a constant-voltage hold to 50 mA; discharges from full to 2.5 V at C/2, 1C and 1.5C; 2 h rests between steps, per campaign documentation"
+   },
+   "configuration": {
+    "cycler": "Maccor cycler, re-exported through lab logger 4.2 with de-DE regional settings",
+    "fixture": "thermal chamber; one thermocouple taped to the cell surface and a second sensor in the chamber air (export did not record which of T1/T2 is which; T2 is assigned to the surface because it rises to about 328 K during the 7500 mA discharge while T1 remains near 300 K, and T1 is assigned to the chamber air)"
+   },
+   "id": "cell02",
+   "provenance": {
+    "source": "cell02_export.csv as uploaded; Channel cell02 per file preamble; LG M50 validation; published validation tests Chen et al. 2020, Zenodo doi:10.5281/zenodo.4032561, CC BY 4.0; re-exported through lab logging software with de-DE regional settings (semicolon delimiter, decimal comma). Current is logged as a magnitude; mode column (C, D, R as documented; also SBr and O appear) is in the file but not imported as a numeric quantity. No faster charge and no plating measurement. No thermocouple calibration on file; no measurement uncertainty stated, so none given. Contiguous blocks in both files show both temperature channels instantaneously about 13 K lower (about 286 K) with instantaneous return; files and documentation do not explain these blocks and no correction has been applied."
+   },
+   "specimen": {
+    "id": "cell02"
+   },
+   "tables": [
+    {
+     "columns": {
+      "I": {
+       "quantity": "current",
+       "unit": "mA"
+      },
+      "Q": {
+       "quantity": "lab:charge_throughput",
+       "unit": "Ah"
+      },
+      "T1": {
+       "quantity": "chamber_temperature",
+       "unit": "K"
+      },
+      "T2": {
+       "quantity": "surface_temperature",
+       "unit": "K"
+      },
+      "U": {
+       "quantity": "voltage",
+       "unit": "V"
+      },
+      "step": {
+       "quantity": "lab:step",
+       "unit": "1"
+      }
+     },
+     "decimal": ",",
+     "delimiter": ";",
+     "file": "cell02_export_excerpt.csv",
+     "header_row": 5,
+     "skip_rows": 5,
+     "time_column": "elapsed [s]"
+    }
+   ],
+   "time": {
+    "origin": "elapsed time from the start of the file, as exported",
+    "source": "elapsed [s]",
+    "unit": "s"
+   }
+  }
+ ],
+ "title": "LG INR21700 M50 validation records for cell02 and cell04 (Maccor cycler, re-exported through lab logger 4.2)",
+ "notes": "The import a planner sent in a recorded records campaign (case H3, second run), cut to cell02 and pointed at an excerpt of its file: header_row 5 and skip_rows 5, which dropped the first five rows of data"
+}

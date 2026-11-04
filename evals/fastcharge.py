@@ -94,7 +94,7 @@ class Case:
     margin: float
     amended_margin: float | None
     t_limit: float
-    reference_t80: float                       # reference optimum, min
+    reference_t80: float                       # best found by the reference search, min
     reference_protocol: tuple[float, ...]
     single_step_c: float                       # best feasible single step
     single_step_t80: float
@@ -1049,7 +1049,7 @@ def markdown(data: dict) -> str:
         title = {"A": "Case A: 25 °C, +10 mV", "B": "Case B: 25 °C, +10 mV raised to +25 mV after the fourth "
                  "experiment", "C": "Case C: 15 °C, +10 mV (extrapolation, held out)"}[name]
         lines += [f"## {title}", "",
-                  f"Reference optimum: {_protocol_text({c_: v for c_, v in zip(fc.C_RATES, case.reference_protocol)})}"
+                  f"Best found by the reference search (deterministic compass search, 0.05C lattice): {_protocol_text({c_: v for c_, v in zip(fc.C_RATES, case.reference_protocol)})}"
                   f", {case.reference_t80:.2f} min. Best feasible single step: {case.single_step_c:.2f}C, "
                   f"{case.single_step_t80:.1f} min.", ""]
         b = c["failing_baseline"]

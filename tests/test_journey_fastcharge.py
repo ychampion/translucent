@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from support.keys import add_key
 
 from translucent import runtime, server
 from translucent.loop_planner import fastcharge_objective
@@ -25,7 +26,9 @@ from translucent.workspace import init_ledger
 ROOT = Path(__file__).resolve().parents[1]
 RECORDS = ROOT / "data" / "raw" / "chen2020-lgm50"
 MANIFEST = ROOT / "data" / "chen2020-lgm50" / "manifest.json"
-TEAM = {"Authorization": "Bearer team-secret"}
+TEAM = {"Authorization": "Bearer team-secret-0123456789ab-32chars-minimum"}       # Ana's key (the env team token, named Ana)
+AGENT_KEY = "external-agent-0123456789abcdef"
+AGENT = {"Authorization": f"Bearer {AGENT_KEY}"}    # the external agent's planner key
 BASE = "/api/v1/ledgers/lab"
 
 pytestmark = pytest.mark.skipif(
@@ -41,7 +44,8 @@ def offline(monkeypatch):
     for name in ("TRANSLUCENT_LIVE", "TRANSLUCENT_ADMIN_TOKEN", "TRANSLUCENT_IMPORT_ROOT", "TRANSLUCENT_DATA_ROOT",
                  "TRANSLUCENT_PROFILE"):
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("TRANSLUCENT_TEAM_TOKEN", "team-secret")
+    monkeypatch.setenv("TRANSLUCENT_TEAM_TOKEN", "team-secret-0123456789ab-32chars-minimum")
+    monkeypatch.setenv("TRANSLUCENT_TEAM_NAME", "Ana")
 
 
 def ok(response, status=200):
@@ -62,6 +66,7 @@ def wait_for(c, cid, request_id, states, timeout=180):
 def test_import_approve_restart_execute_compare_conclude_verify(tmp_path):
     data, imports = tmp_path / "data", tmp_path / "imports"
     init_ledger(data, "lab", title="Cell lab")
+    add_key(data, "external-agent", "planner", AGENT_KEY)
     (imports / "lgm50").mkdir(parents=True)
     for f in RECORDS.iterdir():
         shutil.copy2(f, imports / "lgm50" / f.name)
@@ -70,7 +75,7 @@ def test_import_approve_restart_execute_compare_conclude_verify(tmp_path):
     def app():
         return server.create_app(data_root=data, import_root=imports, poll_interval=0.01, loop_workers=1)
 
-    with TestClient(app()) as c:
+    with TestClient(app(), headers=TEAM) as c:                   # reads are private: Ana reads
         dataset = ok(c.post(f"{BASE}/datasets", headers=TEAM, json={"manifest": manifest, "path": "lgm50"}), 201)
         objective = fastcharge_objective(kind="external", profile=None, model_usd=0.0)
         objective.pop("registered_by")
@@ -87,7 +92,7 @@ def test_import_approve_restart_execute_compare_conclude_verify(tmp_path):
         measured = {m["quantity"]: m["value"] for m in baseline["result"]["measurements"]}
         assert measured["max_temperature"] > 45.0 and measured["min_anode_potential"] < 10.0   # it fails both limits
 
-        req = ok(c.post(f"{BASE}/campaigns/{cid}/requests", headers=TEAM, json={
+        req = ok(c.post(f"{BASE}/campaigns/{cid}/requests", headers=AGENT, json={
             "agent": "external-agent", "action": "simulate_protocol",
             "params": {"c_rate_1": 1.5, "c_rate_2": 1.5, "c_rate_3": 1.05, "c_rate_4": 1.1, "ambient": 25.0},
             "rationale": "Keep the low-SOC windows fast and cut the last two, where heat has accumulated.",
@@ -95,13 +100,13 @@ def test_import_approve_restart_execute_compare_conclude_verify(tmp_path):
                            "min_anode_potential": {"value": 12.0, "lo": 10.0, "hi": 16.0, "unit": "mV"},
                            "max_temperature": {"value": 44.0, "lo": 42.0, "hi": 45.5, "unit": "degC"}},
             "expected_effect": "If both limits hold, this replaces the failing protocol."}), 201)
-        assert req["state"] == "awaiting_approval"
+        assert req["state"] == "awaiting_approval" and req["proposed_by"] == "agent:external-agent"
         approved = ok(c.post(f"{BASE}/campaigns/{cid}/requests/{req['request_id']}/approve", headers=TEAM,
                              json={"author": "Ana", "content_hash": req["content_hash"]}))
         assert approved["approved_by"] == "person:Ana"
     # The first server stopped. Whether its runner had started the request or not, a new server finishes it once.
 
-    with TestClient(app()) as c:
+    with TestClient(app(), headers=TEAM) as c:
         done = wait_for(c, cid, req["request_id"], ("completed", "failed"))
         assert done["state"] == "completed", done["failure"]
         assert done["result"]["categories"]["validity"] == "within_range"
@@ -109,8 +114,11 @@ def test_import_approve_restart_execute_compare_conclude_verify(tmp_path):
         attempts = [r for r in view["requests"] if r["request_id"] == req["request_id"]]
         assert len(attempts) == 1
 
+        # a planner key never concludes (person work): Ana does, and the outcome is still computed, not written
+        assert c.post(f"{BASE}/campaigns/{cid}/conclusion", headers=AGENT, json={
+            "agent": "external-agent", "text": "Done."}).status_code == 403
         concluded = ok(c.post(f"{BASE}/campaigns/{cid}/conclusion", headers=TEAM, json={
-            "agent": "external-agent", "text": "The four-step protocol meets both limits in simulation."}))
+            "author": "Ana", "text": "The four-step protocol meets both limits in simulation."}))
         view = ok(c.get(f"{BASE}/campaigns/{cid}/view"))
         assert view["conclusion"]["outcome"] == "improved_in_simulation", (concluded, view["conclusion"])
         exported = c.get(f"{BASE}/campaigns/{cid}/export")

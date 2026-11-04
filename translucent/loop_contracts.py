@@ -11,9 +11,9 @@ against), not ledger records.
 """
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, with_config
+from pydantic import BaseModel, ConfigDict, Field, model_serializer, with_config
 from typing_extensions import NotRequired, TypedDict
 
 from translucent.contracts import Uncertainty
@@ -21,6 +21,21 @@ from translucent.contracts import Uncertainty
 
 class _Frozen(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", allow_inf_nan=False)
+
+
+class _Additive(_Frozen):
+    """A payload that grew optional fields after records of it were written. A field named in _ADDED is left out of
+    the JSON form while it is None, so a record written before the field existed keeps its canonical form (and its
+    digest) byte for byte."""
+    _ADDED: ClassVar[tuple[str, ...]] = ()
+
+    @model_serializer(mode="wrap")
+    def _leave_out_unset_additions(self, handler):
+        out = handler(self)
+        for name in self._ADDED:
+            if out.get(name) is None:
+                out.pop(name, None)
+        return out
 
 
 # Same values as translucent.systems.base.ExecutorKind (S1); kept here so contracts import nothing from systems.
@@ -141,6 +156,8 @@ class StoredRecord(_Frozen):
     provenance: Provenance
     files: dict[str, str]                         # source filename -> artifact id
     ignored_columns: list[str] = []
+    # per table (datasets._import_note): lines passed over, repeated times, units only the manifest states, changes
+    import_notes: list[dict] = []
 
 
 class DatasetRecord(_Frozen):
@@ -224,7 +241,12 @@ class AutoRule(_Frozen):
     max_count: int = 0                            # 0 = no auto-approval
 
 
-class ObjectiveData(_Frozen):
+Evaluator = Literal["loop-compare/1", "loop-compare/2", "loop-compare/3"]
+ObjectiveKind = Literal["fastest_feasible", "hard_target"]
+
+
+class ObjectiveData(_Additive):
+    _ADDED: ClassVar[tuple[str, ...]] = ("kind", "uploads", "documentation")
     version: int = 1
     statement: str
     system: dict                                  # {"id","version","code_digest","spec": SystemSpec as JSON}
@@ -233,7 +255,8 @@ class ObjectiveData(_Frozen):
     target: Target
     constraints: list[Constraint]
     quantities: list[QuantityDef]                 # every target/constraint quantity is defined here
-    evaluator: Literal["loop-compare/1", "loop-compare/2"] = "loop-compare/2"   # /1 stays for objectives naming it
+    evaluator: Evaluator = "loop-compare/3"     # /1 and /2 stay for the objectives that name them
+    kind: ObjectiveKind | None = None             # /3 only: fastest_feasible, or hard_target (the target's limit)
     operators: Literal["ops/1"] = "ops/1"
     budget: dict                                  # {"model_usd": float, "experiments": int, "experiment_usd": float}
     auto_approve: list[AutoRule] = []
@@ -241,15 +264,23 @@ class ObjectiveData(_Frozen):
     planner: dict                                 # {"kind": "muse"|"muse_no_feedback"|"domain_baseline"|"external"
                                                   #   |"scripted", "profile": "meta"|"dev"|None, "client": {...}|None}
     registered_by: str                            # person name
+    # An investigation from the engineer's own records (translucent.records): the raw files as uploaded, [{name,
+    # sha256, bytes}], and their documentation as the engineer wrote or pasted it. The planner imports them itself.
+    uploads: list[dict] | None = None
+    documentation: str | None = None
 
 
-class AmendmentData(_Frozen):
+class AmendmentData(_Additive):
     """People only; never a planner tool."""
+    _ADDED: ClassVar[tuple[str, ...]] = ("budget",)
     version: int
     author: str
     reason: str
     target: Target | None = None
     constraints: list[Constraint] | None = None
+    # M2 (AUTH): a budget amendment, merged over the objective's budget (model_usd, experiments, experiment_usd,
+    # max_wall_s). Raising one needs an administrator (translucent.auth).
+    budget: dict | None = None
 
 
 class MeasurementData(_Frozen):
@@ -344,10 +375,14 @@ class FailureData(_Frozen):
 
 
 Verdict = Literal["candidate_better", "not_better", "violates_constraints", "inconclusive", "not_comparable"]
-Outcome = Literal["improved", "improved_in_simulation", "not_improved", "unresolved"]
+Outcome = Literal["improved", "improved_in_simulation", "not_improved", "unresolved",         # /1 and /2
+                  "objective_met", "objective_met_in_simulation", "faster_than_reference",       # /3
+                  "faster_than_reference_in_simulation", "feasible_only", "feasible_only_in_simulation",
+                  "no_feasible_result", "no_feasible_result_in_simulation"]
 
 
-class ComparisonData(_Frozen):
+class ComparisonData(_Additive):
+    _ADDED: ClassVar[tuple[str, ...]] = ("feasibility", "speed", "objective")
     evaluator: str
     objective_version: int
     basis: str
@@ -357,14 +392,19 @@ class ComparisonData(_Frozen):
     constraints: list[dict]                       # {"quantity","op","limit","value","h","ok": bool|None}
     verdict: Verdict
     reasons: list[str]
+    feasibility: dict | None = None               # /3: {"baseline", "candidate"}: "meets" | "fails" | "unknown"
+    speed: dict | None = None                     # /3: against a reference that meets the same constraints
+    objective: dict | None = None                 # /3: {"kind", "status", "target_limit"}
 
 
-class ConclusionData(_Frozen):
+class ConclusionData(_Additive):
+    _ADDED: ClassVar[tuple[str, ...]] = ("findings",)
     outcome: Outcome
     comparison_id: str | None
     text: str
     unresolved_reasons: list[str]
     author: str
+    findings: dict | None = None                  # /3: {"feasibility", "speed", "objective"}, computed and frozen
 
 
 class PlannerData(_Frozen):
@@ -390,7 +430,35 @@ RequestStateName = Literal["proposed", "awaiting_approval", "queued", "running",
 
 _STRICT = ConfigDict(extra="forbid")
 CampaignStatus = Literal["running", "waiting_for_approval", "waiting_for_result", "concluded", "stopped", "finished"]
-NextActionKind = Literal["awaiting_approval", "running", "awaiting_result", "planner_thinking", "none"]
+NextActionKind = Literal["awaiting_approval", "running", "awaiting_result", "planner_thinking", "planner_stopped",
+                         "none"]
+
+
+@with_config(_STRICT)
+class SummaryFeasibility(TypedDict):
+    baseline: Literal["meets", "fails", "unknown"]
+    best: Literal["meets", "fails", "unknown", "none"]
+    recovered: bool                               # the baseline fails the constraints and the best result meets them
+
+
+@with_config(_STRICT)
+class SummarySpeed(TypedDict):
+    status: Literal["faster", "not_faster", "not_compared"]
+
+
+@with_config(_STRICT)
+class SummaryObjective(TypedDict):
+    kind: Literal["fastest_feasible", "hard_target", "legacy"]
+    status: Literal["met", "not_met", "unknown", "open"]
+
+
+@with_config(_STRICT)
+class SummaryFindings(TypedDict):
+    """The assessment's three answers, compact, for the campaign list (loop_view.summary_fields)."""
+    basis: Literal["physical", "computational", "retrospective"]
+    feasibility: SummaryFeasibility
+    speed: SummarySpeed
+    objective: SummaryObjective
 
 
 @with_config(_STRICT)
@@ -402,10 +470,13 @@ class CampaignSummary(TypedDict):
     status: CampaignStatus
     created_at: float
     updated_at: float
-    objective: str                                # first 140 characters of the statement
+    objective: str                                # loop: the current version's summary; else the statement (140 ch)
     next_action: NextActionKind
     outcome: Outcome | None
     spend_usd: float
+    # Milestone 2, a concluded loop campaign: what the outcome rests on, so a feasibility recovery is never "improved"
+    assessment_headline: NotRequired[str]
+    findings: NotRequired[SummaryFindings]
 
 
 @with_config(_STRICT)
@@ -501,6 +572,10 @@ class ViewObjective(TypedDict):
     target: ViewTarget
     constraints: list[ViewConstraint]
     amendments: list[ViewAmendment]
+    # Milestone 2 (absent from views exported before it):
+    kind: NotRequired[Literal["fastest_feasible", "hard_target", "legacy"]]   # legacy: loop-compare/1 or /2
+    summary: NotRequired[str]                     # one line from the CURRENT version's target and constraints
+    statement_version: NotRequired[int]           # the objective version the statement was written for
 
 
 @with_config(_STRICT)
@@ -570,6 +645,13 @@ class PlannerThinking(TypedDict):
 
 
 @with_config(_STRICT)
+class PlannerStopped(TypedDict):
+    kind: Literal["planner_stopped"]
+    status: Literal["budget"]                     # the planner's last turn could not afford its next model request
+    title: str                                    # that turn's reason, with the dollars
+
+
+@with_config(_STRICT)
 class NothingNext(TypedDict):
     kind: Literal["none"]
 
@@ -636,6 +718,13 @@ class ViewFailure(TypedDict):
 
 
 @with_config(_STRICT)
+class ViewRevision(TypedDict):
+    by: str                                       # the actor who wrote the current version, e.g. "person:Ana"
+    version: int
+    words: str                                    # "revised by Ana (v2)"
+
+
+@with_config(_STRICT)
 class ViewRequest(TypedDict):
     request_id: str
     version: int
@@ -652,6 +741,8 @@ class ViewRequest(TypedDict):
     result: ViewResult | None
     rejections: list[ResultRejection]             # result_rejected records: uploads refused, with reasons
     failure: NotRequired[ViewFailure]             # a failed request: why it failed
+    role: NotRequired[Literal["experiment", "baseline", "reference"]]   # baseline/reference: system runs, unbudgeted
+    revision: NotRequired[ViewRevision]           # a revised request: who wrote the current version
 
 
 @with_config(_STRICT)
@@ -661,6 +752,8 @@ class ComparisonTarget(TypedDict):
     delta: float | None                           # improvement (positive is better); None unless both are values
     better: bool | None
     decided_by: NotRequired[Literal["feasibility"]]   # loop-compare/2 rule 5: it meets limits the baseline breaks
+    reference: NotRequired[float | None]          # loop-compare/3: the speed reference's value
+    against: NotRequired[Literal["baseline", "reference_search"] | None]   # /3: what delta and better are against
 
 
 @with_config(_STRICT)
@@ -673,6 +766,9 @@ class ViewComparison(TypedDict):
     constraints: list[ViewConstraintCheck]
     verdict: Verdict
     reasons: list[str]
+    feasibility: NotRequired[dict]                # loop-compare/3: {baseline, candidate}: meets / fails / unknown
+    speed: NotRequired[dict]                      # /3: {reference, status, faster, delta, reason}
+    objective: NotRequired[dict]                  # /3: {kind, status, target_limit}
 
 
 @with_config(_STRICT)
@@ -697,6 +793,24 @@ class ViewConclusion(TypedDict):
     comparison_id: str | None
     text: str
     unresolved_reasons: list[str]
+    findings: NotRequired[dict]                   # loop-compare/3: feasibility, speed and objective at the conclusion
+
+
+@with_config(_STRICT)
+class ViewUncertainty(TypedDict):
+    solver: dict | None                           # {rtol, atol, note}: numerical error; None for a measured basis
+    model: str                                    # the system's own statement of model error; never a made-up number
+
+
+@with_config(_STRICT)
+class ViewAssessment(TypedDict):
+    basis: str | None
+    feasibility: dict                             # {baseline, best, recovered, best_request_id}
+    speed: dict                                   # {reference, best, delta, faster, status, reason}
+    objective: dict                               # {kind, status, target_limit}
+    uncertainty: ViewUncertainty
+    headline: str
+    lines: list[str]
 
 
 @with_config(_STRICT)
@@ -707,10 +821,12 @@ class LoopView(TypedDict):
     objective: ViewObjective
     baseline: list[ViewBaseline]
     current_result: CurrentResult | None
-    next_action: AwaitingApproval | RequestInFlight | PlannerThinking | NothingNext
+    next_action: AwaitingApproval | RequestInFlight | PlannerThinking | PlannerStopped | NothingNext
     requests: list[ViewRequest]
     comparisons: list[ViewComparison]
     measurements_defined: list[MeasurementDefined]
     spend: Spend
     conclusion: ViewConclusion | None
     events_cursor: int
+    assessment: NotRequired[ViewAssessment]       # milestone 2: every campaign, legacy included
+    learning: NotRequired[dict]                   # a system that keeps model versions: its summary (thermal-learning/1)

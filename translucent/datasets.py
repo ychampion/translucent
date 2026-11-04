@@ -51,6 +51,8 @@ MAX_POINTS = 2_000_000                # rows per table, so points per channel
 MAX_IMPORT_POINTS = 16 * MAX_POINTS   # rows parsed, and series points held until stored, by one import
 MAX_JSON_TABLE_BYTES = 64 * 2**20     # parsed JSON takes many times its size; larger tables go as CSV
 MIN_ROWS = 2
+SKIPPED_LINE_CHARS = 200              # a line skip_rows passed over, as kept in the record
+LISTED_LINES = 20                     # lines named in an import note; the count is always whole
 LOCK_WAIT_S = 120.0                   # how long an import waits for another import into the ledger
 
 # free-text fields scrubbed of secret-looking strings; ids, filenames, column names and units are left alone
@@ -289,6 +291,9 @@ class _Table:
     encoding: str
     header_line: int | None = None
     names: list[str] = field(default_factory=list)      # every column the file has, in its order
+    skipped: list[dict] = field(default_factory=list)   # {"line", "text"}: the lines skip_rows passed over, as read
+    repeated: list[int] = field(default_factory=list)   # lines (rows of a JSON table) whose time equals the one before
+    first_line: int | None = None                       # the line of the first data row
 
     def ignored(self, spec: TableSpec) -> list[str]:
         """The file's columns that `spec` does not read."""
@@ -348,10 +353,22 @@ def _delimited(path: Path, spec: TableSpec, encoding: str) -> _Table:
         width = max(index.values()) + 1
         t: list[float] = []
         cols: dict[str, list[float]] = {c: [] for c in spec.columns}
-        blank = None
+        blank, skipped, repeated, first = None, [], [], None
         try:
             for _ in range(spec.skip_rows):
-                next(reader, None)
+                row = next(reader, None)
+                if row is None:
+                    break
+                line = spec.header_row + reader.line_num
+                if _data_row(row, index, width, spec.decimal):
+                    raise ValueError(
+                        f"{name}, line {line}: skip_rows {spec.skip_rows} would drop this line, but it is a row of "
+                        f"data (time {row[index[spec.time_column]].strip()!r}); skip_rows passes over lines between "
+                        f"the header and the data, such as a line of units, and never data. The lines before the "
+                        f"header are header_row ({spec.header_row} here); give skip_rows only for lines after the "
+                        "header that are not data")
+                skipped.append({"line": line, "text": delim.join(row)[:SKIPPED_LINE_CHARS],
+                                "cells": {c: row[i].strip() for c, i in index.items() if i < len(row)}})
             for row in reader:
                 line = spec.header_row + reader.line_num
                 if not any(f.strip() for f in row):
@@ -369,13 +386,72 @@ def _delimited(path: Path, spec: TableSpec, encoding: str) -> _Table:
                 v = _number(row[index[spec.time_column]], spec.decimal,
                             f"{name}, line {line}, column {spec.time_column!r}")
                 _check_time(t[-1] if t else None, v, f"{name}, line {line}, column {spec.time_column!r}")
+                if t and v == t[-1]:
+                    repeated.append(line)
+                first = first or line
                 t.append(v)
                 for c, values in cols.items():
                     values.append(_number(row[index[c]], spec.decimal, f"{name}, line {line}, column {c!r}"))
         except csv.Error as e:
             raise ValueError(f"{name}, line {spec.header_row + reader.line_num}: cannot read the "
                              f"{spec.format.upper()} ({e})") from None
-    return _Table(t, cols, len(t), encoding.removesuffix("-sig"), header_line, [h for h in header if h])
+    return _Table(t, cols, len(t), encoding.removesuffix("-sig"), header_line, [h for h in header if h],
+                  skipped, repeated, first)
+
+
+_UNIT_IN_NAME = re.compile(r"\[([^\]]+)\]|\(([^)]+)\)|/\s*([^/\s]+)\s*$")
+
+
+def _same_unit(text: str, unit: str) -> bool:
+    try:
+        return units.factor(text.strip(), unit) == (1, 0)
+    except ValueError:
+        return False
+
+
+def _unit_stated(column: str, unit: str, cells: list[str]) -> bool:
+    """Whether the file itself names `unit` for a column: in its header name ("Voltage [V]", "Ewe/V", "I (mA)") or
+    in a line skip_rows passed over (a units line under the header)."""
+    named = [g for m in _UNIT_IN_NAME.finditer(column) for g in m.groups() if g]
+    return any(_same_unit(x, unit) for x in [*named, *cells])
+
+
+def _import_note(tb: TableSpec, table: _Table, tbase: TimeBase) -> dict:
+    """What the import did to one table and what the file leaves open, as facts a reader can check against the
+    file: the lines it passed over, the rows that repeat a time, the units only the manifest states, and every
+    change between the text and the stored values."""
+    def cells(c):
+        return [s["cells"][c] for s in table.skipped if c in s["cells"]]
+
+    unstated = [{"column": c, "unit": u} for c, u in [(tb.time_column, tbase.unit),
+                                                       *((c, ch.unit) for c, ch in tb.columns.items())]
+                if u != "1" and not _unit_stated(c, u, cells(c))]     # a count or a code has no unit to state
+    changes = []
+    if tb.decimal == ",":
+        changes.append("decimal commas read as decimal points")
+    if tbase.unit != "s":
+        changes.append(f"time converted from {tbase.unit} to s")
+    if tbase.offset_s:
+        changes.append(f"{tbase.offset_s:g} s subtracted from the time column (the record clock)")
+    changes.append("values stored as written, in the units the manifest gives; analysis converts them to the "
+                   "system's units")
+    return {"file": tb.file, "header_line": table.header_line, "first_data_line": table.first_line,
+            "rows_read": table.rows,
+            "lines_skipped": [{"line": s["line"], "text": s["text"]} for s in table.skipped],
+            "repeated_times": {"count": len(table.repeated), "lines": table.repeated[:LISTED_LINES]},
+            "units_not_in_file": unstated, "changes": changes}
+
+
+def _data_row(row: list[str], index: dict[str, int], width: int, decimal: str) -> bool:
+    """Whether a line reads as a row of data: every column the table takes (time first) is a number."""
+    if len(row) < width:
+        return False
+    try:
+        for i in index.values():
+            _number(row[i], decimal, "")
+    except ValueError:
+        return False
+    return True
 
 
 class _NonFinite:
@@ -430,13 +506,16 @@ def _json_table(path: Path, spec: TableSpec) -> _Table:
         raise ValueError(f"{name}: more than {MAX_POINTS:,} rows; split the file")
     t: list[float] = []
     cols: dict[str, list[float]] = {c: [] for c in spec.columns}
+    repeated = []
     for i in rows:
         v = _json_number(value(i, spec.time_column), f"{name}, row {i + 1}, column {spec.time_column!r}")
         _check_time(t[-1] if t else None, v, f"{name}, row {i + 1}, column {spec.time_column!r}")
+        if t and v == t[-1]:
+            repeated.append(i + 1)
         t.append(v)
         for c, values in cols.items():
             values.append(_json_number(value(i, c), f"{name}, row {i + 1}, column {c!r}"))
-    return _Table(t, cols, len(t), "utf-8", None, names)
+    return _Table(t, cols, len(t), "utf-8", None, names, [], repeated, 1)
 
 
 def _table(path: Path, spec: TableSpec) -> _Table:
@@ -633,7 +712,9 @@ def _storing(L: Ledger):
 
 
 def _body(rec: DatasetRecord) -> dict:
-    return rec.model_dump(mode="json", exclude={"created_at"})
+    # import notes follow from the files and the manifest, both in the body; a record stored before notes existed
+    # has none, and is the same dataset
+    return rec.model_dump(mode="json", exclude={"created_at": True, "records": {"__all__": {"import_notes"}}})
 
 
 def _conflict(L: Ledger, rec: DatasetRecord) -> DatasetRecord | None:
@@ -677,9 +758,10 @@ def import_dataset(ledger: Ledger, manifest, files_root=None) -> DatasetRecord:
             return tables[key]
 
         for r in m.records:
-            files, channels, media, ignored = {}, [], [], []
+            files, channels, media, ignored, notes = {}, [], [], [], []
             for tb in r.tables:
                 table = table_of(tb)
+                notes.append(_import_note(tb, table, r.time))
                 fid = files[tb.file] = sha256_file_id(staged[tb.file])
                 writes.setdefault(tb.file, _Write(fid, "table", TABLE_TYPES[tb.format], f"{m.title}: {tb.file}",
                                                   source(tb.file), path=staged[tb.file]))
@@ -731,7 +813,8 @@ def import_dataset(ledger: Ledger, manifest, files_root=None) -> DatasetRecord:
                 configuration_units=r.configuration_units,
                 configuration_hash=configuration_hash(m.system, r.configuration, r.configuration_units),
                 conditions=r.conditions, conditions_units=r.conditions_units, time=r.time, channels=channels,
-                scalars=r.scalars, media=media, provenance=r.provenance, files=files, ignored_columns=ignored))
+                scalars=r.scalars, media=media, provenance=r.provenance, files=files, ignored_columns=ignored,
+                import_notes=notes))
         manifest_bytes = _json_bytes(m.model_dump(mode="json"))
         manifest_write = _Write(_artifact_id(manifest_bytes), "text", "application/json", f"{m.title}: manifest",
                                 source("manifest.json"), data=manifest_bytes)

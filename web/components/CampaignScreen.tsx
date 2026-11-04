@@ -191,7 +191,7 @@ export function CampaignScreen({ campaignKey }: { campaignKey: string }) {
       <div className="campaign is-empty"><PageHeader />
         <div className="center-empty">
           <p>Nothing running on your recordings yet.</p>
-          <a className="chip" href="/">Start a campaign</a>
+          <a className="chip" href="/examples/">Start a campaign</a>
         </div>
       </div>
     );
@@ -302,7 +302,7 @@ function ReplayDock({ store, view, campaignKey, player, model, live }: {
       label="Ask a new question"
       value={q}
       onChange={setQ}
-      onSubmit={() => router.push(`/?x=${campaignKey}&q=${encodeURIComponent(q.trim())}`)}
+      onSubmit={() => router.push(`/examples/?x=${campaignKey}&q=${encodeURIComponent(q.trim())}`)}
       placeholder="Ask a new question"
       canSend={!!q.trim()}
       left={left}

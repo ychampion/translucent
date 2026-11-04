@@ -46,7 +46,10 @@ MAX_ATTEMPTS = 3
 PENDING = frozenset({"awaiting_approval", "queued", "running", "awaiting_result"})
 REQUEST_ID = re.compile(r"^rq_[0-9a-f]{20}$")
 REGISTRATION = "policy:registration"
+REFERENCE = "policy:reference"       # the reference search's runs (translucent.loop_reference), loop-compare/3
+SYSTEM_RUNS = frozenset({REGISTRATION, REFERENCE})    # requests written by policy: never budgeted, never candidates
 RUNNER = "system:runner"
+AMENDED = "system:objective"         # withdraws proposals an amendment left waiting under an older objective version
 RESULTS = "system:results"           # records a person's refused upload
 _REQUEST_TYPES = frozenset({"request", "approval", "rejection", "cancellation", "execution", "result",
                             "result_rejected", "failure"})
@@ -106,6 +109,8 @@ def current_objective(L: Ledger, cid: str, records: list[LoopRecord] | None = No
                 update["target"] = a.target
             if a.constraints is not None:
                 update["constraints"] = a.constraints
+            if a.budget is not None:          # M2 (AUTH): a budget amendment, merged over the budget
+                update["budget"] = {**obj.budget, **a.budget}
             obj = obj.model_copy(update=update)
     if obj is None:
         raise NotFound(f"{cid} is not a loop campaign")
@@ -119,6 +124,8 @@ def adapter_for(obj: ObjectiveData) -> SystemAdapter:
 def system_snapshot(adapter: SystemAdapter) -> dict:
     """What the objective freezes about the system: id, version, code digest and the whole spec as JSON."""
     spec = json.loads(json.dumps(dataclasses.asdict(adapter.spec)))
+    if spec.get("objective_template") is None:      # milestone 2's field: a system without one freezes as before
+        spec.pop("objective_template", None)
     return {"id": adapter.spec.id, "version": adapter.spec.version, "code_digest": adapter.code_digest(),
             "spec": spec}
 
@@ -182,6 +189,20 @@ def objective_problems(L: Ledger, obj: ObjectiveData, adapter: SystemAdapter) ->
         out.append("budget.experiments must be a whole number of experiments, 0 or more")
     if not obj.registered_by.strip():
         out.append("registered_by names the person who registers the objective")
+    from translucent.records import MAX_DOC_CHARS
+    doc = getattr(obj, "documentation", None)
+    if isinstance(doc, str) and len(doc) > MAX_DOC_CHARS:
+        out.append(f"documentation is {len(doc)} characters; the planner reads at most {MAX_DOC_CHARS}: shorten it "
+                   "or upload it as a file")
+    # a campaign its planner could never plan is refused here, rather than left running with nothing to say why
+    kind = obj.planner.get("kind")
+    if kind == "domain_baseline" and adapter.baseline_policy() is None:
+        out.append(f"{adapter.spec.id} has no baseline policy for the domain baseline planner to run; choose an "
+                   "agent planner")
+    if kind in ("muse", "muse_no_feedback"):
+        usd = obj.budget.get("model_usd")
+        if isinstance(usd, bool) or not isinstance(usd, (int, float)) or not usd > 0:
+            out.append("a model planner needs a model budget (budget.model_usd) above 0")
     return out
 
 
@@ -217,6 +238,10 @@ def open_campaign(L: Ledger, objective: ObjectiveData | dict, title: str, *, act
                 raise AdmissionError(f"the objective names {sid} {k} {system[k]}; the registered adapter has "
                                      f"{snapshot[k]}")
     data["system"] = snapshot
+    if data.get("evaluator", "loop-compare/3") == "loop-compare/3" and data.get("kind") is None:
+        target = data.get("target")             # the objective records its kind: a target limit is a hard target
+        data["kind"] = "hard_target" if isinstance(target, dict) and target.get("limit") is not None \
+            else "fastest_feasible"
     obj = chain.PAYLOADS["objective"].model_validate(chain.payload("objective", data))
     if problems := objective_problems(L, obj, adapter):
         raise AdmissionError("; ".join(problems))
@@ -229,6 +254,9 @@ def open_campaign(L: Ledger, objective: ObjectiveData | dict, title: str, *, act
         if obj.baseline_simulation:
             for ref in obj.baseline:
                 _register_baseline_run(L, cid, obj, adapter, ref)
+        if created:                             # loop-compare/3: the reference search's first step, pre-approved
+            from translucent import loop_reference
+            loop_reference.queue(L, cid)
     return cid, rec, created
 
 
@@ -289,6 +317,18 @@ def build_request(adapter: SystemAdapter, obj: ObjectiveData, action: str, param
                 evidence_ids=list(evidence_ids), objective_version=obj.version,
                 procedure=adapter.procedure(action, params) if spec.executor == "human" else None, due_by=due_by)
     return RequestData.model_validate(chain.payload("request", body | {"content_hash": chain.content_hash(body)}))
+
+
+def bind_params(L, cid: str, obj: ObjectiveData, adapter: SystemAdapter, action: str, params: dict) -> dict:
+    """The proposer's parameters plus those the system derives from the ledger and the objective in force (a model
+    version's definition, the lab tests a fit uses, the objective's limits). Admission derives them again."""
+    bind = getattr(adapter, "bind", None)
+    if bind is None:
+        return params
+    try:
+        return bind(L, cid, obj, request_states(L, cid), action, params)
+    except ValueError as e:
+        raise AdmissionError(str(e)) from None
 
 
 def request_problems(adapter: SystemAdapter, obj: ObjectiveData, req: RequestData) -> list[str]:
@@ -431,10 +471,57 @@ def request_states(L: Ledger, cid: str, records: list[LoopRecord] | None = None)
     return out
 
 
+def withdrawn_reason(version: int) -> str:
+    return f"objective amended to v{version}"
+
+
+def _terms(target: dict, constraints: list) -> tuple:
+    """What an objective version asks: its target and constraints without their labels."""
+    t = (target["quantity"], target["unit"], target["direction"], float(target.get("margin", 0.0)),
+         None if target.get("limit") is None else float(target["limit"]))
+    return t, sorted((c["quantity"], c["op"], float(c["limit"]), c["unit"]) for c in constraints)
+
+
+def terms_version(records: list[LoopRecord], version: int) -> int:
+    """The objective version, at or before `version`, of the last amendment that changed the target or the
+    constraints (a budget or a label alone changes neither); 1 when none did."""
+    since, target, constraints = 1, None, None
+    for rec in records:
+        if rec.type == "objective":
+            target, constraints = rec.data["target"], rec.data["constraints"]
+        elif rec.type == "amendment" and target is not None and rec.data["version"] <= version:
+            new_t = rec.data.get("target") or target
+            new_c = rec.data["constraints"] if rec.data.get("constraints") is not None else constraints
+            if _terms(new_t, new_c) != _terms(target, constraints):
+                since = rec.data["version"]
+            target, constraints = new_t, new_c
+    return since
+
+
+def withdraw_superseded(L: Ledger, cid: str) -> list[LoopRecord]:
+    """Cancel, as the system (AMENDED), every request still awaiting approval whose current version was proposed
+    before the last amendment that changed the target or the constraints: that amendment supersedes it. It no longer
+    counts against the budget and the planner is called again (a cancellation starts a turn). An amendment of the
+    budget or of a label alone withdraws nothing; approved, queued and running requests are untouched. Idempotent;
+    one savepoint."""
+    out = []
+    with L.transaction():
+        recs = chain.records(L, cid)
+        obj = current_objective(L, cid, recs)
+        since = terms_version(recs, obj.version)
+        for st in request_states(L, cid, recs).values():
+            if st.state == "awaiting_approval" and st.data.objective_version < since:
+                out.append(chain.append(L, cid, "cancellation",
+                                        CancellationData(request_id=st.request_id, author=AMENDED,
+                                                         reason=withdrawn_reason(since)),
+                                        AMENDED, chain.natural_id("cnl", st.request_id)))
+    return out
+
+
 def experiments_used(states: dict[str, RequestState]) -> int:
     """Requests that count against budget.experiments: every one the agent or a person proposed, except those
-    rejected or cancelled. Registration baseline re-runs do not count."""
-    return sum(s.proposed_by != REGISTRATION and s.state not in ("rejected", "cancelled") for s in states.values())
+    rejected or cancelled. Registration baseline re-runs and reference-search runs do not count."""
+    return sum(s.proposed_by not in SYSTEM_RUNS and s.state not in ("rejected", "cancelled") for s in states.values())
 
 
 # ------------------------------------------------------------------ claims (design §2.6)
@@ -460,6 +547,16 @@ def computed_outcome(L: Ledger, cid: str, records: list[LoopRecord] | None = Non
     from translucent import loop_compare
     outcome, comparison, _ = loop_compare.outcome(L, cid, records)
     return outcome, comparison
+
+
+def computed_findings(L: Ledger, cid: str, records: list[LoopRecord] | None = None) -> dict | None:
+    """The conclusion's findings under loop-compare/3 ({"feasibility", "speed", "objective"}, computed like the
+    outcome); None under /1 and /2, whose conclusions record none."""
+    from translucent import loop_compare
+    recs = chain.records(L, cid) if records is None else records
+    if current_objective(L, cid, recs).evaluator != "loop-compare/3":
+        return None
+    return loop_compare.findings(L, cid, recs)
 
 
 # ------------------------------------------------------------------ admission
@@ -498,6 +595,30 @@ def _admit_objective(L: Ledger, rec: LoopRecord, obj: ObjectiveData):
             _refuse("an agent cannot pre-approve experiments: auto_approve and baseline_simulation are a person's")
         if obj.planner.get("kind") != "external":
             _refuse("an agent registers only campaigns it plans itself (planner kind external)")
+    if problems := kind_problems(obj.evaluator, obj.kind, obj.target.limit) + \
+            margin_problems(obj.evaluator, obj.target.margin):
+        _refuse("; ".join(problems))
+
+
+def margin_problems(evaluator: str, margin: float) -> list[str]:
+    """loop-compare/3 calls a result faster only when it is faster: its target margin is 0 or more. (/1 and /2 keep
+    their rule, where a negative margin allowed that much slowdown.)"""
+    if evaluator == "loop-compare/3" and margin < 0:
+        return [f"the target's margin cannot be negative under loop-compare/3 (it is {margin:g}): a result is called "
+                "faster only when it is faster than the reference by more than the margin"]
+    return []
+
+
+def kind_problems(evaluator: str, kind: str | None, target_limit: float | None) -> list[str]:
+    """An objective's kind agrees with its evaluator and target: only loop-compare/3 names one; a hard target is the
+    target's limit, and an objective asking for the fastest protocol has none."""
+    if evaluator != "loop-compare/3":
+        return [f"{evaluator} objectives name no kind; loop-compare/3 does"] if kind is not None else []
+    if kind == "hard_target" and target_limit is None:
+        return ["a hard_target objective states its target as the target's limit"]
+    if kind == "fastest_feasible" and target_limit is not None:
+        return ["a fastest_feasible objective has no target limit; set kind hard_target to require one"]
+    return []
 
 
 @chain.admission("amendment")
@@ -507,8 +628,10 @@ def _admit_amendment(L: Ledger, rec: LoopRecord, a: AmendmentData):
     obj = current_objective(L, rec.campaign_id)
     if a.version != obj.version + 1:
         _refuse(f"the next objective version is {obj.version + 1}")
-    if a.target is None and a.constraints is None:
-        _refuse("an amendment changes the target, the constraints or both")
+    if a.target is None and a.constraints is None and a.budget is None:
+        _refuse("an amendment changes the target, the constraints, the budget or more than one")
+    if a.budget is not None and (problems := budget_amendment_problems(a.budget)):
+        _refuse("; ".join(problems))
     defined = {q.name: q.unit for q in obj.quantities}
     for quantity, unit in ([(a.target.quantity, a.target.unit)] if a.target else []) + \
             [(c.quantity, c.unit) for c in a.constraints or []]:
@@ -519,6 +642,31 @@ def _admit_amendment(L: Ledger, rec: LoopRecord, a: AmendmentData):
                 _refuse(f"{quantity}: {unit} does not measure the same thing as {defined[quantity]}")
         except ValueError as e:
             _refuse(f"{quantity}: {e}")
+    if a.target is not None and obj.evaluator == "loop-compare/3":      # the kind stays; a hard target changes
+        kind = obj.kind or ("hard_target" if obj.target.limit is not None else "fastest_feasible")   # only here
+        if problems := kind_problems(obj.evaluator, kind, a.target.limit):
+            _refuse("; ".join(problems) + " (an amendment keeps the objective's kind)")
+        if problems := margin_problems(obj.evaluator, a.target.margin):
+            _refuse("; ".join(problems))
+
+
+BUDGET_KEYS =("model_usd", "experiments", "experiment_usd", "max_wall_s", "lab_tests")
+
+
+def budget_amendment_problems(budget) -> list[str]:
+    """M2 (AUTH): why a budget amendment is refused: it names budget keys only, experiments a whole number, the
+    others finite numbers, all 0 or more. Who may raise a budget is checked before (translucent.loop_service)."""
+    if not isinstance(budget, dict) or not budget:
+        return ["a budget amendment names one or more of " + ", ".join(BUDGET_KEYS)]
+    out = [f"budget.{k} is not a budget field ({', '.join(BUDGET_KEYS)})" for k in budget if k not in BUDGET_KEYS]
+    for k, v in budget.items():
+        if k == "experiments":
+            if isinstance(v, bool) or not isinstance(v, int) or v < 0:
+                out.append("budget.experiments must be a whole number of experiments, 0 or more")
+        elif k in BUDGET_KEYS and (isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v)
+                                   or v < 0):
+            out.append(f"budget.{k} must be a finite number, 0 or more")
+    return out
 
 
 def measurement_problems(obj: ObjectiveData, m: MeasurementData) -> list[str]:
@@ -544,11 +692,22 @@ def _admit_measurement(L: Ledger, rec: LoopRecord, m: MeasurementData):
 @chain.admission("request")
 def _admit_request(L: Ledger, rec: LoopRecord, req: RequestData):
     kind, cid = actor_kind(rec.actor), rec.campaign_id
-    if kind not in ("agent", "person") and rec.actor != REGISTRATION:
+    if kind not in ("agent", "person") and rec.actor not in SYSTEM_RUNS:
         _refuse("experiments are requested by an agent or a person")
     ctx = _ctx(L, cid)
     if rec.actor == REGISTRATION and not ctx.objective.baseline_simulation:
         _refuse("registration requests exist only for an objective with baseline_simulation")
+    if rec.actor == REFERENCE:
+        from translucent import loop_reference
+        s = loop_reference.state(L, cid, ctx.objective, ctx.states, ctx.records)
+        if s is None:
+            _refuse("reference-search runs exist only for a loop-compare/3 fastest_feasible objective with "
+                    "baseline_simulation, on a system that defines a reference search")
+        nxt = s["next"] or {}
+        if s["status"] != "due" or req.version != 1 or req.request_id != nxt.get("request_id") or \
+                req.action != s["spec"]["action"] or dict(req.params) != nxt.get("params"):
+            _refuse(f"request {req.request_id} is not the reference search's next step (the search is "
+                    f"{s['status']}" + (f"; step {nxt['step']} is {nxt['request_id']}" if nxt else "") + ")")
     if not REQUEST_ID.match(req.request_id):
         _refuse("request_id is rq_ followed by 20 hex digits")
     st = ctx.states.get(req.request_id)
@@ -560,6 +719,8 @@ def _admit_request(L: Ledger, rec: LoopRecord, req: RequestData):
     else:
         if st is None:
             _refuse(f"request {req.request_id} is not a request of this campaign")
+        if req.action != st.action:
+            _refuse(f"a revision keeps the action: {req.request_id} is {st.action}")
         if req.version != st.version + 1 or req.supersedes != st.record.id:
             raise StaleRequest(f"a revision of {req.request_id} is version {st.version + 1}, superseding "
                                f"{st.record.id}")
@@ -567,25 +728,31 @@ def _admit_request(L: Ledger, rec: LoopRecord, req: RequestData):
             _refuse(f"request {req.request_id} is {st.state}; only a request awaiting approval is revised")
         if kind == "agent" and rec.actor != st.proposed_by:
             _refuse("an agent revises only its own requests")
-        if rec.actor == REGISTRATION:
-            _refuse("registration requests are not revised")
+        if rec.actor in SYSTEM_RUNS or st.proposed_by in SYSTEM_RUNS:
+            _refuse("registration and reference-search requests are not revised")
     try:
         adapter = adapter_for(ctx.objective)
     except KeyError as e:
         _refuse(f"{e.args[0]}: this process cannot check the request")
     if problems := request_problems(adapter, ctx.objective, req):
         _refuse("; ".join(problems))
+    only = ctx.objective.planner.get("actions")
+    if kind == "agent" and isinstance(only, list) and req.action not in only:
+        _refuse(f"{req.action} is not among the actions this campaign's registering person allowed its agent")
+    if (bound := getattr(adapter, "admission_problems", None)) is not None and \
+            (problems := bound(L, cid, ctx.objective, req, ctx.states)):
+        _refuse("; ".join(problems))
     for eid in req.evidence_ids:
-        if not _evidence_of(L, cid, ctx.objective, eid):
+        if not _evidence_of(L, cid, ctx.objective, eid, ctx.states):
             _refuse(f"evidence {eid} is not a record of this campaign")
-    if req.version == 1 and rec.actor != REGISTRATION:
+    if req.version == 1 and rec.actor not in SYSTEM_RUNS:
         limit = ctx.objective.budget.get("experiments")
         if limit is not None and experiments_used(ctx.states) >= limit:
             _refuse(f"the experiment budget is spent: {experiments_used(ctx.states)} of {limit} experiments are "
                     f"requested or done")
         usd = ctx.objective.budget.get("experiment_usd")
         spent = sum(float(s.data.cost.get("usd", 0.0)) for s in ctx.states.values()
-                    if s.proposed_by != REGISTRATION and s.state not in ("rejected", "cancelled"))
+                    if s.proposed_by not in SYSTEM_RUNS and s.state not in ("rejected", "cancelled"))
         if usd is not None and req.cost.get("usd", 0.0) > 0 and spent + req.cost["usd"] > usd:
             _refuse(f"the experiment budget is spent: ${spent:.2f} of ${usd:.2f} committed")
     dup = next((s for s in ctx.states.values() if s.request_id != req.request_id and s.state in PENDING and
@@ -594,7 +761,7 @@ def _admit_request(L: Ledger, rec: LoopRecord, req: RequestData):
         raise DuplicateRequest(dup.request_id)
 
 
-def _evidence_of(L: Ledger, cid: str, obj: ObjectiveData, eid: str) -> bool:
+def _evidence_of(L: Ledger, cid: str, obj: ObjectiveData, eid: str, states=None) -> bool:
     kind = L.kind_of(eid)
     if kind == "loop":
         return L.get("loop", eid).campaign_id == cid
@@ -603,7 +770,11 @@ def _evidence_of(L: Ledger, cid: str, obj: ObjectiveData, eid: str) -> bool:
     if kind == "measurement":
         run = L.get("run", L.get("measurement", eid).run_id)
         return run is not None and run.campaign_id == cid
-    return eid in obj.datasets or eid in obj.baseline
+    if eid in obj.datasets or eid in obj.baseline or eid in (states or {}):    # states: this campaign's requests
+        return True
+    # a dataset the campaign imported, or one of its records as the planner sees them ("dataset/record")
+    from translucent.records import campaign_records, imported
+    return eid in imported(L, cid) or any(ref == eid for ref, _ in campaign_records(L, obj, cid))
 
 
 def _latest_version(st: RequestState, record_id: str, content_hash: str):
@@ -627,6 +798,10 @@ def _admit_approval(L: Ledger, rec: LoopRecord, a: ApprovalData):
     elif rec.actor == REGISTRATION:
         if a.rule != "registration" or st.proposed_by != REGISTRATION:
             _refuse("the registration rule approves only the baseline re-runs written at registration")
+    elif rec.actor == REFERENCE:
+        if a.rule != "reference" or st.proposed_by != REFERENCE or a.author != ctx.objective.registered_by:
+            _refuse("the reference rule approves only the reference search's own runs, under the registering "
+                    "person's pre-approval")
     elif (m := re.fullmatch(r"policy:auto/([1-9][0-9]*)", rec.actor)) and a.rule == f"auto/{m.group(1)}":
         n, obj = int(m.group(1)), ctx.objective
         if n > len(obj.auto_approve) or actor_kind(ctx.records[0].actor) != "person":
@@ -653,6 +828,16 @@ def _admit_rejection(L: Ledger, rec: LoopRecord, r: RejectionData):
 @chain.admission("cancellation")
 def _admit_cancellation(L: Ledger, rec: LoopRecord, c: CancellationData):
     kind = actor_kind(rec.actor)
+    if rec.actor == AMENDED:             # the system withdraws a proposal an amendment superseded, and nothing else
+        ctx = _ctx(L, rec.campaign_id)
+        st = ctx.state(c.request_id)
+        since = terms_version(ctx.records, ctx.objective.version)
+        if c.author != AMENDED or st.state != "awaiting_approval" or st.data.objective_version >= since or \
+                c.reason != withdrawn_reason(since):
+            _refuse(f"{AMENDED} withdraws only a request awaiting approval that was proposed under an older "
+                    f"objective version than the last amendment that changed the target or the constraints "
+                    f"(v{since}), with the reason \"{withdrawn_reason(since)}\"")
+        return
     if kind not in ("person", "agent") or not _authored_by(c.author, rec.actor):
         _refuse("a request is cancelled by a person, or by the agent that proposed it, under their own name")
     st = _ctx(L, rec.campaign_id).state(c.request_id)
@@ -780,6 +965,8 @@ def _admit_conclusion(L: Ledger, rec: LoopRecord, c: ConclusionData):
     outcome, comparison = computed_outcome(L, rec.campaign_id)
     if (c.outcome, c.comparison_id) != (outcome, comparison):
         _refuse(f"the outcome is computed from the comparisons: {outcome} ({comparison or 'no comparison'})")
+    if c.findings != computed_findings(L, rec.campaign_id):
+        _refuse("the findings are computed from the comparisons (loop-compare/3 records them; /1 and /2 none)")
 
 
 @chain.admission("planner")

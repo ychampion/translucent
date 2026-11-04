@@ -10,6 +10,7 @@ dependencies = [
     "numpy>=2.0",
     "opencv-python-headless>=4.10",
     "pydantic>=2.8",
+    "typing-extensions>=4.14",
     "meta-sam-parser==0.1.0",
     "fastapi>=0.115",
     "uvicorn>=0.30",
@@ -20,7 +21,7 @@ dependencies = [
 translucent = "translucent.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8", "httpx>=0.27"]
+dev = ["pytest>=8", "httpx>=0.27", "pyyaml>=6.0"]
 # The computational executor for the pybamm-fastcharge system (uv sync --group solver). Pinned exactly: results are
 # hashed and bit-identical replay holds only within these versions. Never imported by the API or MCP processes.
 solver = ["pybamm==26.10.1.1", "casadi==3.8.1", "pybammsolvers==0.11.1"]

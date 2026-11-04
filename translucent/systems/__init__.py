@@ -16,10 +16,12 @@ def _builtins() -> None:
     global _BUILTINS_LOADED
     if not _BUILTINS_LOADED:
         from translucent.systems.lgm50_fastcharge import FastChargeAdapter
+        from translucent.systems.lgm50_lab import LabAdapter
         from translucent.systems.nist_heat import NistHeatAdapter
 
         _ADAPTERS.setdefault("nist-heat-interrupt", NistHeatAdapter())
         _ADAPTERS.setdefault("pybamm-fastcharge", FastChargeAdapter())
+        _ADAPTERS.setdefault("pybamm-fastcharge-lab", LabAdapter())
         _BUILTINS_LOADED = True
 
 

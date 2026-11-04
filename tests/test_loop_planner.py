@@ -49,11 +49,10 @@ def L(tmp_path):
 
 def _inline(monkeypatch):
     """Run computational requests in this process, hashing the output alone, and record a fixed worker: two runs of
-    one campaign in different folders then record identical bytes. (The real child's payload hash covers its
-    absolute work-folder paths, so its run and measurement ids differ between ledger folders.)"""
+    one campaign in different folders then record identical bytes."""
     def run(L, cid, req, adapter, *, worker, workdir, timeout_s):
         out = adapter.execute(req.action, dict(req.data.params), workdir)
-        body = exec_child.encode_output(out)
+        body = exec_child.encode_output(out, workdir)
         body.pop("files")
         return ingest_output(L, cid, req, out, adapter=adapter, basis="computational", submitted_by=RUNNER,
                              attempt=req.attempt, payload_sha256=chain.digest(body), run_params={"worker": worker})
@@ -385,6 +384,10 @@ def test_stops_are_recorded_for_the_session_and_the_campaign_model_budget(L):
     assert finished(L, cid2) == ["budget"]
     # a stopped turn is not re-run until something new happens
     assert turn_due(L, cid2) == []
+    # and the view says the planner stopped on its budget, rather than that it will propose when its turn comes
+    stopped = LoopService(L, ANA).view(cid2)["next_action"]
+    assert stopped["kind"] == "planner_stopped" and stopped["status"] == "budget"
+    assert stopped["title"] == result["reason"]
 
 
 # ------------------------------------------------------------------ 6. evidence from another campaign is refused
@@ -472,7 +475,8 @@ def test_an_interrupted_turn_is_closed_and_run_again(L):
 # ------------------------------------------------------------------ variants: no feedback, domain baseline, muse
 
 def test_the_no_feedback_arm_proposes_the_budget_in_one_turn_and_never_sees_a_result(L, inline):
-    cid = open_loop(L, kind="muse_no_feedback", budget={"model_usd": 0.0, "experiments": 3, "experiment_usd": 0.0})
+    # a model planner needs a model budget to open; the scripted planner spends none of it
+    cid = open_loop(L, kind="muse_no_feedback", budget={"model_usd": 1.0, "experiments": 3, "experiment_usd": 0.0})
     planner = ScriptedLoopPlanner([[_proposal(2.0, 0.04, 45.0, "One.")],
                                    [_proposal(6.0, 0.04, 45.0, "Two."), _proposal(10.0, 0.04, 45.0, "Three.")]])
     result = run_turn(L, cid, planner)
@@ -512,8 +516,9 @@ def test_baseline_history_carries_results_and_constraint_changes(L, inline):
     LoopService(L, ANA).amend(cid, "tighter", constraints=[{"quantity": "max_temperature", "op": "<=",
                                                             "limit": 42.0, "unit": "degC", "label": "42"}])
     history = baseline_history(L, cid)
-    assert [set(h) for h in history[:5]] == [{"action", "params", "state", "result"}] * 5
-    assert history[0]["result"]["max_temperature"] == pytest.approx(25.0 + 0.04 * (1 - math.exp(-90)), abs=1e-6)
+    assert history[0] == {"constraints": {"max_temperature": 45.0}, "objective_version": 1}    # as registered
+    assert [set(h) for h in history[1:6]] == [{"action", "params", "state", "result"}] * 5
+    assert history[1]["result"]["max_temperature"] == pytest.approx(25.0 + 0.04 * (1 - math.exp(-90)), abs=1e-6)
     assert history[-1] == {"constraints": {"max_temperature": 42.0}, "objective_version": 2}
 
 

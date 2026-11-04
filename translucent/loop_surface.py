@@ -15,7 +15,7 @@ from translucent import chain
 from translucent.loop_service import CAPABILITIES
 
 IDEMPOTENCY_KEY = re.compile(r"[A-Za-z0-9_.:-]{1,128}\Z")
-FREE_PLANNERS = frozenset({"external", "scripted", "domain_baseline"})   # spend nothing: the team token is enough
+FREE_PLANNERS = frozenset({"external", "scripted", "domain_baseline"})   # spend nothing: an engineer's key is enough
 
 
 def surface_capabilities() -> dict[str, frozenset[str]]:
@@ -89,7 +89,7 @@ def replay(service, op: str, cid: str, **body) -> dict | None:
         return None
     sent = chain.payload("amendment", {"version": rec.data.get("version"), "author": service.actor.name,
                                        "reason": body["reason"], "target": body.get("target"),
-                                       "constraints": body.get("constraints")})
+                                       "constraints": body.get("constraints"), "budget": body.get("budget")})
     if rec.campaign_id != cid or sent != rec.data:
         raise chain.ChainConflict("this idempotency key was used for a different amendment")
     compared = [r for r in chain.records(service.L, cid)          # recorded with the amendment, under its version

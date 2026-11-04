@@ -11,6 +11,10 @@ from translucent.intervention_gate import install as _install_intervention_gate
 
 _install_intervention_gate()
 
+# A stop or restart waits at most this long for open connections: an open campaign page holds its update stream
+# until the server closes it, so an unbounded wait never ends while anyone has the page open.
+STREAM_CLOSE_S = 5
+
 HERO = ("How fast do the lithium filaments grow across the solid electrolyte, does the battery short when they "
         "bridge it, and does it recover when they retract?")
 
@@ -27,27 +31,74 @@ def _new_ledger_note(path):
         print(f"Creating a new ledger at {path}", file=sys.stderr)
 
 
-def _team_server(data_root) -> None:
-    """A data-root server for one team: the web app on this machine (bun run dev, port 3000) may call it, and people
-    approve with the team key. Without TRANSLUCENT_TEAM_TOKEN the key is kept in the data root's team-key file, made
-    once: whoever can read that folder can already write the ledgers in it."""
+def _team_server(data_root, person: str | None = None) -> None:
+    """A data-root server for one team: the web app on this machine (bun run dev, port 3000) may call it. With no
+    credentials file yet (and no TRANSLUCENT_TEAM_TOKEN), one engineer key is made for `person` (serve: the OS user
+    name), printed once and kept in the data root's team-key file, readable by its owner only: whoever can read that
+    folder can already write the ledgers in it. More keys: `translucent keys add`."""
+    from translucent.auth import CredentialStore, new_key
     if not os.environ.get("TRANSLUCENT_CORS_ORIGINS"):
         os.environ["TRANSLUCENT_CORS_ORIGINS"] = "http://localhost:3000,http://127.0.0.1:3000"
-    if os.environ.get("TRANSLUCENT_TEAM_TOKEN"):
-        print("Team key: the value of TRANSLUCENT_TEAM_TOKEN")
+    store = CredentialStore(Path(data_root) / "credentials.json")
+    if store.exists():
+        active = [c for c in store.list() if c.get("revoked_at") is None]
+        print(f"Keys: {len(active)} active in {store.path} (translucent keys list --data-root {data_root})")
         return
-    import secrets
+    if os.environ.get("TRANSLUCENT_TEAM_TOKEN"):
+        print("Team key: the value of TRANSLUCENT_TEAM_TOKEN (an engineer's key)")
+        return
+    if not person:
+        import getpass
+        try:
+            person = getpass.getuser()
+        except (OSError, KeyError, ImportError):
+            person = "operator"
     path = Path(data_root) / "team-key"
-    try:                                   # made once, readable by its owner only
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    except FileExistsError:
-        pass
-    else:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(secrets.token_urlsafe(18) + "\n")
-    os.environ["TRANSLUCENT_TEAM_TOKEN"] = path.read_text(encoding="utf-8").strip()
-    print(f"Team key (the web app asks for it before an approval): {os.environ['TRANSLUCENT_TEAM_TOKEN']}  "
+    key = new_key()
+    path.unlink(missing_ok=True)           # a key from before credentials existed is replaced, not kept
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(key + "\n")
+    store.add(person, "engineer", "*", key=key)
+    print(f"Key for {person}, engineer (shown once; the web app asks for it once per session): {key}  "
           f"[kept in {path}]")
+
+
+def _credentials_path(args) -> Path:
+    """credentials.json of a data root (--data-root or TRANSLUCENT_DATA_ROOT), else of a one-ledger server's state
+    folder (--state, TRANSLUCENT_STATE_DIR, state/api)."""
+    root = args.data_root or os.environ.get("TRANSLUCENT_DATA_ROOT")
+    if root:
+        return Path(root) / "credentials.json"
+    return Path(args.state or os.environ.get("TRANSLUCENT_STATE_DIR") or "state/api") / "credentials.json"
+
+
+def _keys(args, parser) -> int:
+    from translucent.auth import CredentialStore
+    store = CredentialStore(_credentials_path(args))
+    if args.keys_command == "add":
+        try:
+            cred, key = store.add(args.name, args.role, args.ledgers or "*")
+        except ValueError as e:
+            parser.error(str(e))
+        scope = "every ledger" if cred.ledgers == "*" else "ledgers " + ", ".join(cred.ledgers)
+        print(f"Added {cred.id}: {cred.name}, {cred.role}, {scope}")
+        print(f"Key (shown once, only its hash is kept): {key}")
+        return 0
+    if args.keys_command == "list":
+        rows = store.list()
+        if not rows:
+            print(f"No keys in {store.path}")
+        for c in rows:
+            scope = "*" if c["ledgers"] == "*" else ",".join(c["ledgers"])
+            print(f"{c['id']}  {c['role']:8s}  {c['name']}  ledgers {scope}" +
+                  ("  (revoked)" if c.get("revoked_at") else ""))
+        return 0
+    if not store.revoke(args.id):
+        print(f"No active key {args.id} in {store.path}", file=sys.stderr)
+        return 1
+    print(f"Revoked {args.id}; its key and browser sessions no longer work")
+    return 0
 
 
 def _add_experiment(args, parser):
@@ -235,12 +286,27 @@ def main(argv=None):
                             "TRANSLUCENT_ADMIN_TOKEN)")
     start.add_argument("--host", default="127.0.0.1")
     start.add_argument("--port", type=int, default=8000)
+    keys = commands.add_parser("keys", help="Add, list or revoke the keys people and agents use (offline)")
+    keys_commands = keys.add_subparsers(dest="keys_command", required=True)
+    keys_add = keys_commands.add_parser("add", help="Make a key; it is printed once and only its hash is kept")
+    keys_add.add_argument("--name", required=True, help="The person or agent the key acts as")
+    keys_add.add_argument("--role", required=True, choices=["admin", "engineer", "viewer", "planner"])
+    keys_add.add_argument("--ledger", action="append", dest="ledgers", default=None,
+                          help="A ledger the key may use (repeatable; default: every ledger)")
+    keys_list = keys_commands.add_parser("list", help="List keys (never the keys themselves)")
+    keys_revoke = keys_commands.add_parser("revoke", help="Revoke a key and its browser sessions")
+    keys_revoke.add_argument("id")
+    for p in (keys_add, keys_list, keys_revoke):
+        p.add_argument("--data-root", default=None, help="The served data root (its credentials.json)")
+        p.add_argument("--state", default=None, help="A one-ledger server's state folder (default state/api)")
     from translucent import mcp_server
     mcp = mcp_server.add_arguments(commands.add_parser(
         "mcp", help="Serve a ledger to an agent over MCP on stdin/stdout (read-only unless --write)"))
     args = parser.parse_args(argv)
     if args.command == "mcp":
         return mcp_server.run(args, mcp)
+    if args.command == "keys":
+        return _keys(args, keys)
     if args.command == "intervene":
         import math
         import time
@@ -347,8 +413,12 @@ def main(argv=None):
         from translucent.start import StartError, start_fastcharge
         if args.planner == "muse" and args.serve and not args.live:
             parser.error("the muse planner makes paid model calls: add --live, or choose --planner bo or external")
-        if args.live and not os.environ.get("TRANSLUCENT_ADMIN_TOKEN"):
-            parser.error("--live needs TRANSLUCENT_ADMIN_TOKEN in the environment")
+        if args.live:
+            from translucent.auth import CredentialStore
+            if not (os.environ.get("TRANSLUCENT_ADMIN_TOKEN") or
+                    CredentialStore(Path(args.data_root) / "credentials.json").has_admin()):
+                parser.error("--live needs an administrator: TRANSLUCENT_ADMIN_TOKEN in the environment, or "
+                             "`translucent keys add --role admin --data-root ...`")
         try:
             out = start_fastcharge(args.data_root, ledger_id=args.ledger_id, planner=args.planner,
                                    person=args.person, auto_approve=args.auto_approve)
@@ -369,10 +439,12 @@ def main(argv=None):
         from translucent.server import create_app
         if args.live:
             os.environ["TRANSLUCENT_LIVE"] = "1"
-        _team_server(args.data_root)
-        print(f"Web app: cd web, then NEXT_PUBLIC_API_BASE=http://{args.host}:{args.port} bun run dev, "
+        _team_server(args.data_root, args.person)
+        api_host = "localhost" if args.host in ("127.0.0.1", "0.0.0.0", "::1") else args.host
+        print(f"Web app: cd web, then NEXT_PUBLIC_API_BASE=http://{api_host}:{args.port} bun run dev, "
               "and open http://localhost:3000")
-        uvicorn.run(create_app(data_root=args.data_root), host=args.host, port=args.port)
+        uvicorn.run(create_app(data_root=args.data_root), host=args.host, port=args.port,
+                    timeout_graceful_shutdown=STREAM_CLOSE_S)
         return 0
     if args.command == "serve":
         import uvicorn
@@ -385,14 +457,15 @@ def main(argv=None):
                 parser.error(f"--data-root {args.data_root} is not a folder; create ledgers with `translucent init`")
             _team_server(args.data_root)
             uvicorn.run(create_app(state_dir=args.state, data_root=args.data_root, import_root=args.import_root),
-                        host=args.host, port=args.port)
+                        host=args.host, port=args.port, timeout_graceful_shutdown=STREAM_CLOSE_S)
             return 0
         ledger = Path(args.ledger or os.environ.get("TRANSLUCENT_LEDGER_DIR", DEFAULT_LEDGER))
         if args.create_ledger and not (ledger / "ledger.sqlite").is_file():
             Ledger(ledger).db.close()
             print(f"Created an empty ledger at {ledger}", file=sys.stderr)
         _existing_ledger(ledger, serve, "--create-ledger starts the server on a new, empty one")
-        uvicorn.run(create_app(ledger, args.state, import_root=args.import_root), host=args.host, port=args.port)
+        uvicorn.run(create_app(ledger, args.state, import_root=args.import_root), host=args.host, port=args.port,
+                    timeout_graceful_shutdown=STREAM_CLOSE_S)
         return 0
     from translucent import analysis, tools  # register analysis for CLI campaigns too
     from translucent.ledger import Ledger
@@ -416,6 +489,12 @@ def main(argv=None):
             from translucent.replay import export as export_bundle
             if L.get("campaign", args.campaign_id) is None:
                 parser.error("campaign not found")
+            from translucent.loop import campaign_ids
+            if args.campaign_id in campaign_ids(L):          # an engineering campaign: one .loop.json file
+                from translucent import loop_export
+                written = loop_export.export(L, args.campaign_id, args.out)
+                print(f"loop campaign -> {written}  (check it with: translucent verify {written})")
+                return 0
             bundle = export_bundle(L, args.campaign_id, args.out)
             print(f"{len(bundle.events)} events, {len(bundle.tracks)} tracks, "
                   f"{len(bundle.claims)} findings -> {args.out}")

@@ -7,8 +7,13 @@ import { fixtureBase } from "./campaigns";
 import { CampaignStore, catalogFrom, type Media } from "./store";
 import { isRuntimeTool } from "./words";
 
-/** API server for live mode, e.g. http://127.0.0.1:8000. */
-export const API_BASE = (process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8000").replace(/\/$/, "");
+/**
+ * API server for live mode, e.g. http://127.0.0.1:8000. Without NEXT_PUBLIC_API_BASE, a page served locally talks to
+ * port 8000 under its own host name (localhost or 127.0.0.1), so the session cookie (SameSite=Strict) is same-site.
+ */
+export const API_BASE = (process.env.NEXT_PUBLIC_API_BASE
+  ?? (typeof window !== "undefined" && /^(localhost|127\.0\.0\.1)$/.test(window.location.hostname)
+    ? `http://${window.location.hostname}:8000` : "http://127.0.0.1:8000")).replace(/\/$/, "");
 
 /**
  * Whether to look for the API server at all: an explicit NEXT_PUBLIC_API_BASE, or the default local server while the

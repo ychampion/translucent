@@ -223,3 +223,14 @@ def test_an_inline_tick_and_a_runner_thread_never_duplicate_work(L):
     assert sorted(r.data["request_id"] for r in recs if r.type == "result") == sorted(ids)
     assert {r.data["worker"]["process"] for r in recs if r.type == "execution"} <= {"api", "mcp"}
     assert chain.problems(L, cid) == []
+
+
+def test_the_export_command_writes_a_loop_campaign_that_verify_accepts(L, tmp_path, capsys):
+    from translucent import cli
+    cid, _ = queued(L)
+    out = tmp_path / "campaign.loop.json"
+    L.db.close()
+    assert cli.main(["export", "--ledger", str(L.root), cid, str(out)]) == 0
+    assert "loop campaign" in capsys.readouterr().out
+    assert json.loads(out.read_text(encoding="utf-8"))["view"]["campaign"]["id"] == cid
+    assert cli.main(["verify", str(out)]) == 0

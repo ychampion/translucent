@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
+from support.keys import add_key
 
 from translucent import cli, providers, replay, runtime, server, tools
 from translucent.contracts import Campaign, Source
@@ -36,6 +37,7 @@ def store(tmp_path):
     video = L.put_file(path, kind="video", media_type="video/mp4", source=Source(uri="experiment:fixture"))
     L.add(Campaign(id="seed", objective="Test the boundary", title="Fixture", inputs=[video.id],
                    budget_usd=1, created_at=0))
+    add_key(state, "Ana", "engineer", READER_KEY)                  # reads are private: every client needs a key
     yield L, root, state, video
     L.db.close()
 
@@ -44,6 +46,15 @@ def finished(L, cid="seed"):
     L.emit(cid, "campaign.started", "runtime", "Start")
     L.emit(cid, "step.started", "runtime", "Work")
     L.emit(cid, "campaign.finished", "runtime", "Done")
+
+
+READER_KEY = "test-engineer-0123456789abcdef"
+READER = {"Authorization": f"Bearer {READER_KEY}"}
+
+
+def Reader(app, **kw):
+    """A test client that sends an engineer's key unless a request names another (or none)."""
+    return TestClient(app, headers=READER, **kw)
 
 
 def make_app(store, factory=None):
@@ -62,10 +73,10 @@ def sse_data(response):
 
 def enable(monkeypatch):
     monkeypatch.setenv("TRANSLUCENT_LIVE", "1")
-    monkeypatch.setenv("TRANSLUCENT_ADMIN_TOKEN", "test-administrator")
+    monkeypatch.setenv("TRANSLUCENT_ADMIN_TOKEN", "test-administrator-0123-32chars-minimum")
     for name in ("FIREWORKS_API_KEY", "MODEL_API_KEY"):  # placeholders: the fake campaigners never call a provider
         monkeypatch.setenv(name, "test-key")
-    return {"Authorization": "Bearer test-administrator"}
+    return {"Authorization": "Bearer test-administrator-0123-32chars-minimum"}
 
 
 def request_body(**changes):
@@ -95,7 +106,7 @@ class FakeCampaigner:
 
 
 def test_campaign_listing_detail_and_unknown(store):
-    with TestClient(make_app(store)) as client:
+    with Reader(make_app(store)) as client:
         assert [c["id"] for c in client.get("/api/campaigns").json()] == ["seed"]
         assert client.get("/api/campaigns/seed").json()["objective"] == "Test the boundary"
         for suffix in ("", "/events", "/bundle"):
@@ -105,7 +116,7 @@ def test_campaign_listing_detail_and_unknown(store):
 def test_sse_ordering_resume_and_reopen_from_disk(store):
     L, root, state, _ = store
     finished(L)
-    with TestClient(make_app(store)) as client:
+    with Reader(make_app(store)) as client:
         response = client.get("/api/campaigns/seed/events")
         assert response.headers["content-type"].startswith("text/event-stream")
         ids, data = sse_data(response)
@@ -113,7 +124,7 @@ def test_sse_ordering_resume_and_reopen_from_disk(store):
         assert data[-1]["type"] == "campaign.finished"
         assert sse_data(client.get("/api/campaigns/seed/events", headers={"Last-Event-ID": "1"}))[0] == [2, 3]
         assert sse_data(client.get("/api/campaigns/seed/events", headers={"Last-Event-ID": "3"}))[0] == []
-    with TestClient(server.create_app(root, state)) as client:
+    with Reader(server.create_app(root, state)) as client:
         assert sse_data(client.get("/api/campaigns/seed/events", headers={"Last-Event-ID": "2"}))[0] == [3]
 
 
@@ -128,7 +139,7 @@ def test_sse_polls_events_written_by_another_connection(store):
             other.emit("seed", "campaign.finished", "runtime", "Done")
         finally:
             other.db.close()
-    with TestClient(make_app(store)) as client:
+    with Reader(make_app(store)) as client:
         writer = threading.Thread(target=append)
         writer.start()
         try:
@@ -140,27 +151,31 @@ def test_sse_polls_events_written_by_another_connection(store):
 
 @pytest.mark.parametrize("cursor", ["-1", "abc", "1.5", "9" * 21, str(2**63)])
 def test_sse_malformed_resume_refused(store, cursor):
-    with TestClient(make_app(store)) as client:
+    with Reader(make_app(store)) as client:
         assert client.get("/api/campaigns/seed/events", headers={"Last-Event-ID": cursor}).status_code == 400
 
 
-@pytest.mark.parametrize("live,configured,header", [(False, True, "Bearer test-administrator"),
-    (True, True, None), (True, True, "Bearer wrong"), (True, True, "Basic test-administrator"),
-    (True, False, "Bearer ")])
-def test_post_refuses_disabled_missing_wrong_and_unconfigured_token(store, monkeypatch, live, configured, header):
+@pytest.mark.parametrize("live,configured,header,status", [(False, True, "Bearer test-administrator-0123-32chars-minimum", 403),
+    (True, True, None, 401), (True, True, "Bearer wrong", 401), (True, True, "Basic test-administrator-0123-32chars-minimum", 401),
+    (True, False, "Bearer ", 401), (True, False, "Bearer test-administrator-0123-32chars-minimum", 401),
+    (True, True, f"Bearer {READER_KEY}", 403)])
+def test_post_refuses_disabled_missing_wrong_and_unconfigured_token(store, monkeypatch, live, configured, header,
+                                                                    status):
+    """Live off refuses even an administrator; no key, a wrong one or an unconfigured one is "sign in" (401); an
+    engineer's key may read but not spend (403)."""
     monkeypatch.setenv("TRANSLUCENT_LIVE", "1" if live else "0")
     if configured:
-        monkeypatch.setenv("TRANSLUCENT_ADMIN_TOKEN", "test-administrator")
+        monkeypatch.setenv("TRANSLUCENT_ADMIN_TOKEN", "test-administrator-0123-32chars-minimum")
     with TestClient(make_app(store, FakeCampaigner)) as client:
         assert client.post("/api/campaigns", json=request_body(),
-                           headers={"Authorization": header} if header else {}).status_code == 403
-        assert len(client.get("/api/campaigns").json()) == 1
+                           headers={"Authorization": header} if header else {}).status_code == status
+        assert len(client.get("/api/campaigns", headers=READER).json()) == 1
         assert list((store[2] / "jobs").glob("*.json")) == []
 
 
 def test_valid_post_uses_campaigner_and_persists_job(store, monkeypatch):
     headers = enable(monkeypatch)
-    with TestClient(make_app(store, FakeCampaigner)) as client:
+    with Reader(make_app(store, FakeCampaigner)) as client:
         response = client.post("/api/campaigns", json=request_body(profile="meta"), headers=headers)
         assert response.status_code == 202
         cid = response.json()["id"]
@@ -179,7 +194,7 @@ def test_single_live_campaign_and_slot_released(store, monkeypatch):
             entered.set()
             assert release.wait(5)
             return super().run()
-    with TestClient(make_app(store, Blocking)) as client:
+    with Reader(make_app(store, Blocking)) as client:
         try:
             first = client.post("/api/campaigns", json=request_body(), headers=headers)
             assert first.status_code == 202 and entered.wait(5)
@@ -196,7 +211,7 @@ def test_worker_failure_is_durable_and_ends_sse(store, monkeypatch, caplog):
         def run(self):
             self.L.emit(self.c.id, "campaign.started", "runtime", "Start")
             raise RuntimeError("fixture failure")
-    with TestClient(make_app(store, Broken)) as client:
+    with Reader(make_app(store, Broken)) as client:
         cid = client.post("/api/campaigns", json=request_body(), headers=headers).json()["id"]
         job = wait_job(client, cid, "failed")
         assert "fixture failure" in job["error"]
@@ -213,7 +228,7 @@ def test_live_needs_the_profiles_provider_keys(store, monkeypatch, tmp_path):
     monkeypatch.delenv("MODEL_API_KEY")
     monkeypatch.delenv("META_API_KEY", raising=False)
     monkeypatch.setenv("FIREWORKS_API_KEY", "")  # set but empty: missing, as providers.Metered reads it
-    with TestClient(make_app(store, FakeCampaigner)) as client:
+    with Reader(make_app(store, FakeCampaigner)) as client:
         assert client.get("/api/session").json()["live"] is False
         refused = client.post("/api/campaigns", json=request_body(), headers=headers)
         assert refused.status_code == 503 and "no FIREWORKS_API_KEY for the dev profile" in refused.json()["detail"]
@@ -234,28 +249,28 @@ def write_job(store, status):
 
 def test_running_job_interrupted_on_restart(store):
     write_job(store, "running")
-    with TestClient(make_app(store, FakeCampaigner)) as client:
+    with Reader(make_app(store, FakeCampaigner)) as client:
         job = client.get("/api/campaigns/seed").json()["job"]
         assert job["status"] == "interrupted"
         assert sse_data(client.get("/api/campaigns/seed/events"))[0] == []
-    with TestClient(make_app(store, FakeCampaigner)) as client:
+    with Reader(make_app(store, FakeCampaigner)) as client:
         assert client.get("/api/campaigns/seed").json()["job"]["status"] == "interrupted"
 
 
 def test_queued_job_stays_off_by_default_then_resumes_when_enabled(store, monkeypatch):
     write_job(store, "queued")
-    with TestClient(make_app(store, FakeCampaigner)) as client:
+    with Reader(make_app(store, FakeCampaigner)) as client:
         assert client.get("/api/campaigns/seed").json()["job"]["status"] == "queued"
         assert store[0].events("seed") == []
     enable(monkeypatch)
-    with TestClient(make_app(store, FakeCampaigner)) as client:
+    with Reader(make_app(store, FakeCampaigner)) as client:
         wait_job(client, "seed", "finished")
 
 
 def test_exclusive_state_owner(store):
-    with TestClient(make_app(store)):
+    with Reader(make_app(store)):
         with pytest.raises(RuntimeError, match="another server"):
-            with TestClient(make_app(store)):
+            with Reader(make_app(store)):
                 pass
 
 
@@ -268,14 +283,14 @@ def test_artifact_unknown_and_malformed_ids_never_reach_blob_paths(store, monkey
             pytest.fail("malformed or unknown id reached filesystem path construction")
         return original(ledger, aid)
     monkeypatch.setattr(Ledger, "blob_path", denied)
-    with TestClient(make_app(store)) as client:
+    with Reader(make_app(store)) as client:
         assert client.get("/api/artifacts/" + rid).status_code == 404
 
 
 def test_artifact_media_bytes_and_missing_blob(store):
     L = store[0]
     artifact = L.put_bytes(b"hello", kind="text", media_type="text/plain")
-    with TestClient(make_app(store)) as client:
+    with Reader(make_app(store)) as client:
         response = client.get("/api/artifacts/" + artifact.id)
         assert response.content == b"hello" and response.headers["content-type"].startswith("text/plain")
         L.blob_path(artifact.id).unlink()
@@ -289,14 +304,14 @@ def test_bundle_uses_replay_disk_cache_and_invalidates_on_new_events(store, monk
         return original(*args, **kwargs)
     monkeypatch.setattr(replay, "export", export)
     finished(store[0])
-    with TestClient(make_app(store)) as client:
+    with Reader(make_app(store)) as client:
         response = client.get("/api/campaigns/seed/bundle")
         assert response.status_code == 200
         body = response.json()
         assert body["campaign"]["id"] == "seed" and len(body["events"]) == 3
         assert client.get(body["video"]).content == store[0].blob_path(store[3].id).read_bytes()
         assert client.get("/api/campaigns/seed/bundle").json() == body and len(calls) == 1
-    with TestClient(make_app(store)) as client:
+    with Reader(make_app(store)) as client:
         assert client.get("/api/campaigns/seed/bundle").status_code == 200 and len(calls) == 1
         store[0].emit("seed", "step.started", "runtime", "Additional recorded event")
         assert len(client.get("/api/campaigns/seed/bundle").json()["events"]) == 4 and len(calls) == 2
@@ -321,7 +336,7 @@ def test_old_export_revision_is_rebuilt_with_unchanged_ledger_counts(store, monk
         return original(*args, **kwargs)
     monkeypatch.setattr(replay, "export", export)
     app = make_app(store)
-    with TestClient(app) as client:
+    with Reader(app) as client:
         assert app.state.export_ready.wait(30)
         assert app.state.export_errors == {}
         assert client.get("/api/campaigns/seed/bundle").json()["video"] == "/api/artifacts/" + video.id
@@ -332,7 +347,7 @@ def test_old_export_revision_is_rebuilt_with_unchanged_ledger_counts(store, monk
 def test_budget_and_explicit_cors_allowlist(store, monkeypatch):
     monkeypatch.setenv("TRANSLUCENT_CORS_ORIGINS", "https://viewer.example, http://localhost:3000")
     monkeypatch.setattr(server.budget, "balances", lambda: {"fixture": {"remaining_usd": 1}})
-    with TestClient(make_app(store)) as client:
+    with Reader(make_app(store)) as client:
         response = client.get("/api/budget", headers={"Origin": "https://viewer.example"})
         assert response.json() == {"fixture": {"remaining_usd": 1}}
         assert response.headers["access-control-allow-origin"] == "https://viewer.example"
@@ -343,7 +358,7 @@ def test_budget_and_explicit_cors_allowlist(store, monkeypatch):
     {"profile": "unknown"}, {"budget": -1}, {"budget": 0}, {"objective": ""}])
 def test_post_invalid_input_or_unknown_experiment(store, monkeypatch, change):
     headers = enable(monkeypatch)
-    with TestClient(make_app(store, FakeCampaigner)) as client:
+    with Reader(make_app(store, FakeCampaigner)) as client:
         assert client.post("/api/campaigns", json=request_body(**change), headers=headers).status_code in {404, 422}
         assert len(client.get("/api/campaigns").json()) == 1
 
@@ -353,7 +368,7 @@ def test_post_invalid_input_or_unknown_experiment(store, monkeypatch, change):
 def test_campaign_budget_is_finite_and_within_the_provider_caps(store, monkeypatch, budget, expected):
     headers = {**enable(monkeypatch), "Content-Type": "application/json"}
     body = json.dumps(request_body(profile="meta" if budget == "200" else "dev")).replace("0.25", budget)
-    with TestClient(make_app(store, FakeCampaigner)) as client:
+    with Reader(make_app(store, FakeCampaigner)) as client:
         response = client.post("/api/campaigns", content=body, headers=headers)
         assert response.status_code == 422 and response.json()["detail"].startswith(expected)
         assert len(client.get("/api/campaigns").json()) == 1
@@ -372,7 +387,8 @@ def test_cli_budget_export_serve_and_run_with_fake_campaigner(store, monkeypatch
     captured = []
     monkeypatch.setattr(uvicorn, "run", lambda app, **kw: captured.append(kw))
     assert cli.main(["serve", "--ledger", str(store[1]), "--state", str(store[2]), "--port", "8123"]) == 0
-    assert captured == [{"host": "127.0.0.1", "port": 8123}]
+    # a stop waits a bounded time for open update streams (an open campaign page never closes its own)
+    assert captured == [{"host": "127.0.0.1", "port": 8123, "timeout_graceful_shutdown": cli.STREAM_CLOSE_S}]
     monkeypatch.setattr(tools, "import_video", lambda *args, **kwargs: store[3])
     monkeypatch.setattr(runtime, "Campaigner", FakeCampaigner)
     assert cli.main(["run", "--ledger", str(store[1]), "--budget", "0.1", "--steps", "1"]) == 0
@@ -406,7 +422,7 @@ def test_run_on_a_missing_movie_says_how_to_fetch_it(store, capsys):
 def test_export_cache_is_prepared_without_a_bundle_request(store, monkeypatch):
     finished(store[0])
     app = make_app(store)
-    with TestClient(app) as client:
+    with Reader(app) as client:
         assert app.state.export_ready.wait(30)
         assert app.state.export_errors == {}
         assert list((store[2] / "bundles").glob("*/bundle.json"))
@@ -427,7 +443,7 @@ def test_failed_gate_checks_have_plain_explanations_in_bundle_and_events(store):
                                             detail="growth_velocity in um/s: no recorded time_base")]))
     ledger.emit("seed", "claim.reviewed", "gate", "Not enough evidence", data={"review": review.model_dump()})
     finished(ledger)
-    with TestClient(make_app(store)) as client:
+    with Reader(make_app(store)) as client:
         body = client.get("/api/campaigns/seed/bundle").json()
         got = body["reviews"][0]
         assert got["reason"] == review.reason
@@ -501,7 +517,7 @@ def test_api_reuses_existing_svg_cache_without_decoding_or_rewriting_source(stor
     def denied(*args, **kwargs):
         pytest.fail("The existing geometry must be reused")
     monkeypatch.setattr(replay, "_svg_masks", denied)
-    with TestClient(make_app(store)) as client:
+    with Reader(make_app(store)) as client:
         body = client.get("/api/campaigns/seed/bundle").json()
         assert body["tracks"][0]["mask_paths"] == ["M0 0L3 3Z"]
         assert list((state / "bundles").glob("*/bundle.json"))
@@ -513,7 +529,7 @@ def test_a_campaign_without_a_profile_runs_on_the_servers(store, monkeypatch):
     monkeypatch.setenv("TRANSLUCENT_PROFILE", "meta")
     body = request_body()
     del body["profile"]
-    with TestClient(make_app(store, FakeCampaigner)) as client:
+    with Reader(make_app(store, FakeCampaigner)) as client:
         response = client.post("/api/campaigns", json=body, headers=headers)
         assert response.status_code == 202
         assert wait_job(client, response.json()["id"], "finished")["result"]["profile"] == "meta"

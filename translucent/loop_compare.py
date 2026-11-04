@@ -1,9 +1,11 @@
-"""loop-compare/1 and /2: the deterministic comparator of a loop campaign and the conclusion's computed outcome
+"""loop-compare/1, /2 and /3: the deterministic comparator of a loop campaign and the conclusion's computed outcome
 (design §2.7).
 
 Each objective names its evaluator, and a comparison is recomputed with the evaluator its objective names, so the
 rules of a released version never change; a change ships as a new version beside it. loop-compare/2 is /1 plus one
-rule (5 below), for the case the product exists for: a failing baseline.
+rule (5 below), for the case the product exists for: a failing baseline. loop-compare/3 (rules 6-10, after /1 and /2)
+is what a new objective names: it answers feasibility, speed and the objective separately, because /2's rule 5 let a
+feasible candidate count as "better" than a failing baseline even when it was slower.
 
 1. Same basis only. A result is compared with the baseline on its own basis: a physical (bench) result with the
    objective's baseline dataset records, a computational result with the registration re-runs of those records on
@@ -33,6 +35,41 @@ read as a lower bound (the crossing, if any, is after t1).
 The outcome: `select_best` prefers measured (physical) evidence, then computational; then the best target value; then
 the earliest. A measured candidate_better is `improved`; a computational one only `improved_in_simulation`; decisive
 comparisons none better give `not_improved`; otherwise `unresolved`.
+
+loop-compare/3. Rules 1 (same basis), 2 (a constraint within its uncertainty) and the arithmetic of 3 stand; rule 5
+does not exist here. Each comparison answers three questions, each recorded with its own answer:
+6. Feasibility. The baseline (its same-basis values, when there are any) and the candidate each "meets" every
+   constraint of the objective version, "fails" one, or is "unknown" (a straddled limit, a missing value, no
+   baseline). A candidate missing a target or constraint quantity is not_comparable. A minimised target never
+   reached within its window (a threshold crossing after it) "fails": the run never got there (`never_reached`; the
+   reference search reads such a run as too slow).
+7. Speed, only against a reference that meets the same constraints, on the candidate's basis: the baseline when it
+   meets them; otherwise the system reference search's answer for the version whose constraints are in force
+   (translucent.loop_reference: the fastest single-step protocol meeting them, found by bisection on the solver,
+   computational only); otherwise none. A failing baseline is never the reference. The speed is compared only for a
+   candidate that meets the constraints: d = reference - candidate (minimize; mirrored), H = hypot(h_r, h_c),
+   m = max(margin, 0) (faster means faster; a /3 objective refuses a negative margin at registration and amendment);
+   "faster" if d - H > m, "not_faster" otherwise (faster false if d + H <= m, null within the
+   uncertainty); "not_compared", with the reason, when there is no reference, it is still running, the baseline it
+   would be has not finished, or the candidate does not meet the constraints. The reference names the objective
+   version whose constraints it was judged under; an amendment that changes the constraints starts a new search, and
+   no speed is compared across constraint versions.
+8. Objective. kind hard_target (the target's limit is the hard target, never relaxed except by a person's
+   amendment): "met" when the candidate meets every constraint and the limit holds within its uncertainty, "not_met"
+   when it fails a constraint or misses the limit, "unknown" otherwise. kind fastest_feasible: "open", always: there
+   is no proven optimum.
+9. Verdict, for the lists that show one: not_comparable (rule 6), violates_constraints (fails), inconclusive (a
+   constraint undecided; or meets them with the speed undecided or not compared), candidate_better (meets them and
+   faster than the reference), not_better (meets them, not faster). A feasibility recovery alone is never better.
+10. Outcome, from each candidate's latest comparison on the current version, the first group that is not empty:
+   objective_met (rule 8 met), faster_than_reference (rule 7 faster), feasible_only (meets every constraint),
+   no_feasible_result (none meets them, one fails them); else unresolved. Within the group, measured evidence first,
+   then the best target value, then the earliest; computational evidence adds "_in_simulation". The conclusion
+   records `findings` {feasibility, speed, objective} for that comparison, recomputed at admission and by verify.
+
+`findings` also describes /1 and /2 campaigns (for the view's assessment; their conclusions record none): the best
+candidate that meets the constraints, feasibility "recovered" when the baseline fails them, and speed compared only
+when the baseline itself meets the constraints (a /1 or /2 campaign ran no reference search).
 """
 from __future__ import annotations
 
@@ -40,16 +77,16 @@ import json
 import math
 import re
 
-from translucent import chain, operators, units
+from translucent import chain, loop_reference, operators, units
 from translucent.contracts import Uncertainty
 from translucent.ledger import AdmissionError, Ledger
-from translucent.loop import (PENDING, REGISTRATION, RequestState, _baseline_record, apply_operator,
-                              baseline_request_id, current_objective, request_states)
+from translucent.loop import (PENDING, REGISTRATION, SYSTEM_RUNS, RequestState, _baseline_record, apply_operator,
+                              baseline_request_id, current_objective, request_states, withdraw_superseded)
 from translucent.loop_contracts import (ComparisonData, ConclusionData, Constraint, LoopRecord, ObjectiveData,
                                         OperatorSpec)
 
-EVALUATORS = ("loop-compare/1", "loop-compare/2")
-EVALUATOR = "loop-compare/2"      # what a new objective names
+EVALUATORS = ("loop-compare/1", "loop-compare/2", "loop-compare/3")
+EVALUATOR = "loop-compare/3"      # what a new objective names
 ACTOR = "system:comparator"
 BASIS_RANK = {"physical": 0, "retrospective": 1, "computational": 2}
 _COMPARISON_ID = re.compile(r"cmp_[0-9a-f]{24}")
@@ -76,7 +113,12 @@ def series(L: Ledger, obj: ObjectiveData, ref: str, quantity: str,
         record = _baseline_record(L, obj, ref) if ref in obj.baseline else None
         if record is None:
             did, _, rid = ref.partition("/")
-            ds = L.get("dataset", did) if did in obj.datasets else None
+            if did not in obj.datasets and cid is not None and getattr(obj, "uploads", None):
+                from translucent import records       # a dataset this investigation imported from its uploads
+                ok = did in records.imported(L, cid)
+            else:
+                ok = did in obj.datasets
+            ds = L.get("dataset", did) if ok else None
             record = next((r for r in ds.records if r.id == rid), None) if ds else None
         ch = next((c for c in record.channels if c.quantity == quantity), None) if record else None
         if ch is None:
@@ -154,12 +196,33 @@ def compared_quantities(obj: ObjectiveData) -> list[str]:
     return list(dict.fromkeys([obj.target.quantity] + [c.quantity for c in obj.constraints]))
 
 
+def _basis_problem(L: Ledger, obj: ObjectiveData, result: LoopRecord, states: dict[str, RequestState]) -> str | None:
+    from translucent import systems
+    sid = obj.system["id"]
+    try:
+        adapter = systems.get(sid)
+    except KeyError:
+        return None              # a system no longer registered here: its results carry no forecasts to withhold
+    hook = getattr(adapter, "forecast_basis_problem", None)
+    if hook is None:
+        return None
+    st = (states or {}).get(result.data.get("request_id"))
+    if st is None:               # never compare a result whose request cannot be checked: fail closed
+        raise ValueError(f"result {result.id} has no request state to check its basis against")
+    return hook(L, result.campaign_id, states, st)
+
+
 def result_values(L: Ledger, obj: ObjectiveData, result: LoopRecord, states: dict[str, RequestState]) -> dict:
-    """quantity -> value (in the objective's unit) of one result, or {"missing": reason}."""
+    """quantity -> value (in the objective's unit) of one result, or {"missing": reason}. A result the system says
+    has no basis for comparison (its adapter's forecast_basis_problem, e.g. a design under a model that was never
+    shown adequate on data it did not fit) has every value missing with that reason."""
     defs, out = {q.name: q for q in obj.quantities}, {}
+    basis_problem = _basis_problem(L, obj, result, states)
     for name in compared_quantities(obj):
         q, what = defs.get(name), f"result {result.id}"
-        if q is None:
+        if basis_problem:
+            out[name] = {"missing": f"{what} is {basis_problem}"}
+        elif q is None:
             out[name] = {"missing": f"{name} is not a quantity of the objective"}
         elif q.source == "operator":
             out[name] = _operator_value(q.operator, series(L, obj, result.id, q.operator.channel, states), what)
@@ -397,20 +460,241 @@ def compare(obj: ObjectiveData, basis: str, baseline: dict | None, candidate: di
             "reasons": list(dict.fromkeys(reasons))}
 
 
+# ------------------------------------------------------------------ loop-compare/3 (pure)
+
+def _usable(v: dict | None, quantity: str, unit: str) -> dict:
+    """The value, or {"missing": why} when it is absent or cannot be read in `unit`."""
+    if v is None:
+        return {"missing": f"{quantity} was not measured"}
+    if "missing" not in v:
+        try:
+            _interval(v, unit)
+        except ValueError as e:
+            return {"missing": str(e)}
+    return v
+
+
+def feasibility_of(checks: list[dict]) -> str:
+    """"fails" if a constraint check is violated, "meets" if every one holds, else "unknown"."""
+    oks = [c["ok"] for c in checks]
+    return "fails" if False in oks else "meets" if all(ok is True for ok in oks) else "unknown"
+
+
+def never_reached(direction: str, v: dict | None) -> bool:
+    """A minimised target whose threshold crossing does not happen within its window: the run never got there (it is
+    slower than its window). Under loop-compare/3 such a run is not feasible, in a comparison and in the reference
+    search (which reads it as too slow). A maximised target not reached is a lower bound above the window, not a
+    failure."""
+    return direction == "minimize" and isinstance(v, dict) and "missing" not in v and v.get("value") is None \
+        and "not_reached_within" in v
+
+
+def side_feasibility(obj: ObjectiveData, values: dict) -> str:
+    """loop-compare/3 feasibility of one result's (or the baseline's) values under the objective's constraints:
+    "fails" when a constraint is violated or the minimised target is never reached, "meets" when every constraint
+    holds, else "unknown"."""
+    checks = [check_constraint(c, _usable(values.get(c.quantity), c.quantity, c.unit)) for c in obj.constraints]
+    t = obj.target
+    return "fails" if never_reached(t.direction, _usable(values.get(t.quantity), t.quantity, t.unit)) else \
+        feasibility_of(checks)
+
+
+def objective_kind(obj: ObjectiveData) -> str:
+    return loop_reference.effective_kind(obj)
+
+
+def compare3(obj: ObjectiveData, basis: str, baseline: dict | None, candidate: dict, reference: dict | None, *,
+             reference_reason: str = "") -> dict:
+    """loop-compare/3 (rules 6-9) for one candidate: the ComparisonData payload as a dict. `reference` is
+    {"label", "source", "objective_version", "request_id", "values"} (a reference that meets the constraints), or
+    None with `reference_reason` saying why there is none."""
+    t, reasons, comparable = obj.target, [], True
+    cv, bv = candidate["values"], (baseline or {}).get("values", {})
+    checks = []
+    for c in obj.constraints:
+        v = _usable(cv.get(c.quantity), c.quantity, c.unit)
+        if "missing" in v:
+            comparable = False
+            reasons.append(f"the candidate lacks {c.quantity} ({v['missing']})")
+        elif why := constraint_reason(c, v):
+            reasons.append(why)
+        checks.append(check_constraint(c, v))
+    c_v = _usable(cv.get(t.quantity), t.quantity, t.unit)
+    if "missing" in c_v:
+        comparable = False
+        reasons.append(f"the candidate lacks {t.quantity} ({c_v['missing']})")
+    unreached = comparable and never_reached(t.direction, c_v)
+    if unreached:
+        reasons.append(f"{t.quantity} is {_fmt(c_v, t.unit)}: a run that never reaches its target within its window "
+                       "is not feasible")
+    feas_c = "fails" if unreached else feasibility_of(checks) if comparable else "unknown"
+    b_checks = [check_constraint(c, _usable(bv.get(c.quantity), c.quantity, c.unit)) for c in obj.constraints] \
+        if baseline is not None else []
+    feas_b = side_feasibility(obj, bv) if baseline is not None else "unknown"
+
+    target = {"quantity": t.quantity, "unit": t.unit, "direction": t.direction, "margin": t.margin,
+              "limit": t.limit, "limit_ok": None, "baseline": None, "candidate": None, "reference": None,
+              "against": None, "delta": None, "h": None, "better": None}
+    if "missing" not in c_v:
+        c_lo, c_hi = _interval(c_v, t.unit)
+        if c_v["value"] is not None:
+            target["candidate"] = _converted(c_v["value"], c_v["h"], c_v["unit"], t.unit)["value"]
+        if t.limit is not None:
+            if t.direction == "minimize":
+                target["limit_ok"] = True if c_hi <= t.limit else False if c_lo > t.limit else None
+            else:
+                target["limit_ok"] = True if c_lo >= t.limit else False if c_hi < t.limit else None
+    b_t = _usable(bv.get(t.quantity), t.quantity, t.unit)
+    if baseline is not None and "missing" not in b_t and b_t["value"] is not None:
+        target["baseline"] = _converted(b_t["value"], b_t["h"], b_t["unit"], t.unit)["value"]
+
+    ref_public, faster, status, why = None, None, "not_compared", reference_reason
+    r_v = _usable((reference or {}).get("values", {}).get(t.quantity), t.quantity, t.unit)
+    if reference is not None:
+        ref_public = {"label": reference["label"], "source": reference["source"],
+                      "value": None if "missing" in r_v or r_v["value"] is None else
+                      _converted(r_v["value"], r_v["h"], r_v["unit"], t.unit)["value"],
+                      "unit": t.unit, "objective_version": reference["objective_version"],
+                      "request_id": reference.get("request_id")}
+    if unreached:
+        why = "the candidate never reaches its target within its window, so its speed is not compared"
+    elif feas_c == "fails":
+        why = "the candidate does not meet the constraints, so its speed is not compared"
+    elif feas_c == "unknown":
+        why = ("the candidate lacks a compared quantity" if not comparable else
+               "a constraint is undecided within its uncertainty") + ", so its speed is not compared"
+    elif reference is None:
+        pass
+    elif "missing" in r_v:
+        why = f"the reference lacks {t.quantity} ({r_v['missing']})"
+    else:
+        what = f"{t.quantity} {_fmt(c_v, t.unit)} against {_fmt(r_v, t.unit)} for {reference['label']}"
+        if c_v["value"] is not None and r_v["value"] is not None:
+            r = _converted(r_v["value"], r_v["h"], r_v["unit"], t.unit)
+            c = _converted(c_v["value"], c_v["h"], c_v["unit"], t.unit)
+            d = r["value"] - c["value"] if t.direction == "minimize" else c["value"] - r["value"]
+            H = math.hypot(r["h"], c["h"])
+            d_lo, d_hi = d - H, d + H
+            target |= {"delta": d, "h": H}
+        else:
+            r_lo, r_hi = _interval(r_v, t.unit)
+            c_lo, c_hi = _interval(c_v, t.unit)
+            d_lo, d_hi = (r_lo - c_hi, r_hi - c_lo) if t.direction == "minimize" else (c_lo - r_hi, c_hi - r_lo)
+        m = max(t.margin, 0.0)             # "faster" means faster: a negative margin never allows a slowdown here
+        faster = True if d_lo > m else False if d_hi <= m else None
+        status = "faster" if faster else "not_faster"
+        target |= {"reference": ref_public["value"], "against": reference["source"], "better": faster}
+        why = (f"{what}: faster by more than the {m:g} {t.unit} margin" if faster else
+               f"{what}: not faster by more than the {m:g} {t.unit} margin" if faster is False else
+               f"{what}: the difference is within its uncertainty of the {m:g} {t.unit} margin"
+               if math.isfinite(d_lo) and math.isfinite(d_hi) else
+               f"{what}: a crossing outside its window leaves the difference open")
+    speed = {"reference": ref_public, "status": status, "faster": faster, "delta": target["delta"],
+             "reason": why}
+
+    kind = objective_kind(obj)
+    if kind == "hard_target":
+        lim = target["limit_ok"]
+        o_status = "not_met" if feas_c == "fails" or lim is False else \
+            "met" if feas_c == "meets" and lim is True else "unknown"
+        if lim is False:
+            reasons.append(f"{t.quantity} {_fmt(c_v, t.unit)} misses the hard target of {t.limit:g} {t.unit}")
+        elif lim is None and "missing" not in c_v:
+            reasons.append(f"{t.quantity} {_fmt(c_v, t.unit)} straddles the hard target of {t.limit:g} {t.unit}")
+    else:
+        o_status = "open"
+    objective = {"kind": kind, "status": o_status, "target_limit": t.limit}
+
+    if not comparable:
+        verdict = "not_comparable"
+    elif feas_c == "fails":
+        verdict = "violates_constraints"
+    elif feas_c == "unknown":
+        verdict = "inconclusive"
+    else:
+        verdict = "candidate_better" if faster else "not_better" if faster is False else "inconclusive"
+        if status != "faster":
+            reasons.append(f"speed not shown faster: {why}" if status == "not_faster" else f"speed not compared: {why}")
+    if verdict == "candidate_better":
+        reasons = [r for r in reasons if "hard target" in r]
+    return {"evaluator": obj.evaluator, "objective_version": obj.version, "basis": basis,
+            "baseline": {**baseline, "constraints": b_checks} if baseline is not None else
+            {"basis": None, "refs": [], "results": [], "values": {}, "constraints": []},
+            "candidate": candidate, "target": target, "constraints": checks, "verdict": verdict,
+            "reasons": list(dict.fromkeys(reasons)),
+            "feasibility": {"baseline": feas_b, "candidate": feas_c}, "speed": speed, "objective": objective}
+
+
+# ------------------------------------------------------------------ the speed reference (loop-compare/3)
+
+def _baseline_pending(cid: str, obj: ObjectiveData, states: dict[str, RequestState]) -> bool:
+    runs = [states.get(baseline_request_id(cid, ref)) for ref in obj.baseline]
+    return any(st is not None and st.proposed_by == REGISTRATION and st.state in PENDING for st in runs)
+
+
+def speed_reference(L: Ledger, cid: str, obj: ObjectiveData, states: dict[str, RequestState], basis: str,
+                    baseline: dict | None, records: list[LoopRecord]) -> tuple[dict | None, str]:
+    """(the reference for speed on `basis`, or None; why there is none): the baseline when it meets every constraint,
+    else the reference search's answer for the constraints in force (computational only)."""
+    if baseline is not None:
+        feas = side_feasibility(obj, baseline["values"])
+        if feas == "meets":
+            rid = baseline_request_id(cid, baseline["refs"][0]) if basis == "computational" and \
+                len(baseline["refs"]) == 1 else None
+            return {"label": "the baseline", "source": "baseline", "objective_version": obj.version,
+                    "request_id": rid, "values": baseline["values"]}, ""
+        t = obj.target
+        lead = ("the baseline never reaches its target within its window, so it is no reference for speed"
+                if never_reached(t.direction, _usable(baseline["values"].get(t.quantity), t.quantity, t.unit)) else
+                "the baseline fails the constraints, so it is no reference for speed" if feas == "fails" else
+                "the baseline does not meet the constraints within its uncertainty, so it is no reference for speed")
+    elif basis == "computational" and _baseline_pending(cid, obj, states):
+        return None, "the computational baseline has not finished on the solver yet"
+    else:
+        lead = f"there is no {basis} baseline that meets the constraints"
+    if basis != "computational":
+        return None, f"{lead}, and the reference search runs on the solver only"
+    s = loop_reference.state(L, cid, obj, states, records)
+    if s is None:
+        return None, f"{lead}, and this objective runs no reference search"
+    v = s["objective_version"]
+    if s["status"] in ("due", "running", "waiting_for_baseline"):
+        return None, f"{lead}; the reference search for objective version {v} has not finished"
+    if s["status"] == "stopped":
+        return None, f"{lead}; the reference search for objective version {v} was stopped by a cancellation"
+    if s["status"] == "stopped_at_cap":
+        return None, (f"{lead}; the run cap of {s['runs_cap']} runs was reached before the search finished, with no "
+                      f"run meeting the constraints of objective version {v} "
+                      f"({loop_reference.bracket_words(s)})")
+    if s["status"] == "not_needed":        # the baseline meets them (handled above); kept for a caller's own baseline
+        return None, f"{lead}; the reference search for objective version {v} did not run: the baseline meets them"
+    if s["found"] is None:
+        return None, (f"{lead}; the reference search for objective version {v} found no single-step protocol "
+                      "that meets the constraints")
+    return {"label": f"{s['label']} (best found by the reference search for objective version {v})",
+            "source": "reference_search", "objective_version": v, "request_id": s["found"]["request_id"],
+            "values": s["found"]["values"]}, ""
+
+
 # ------------------------------------------------------------------ comparisons of a campaign
 
 def candidates(states: dict[str, RequestState]) -> list[RequestState]:
     """Completed requests compared with the baseline, in result order; the registration re-runs are the baseline."""
-    done = [s for s in states.values() if s.result is not None and s.proposed_by != REGISTRATION]
+    done = [s for s in states.values() if s.result is not None and s.proposed_by not in SYSTEM_RUNS]
     return sorted(done, key=lambda s: s.result.seq)
 
 
-def comparison(L: Ledger, cid: str, obj: ObjectiveData, states: dict[str, RequestState], st: RequestState) -> dict:
+def comparison(L: Ledger, cid: str, obj: ObjectiveData, states: dict[str, RequestState], st: RequestState,
+               records: list[LoopRecord] | None = None) -> dict:
     """The canonical comparison payload for one completed request, from the ledger as it stands."""
     basis = st.result.data["basis"]
     baseline, why = baseline_side(L, cid, obj, states, basis)
     cand = {"request_id": st.request_id, "result_id": st.result.id,
             "values": result_values(L, obj, st.result, states)}
+    if obj.evaluator == "loop-compare/3":
+        recs = chain.records(L, cid) if records is None else records
+        reference, ref_why = speed_reference(L, cid, obj, states, basis, baseline, recs)
+        return chain.payload("comparison", compare3(obj, basis, baseline, cand, reference, reference_reason=ref_why))
     return chain.payload("comparison", compare(obj, basis, baseline, cand, baseline_reason=why))
 
 
@@ -427,17 +711,25 @@ def _latest(records: list[LoopRecord], version: int) -> tuple[dict[str, LoopReco
 
 def record_comparisons(L: Ledger, cid: str) -> list[LoopRecord]:
     """Record a comparison for every completed candidate whose latest comparison on the current objective version is
-    missing or out of date (a new result, an amendment, a baseline re-run finishing). Idempotent; one transaction."""
+    missing or out of date (a new result, an amendment, a baseline re-run or the reference search finishing). First,
+    withdraw the proposals an amendment superseded (loop.withdraw_superseded), and under loop-compare/3 queue the
+    reference search's next step if one is due (its own savepoint: a step that
+    cannot be queued now is left to the runner's next tick). Idempotent; one transaction."""
     out = []
     with L.transaction():
         if chain.concluded(L, cid):
             return out
+        withdraw_superseded(L, cid)      # an amendment supersedes proposals still awaiting approval
+        try:
+            loop_reference.queue(L, cid)
+        except AdmissionError:
+            pass
         recs = chain.records(L, cid)
         obj, states = current_objective(L, cid, recs), request_states(L, cid, recs)
         latest, counts = _latest(recs, obj.version)
         for st in candidates(states):
             rid = st.result.id
-            fresh = comparison(L, cid, obj, states, st)
+            fresh = comparison(L, cid, obj, states, st, recs)
             if rid in latest and latest[rid].data == fresh:
                 continue
             out.append(chain.append(L, cid, "comparison", fresh, ACTOR,
@@ -466,21 +758,145 @@ def select_best(comparisons: list[LoopRecord]) -> tuple[str, LoopRecord | None]:
     return "unresolved", None
 
 
-def outcome(L: Ledger, cid: str, records: list[LoopRecord] | None = None) -> tuple[str, str | None, list[str]]:
-    """(outcome, comparison id, problems): problems name completed candidates whose latest comparison on the current
-    objective version is missing or no longer what its evaluator computes."""
-    recs = chain.records(L, cid) if records is None else records
+def select_best3(comparisons: list[LoopRecord]) -> tuple[str, LoopRecord | None]:
+    """loop-compare/3 rule 10: (outcome, the comparison it rests on)."""
+    groups = (("objective_met", lambda d: d["objective"]["status"] == "met"),
+              ("faster_than_reference", lambda d: d["speed"]["status"] == "faster"),
+              ("feasible_only", lambda d: d["feasibility"]["candidate"] == "meets"),
+              ("no_feasible_result", lambda d: d["feasibility"]["candidate"] == "fails"))
+    for name, test in groups:
+        group = [c for c in comparisons if test(c.data)]
+        if group:
+            measured = [c for c in group if c.data["basis"] != "computational"]
+            return name + ("" if measured else "_in_simulation"), min(measured or group, key=_rank)
+    return "unresolved", None
+
+
+def _current(L: Ledger, cid: str, recs: list[LoopRecord], *, check: bool = True):
+    """(objective, states, each candidate's latest comparison on the current version, problems); with check=False the
+    comparisons are not recomputed and problems is empty."""
     obj, states = current_objective(L, cid, recs), request_states(L, cid, recs)
     latest, _ = _latest(recs, obj.version)
     problems, comps = [], []
     for st in candidates(states):
         rec = latest.get(st.result.id)
-        if rec is None or rec.data != comparison(L, cid, obj, states, st):
+        if check and (rec is None or rec.data != comparison(L, cid, obj, states, st, recs)):
             problems.append(f"result {st.result.id} has no up-to-date comparison on objective version {obj.version}")
         if rec is not None:
             comps.append(rec)
-    best_outcome, best = select_best(comps)
+    return obj, states, comps, problems
+
+
+def outcome(L: Ledger, cid: str, records: list[LoopRecord] | None = None) -> tuple[str, str | None, list[str]]:
+    """(outcome, comparison id, problems): problems name completed candidates whose latest comparison on the current
+    objective version is missing or no longer what its evaluator computes."""
+    recs = chain.records(L, cid) if records is None else records
+    obj, _, comps, problems = _current(L, cid, recs)
+    best_outcome, best = select_best3(comps) if obj.evaluator == "loop-compare/3" else select_best(comps)
     return best_outcome, best.id if best else None, problems
+
+
+# ------------------------------------------------------------------ findings: feasibility, speed, objective
+
+def facets(obj: ObjectiveData, d: dict) -> dict:
+    """{"feasibility", "speed", "objective"} of one comparison payload: /3 records them; for /1 and /2 they are
+    derived (speed only against a baseline that itself meets the constraints)."""
+    if d["evaluator"] == "loop-compare/3":
+        return {"feasibility": d["feasibility"], "speed": d["speed"], "objective": d["objective"]}
+    t = d["target"]
+    unreached = lambda side: never_reached(t.get("direction", "minimize"),       # noqa: E731
+                                           (side.get("values") or {}).get(t["quantity"]))
+    feas_c = "fails" if d["verdict"] != "not_comparable" and unreached(d["candidate"]) else \
+        feasibility_of(d["constraints"])
+    if d["baseline"].get("basis") is None:
+        b_checks, feas_b = [], "unknown"
+    else:
+        b_checks = d["baseline"].get("constraints") or \
+            [check_constraint(c, _usable(d["baseline"]["values"].get(c.quantity), c.quantity, c.unit))
+             for c in obj.constraints]
+        feas_b = "fails" if unreached(d["baseline"]) else feasibility_of(b_checks)
+    speed = {"reference": None, "status": "not_compared", "faster": None, "delta": None, "reason": ""}
+    if feas_b != "meets":
+        speed["reason"] = ("the baseline fails the constraints, so it is no reference for speed" if feas_b == "fails"
+                           else "no baseline on this basis meets the constraints") + \
+            f", and a {d['evaluator']} campaign runs no reference search: speed is not compared"
+    elif feas_c != "meets":
+        speed["reason"] = "the candidate does not meet the constraints, so its speed is not compared"
+    else:
+        speed |= {"reference": {"label": "the baseline", "source": "baseline", "value": t["baseline"],
+                                "unit": t["unit"], "objective_version": d["objective_version"], "request_id": None},
+                  "status": "faster" if t["better"] else "not_faster", "faster": t["better"], "delta": t["delta"],
+                  "reason": "faster than the baseline, which meets the constraints" if t["better"] else
+                  "not shown faster than the baseline, which meets the constraints"}
+    lim = t.get("limit_ok")
+    status = "open" if t.get("limit") is None else \
+        "not_met" if feas_c == "fails" or lim is False else "met" if feas_c == "meets" and lim is True else "unknown"
+    return {"feasibility": {"baseline": feas_b, "candidate": feas_c}, "speed": speed,
+            "objective": {"kind": "legacy", "status": status, "target_limit": t.get("limit")}}
+
+
+def assess(L: Ledger, cid: str, records: list[LoopRecord] | None = None) -> dict:
+    """What the findings rest on: {"best": the comparison record they describe or None, "basis", "findings",
+    "compared": how many candidates have a comparison on the current version}.
+
+    Under /3 the best is the comparison the outcome rests on; under /1 and /2 the best candidate that meets every
+    constraint (measured first, then the best target value, then the earliest), else the one select_best names. When
+    results were compared but none is decided (each not comparable, or straddling a limit), the best is the first of
+    them by the same order, and its feasibility is "unknown"; "none" is only for no comparison at all. Reads the
+    recorded comparisons (whether they are up to date is outcome()'s check, which a conclusion must pass)."""
+    recs = chain.records(L, cid) if records is None else records
+    obj, states, comps, _ = _current(L, cid, recs, check=False)
+    if obj.evaluator == "loop-compare/3":
+        _, best = select_best3(comps)
+    else:
+        feasible = [c for c in comps if facets(obj, c.data)["feasibility"]["candidate"] == "meets"]
+        best = min(feasible, key=_rank) if feasible else select_best(comps)[1]
+    if best is None and comps:
+        best = min(comps, key=_rank)
+    basis = best.data["basis"] if best is not None else (comps[0].data["basis"] if comps else
+                                                         "computational" if obj.baseline_simulation else "physical")
+    if best is not None:
+        f = facets(obj, best.data)
+        feas, speed, objective = f["feasibility"], dict(f["speed"]), dict(f["objective"])
+        t = best.data["target"]
+        speed["best"] = {"request_id": best.data["candidate"]["request_id"], "value": t["candidate"],
+                         "unit": t["unit"]} if feas["candidate"] == "meets" and t["candidate"] is not None else None
+    else:
+        baseline, _why = baseline_side(L, cid, obj, states, basis)
+        feas = {"baseline": side_feasibility(obj, baseline["values"]) if baseline is not None else "unknown",
+                "candidate": "none"}
+        reference, why = (speed_reference(L, cid, obj, states, basis, baseline, recs)
+                          if obj.evaluator == "loop-compare/3" else (None, ""))
+        ref_public = None
+        if reference is not None:
+            v = _usable(reference["values"].get(obj.target.quantity), obj.target.quantity, obj.target.unit)
+            ref_public = {"label": reference["label"], "source": reference["source"],
+                          "value": None if "missing" in v or v["value"] is None else
+                          _converted(v["value"], v["h"], v["unit"], obj.target.unit)["value"],
+                          "unit": obj.target.unit, "objective_version": reference["objective_version"],
+                          "request_id": reference.get("request_id")}
+        speed = {"reference": ref_public, "status": "not_compared", "faster": None, "delta": None, "best": None,
+                 "reason": "no candidate result yet" + (f"; {why}" if why else "")}
+        kind = objective_kind(obj)
+        objective = {"kind": kind, "status": "open" if kind == "fastest_feasible" or
+                     (kind == "legacy" and obj.target.limit is None) else "unknown",
+                     "target_limit": obj.target.limit}
+    if objective["kind"] == "hard_target" and best is not None:
+        statuses = [c.data["objective"]["status"] for c in comps]
+        objective["status"] = "met" if "met" in statuses else "unknown" if "unknown" in statuses else "not_met"
+    findings = {
+        "feasibility": {"baseline": feas["baseline"], "best": feas["candidate"],
+                        "recovered": feas["baseline"] == "fails" and feas["candidate"] == "meets",
+                        "best_request_id": best.data["candidate"]["request_id"] if best is not None else None},
+        "speed": {"reference": speed["reference"], "best": speed["best"], "delta": speed["delta"],
+                  "faster": speed["faster"], "status": speed["status"], "reason": speed["reason"]},
+        "objective": objective}
+    return {"best": best, "basis": basis, "findings": findings, "compared": len(comps)}
+
+
+def findings(L: Ledger, cid: str, records: list[LoopRecord] | None = None) -> dict:
+    """The conclusion's findings: {"feasibility", "speed", "objective"} (see `assess`)."""
+    return assess(L, cid, records)["findings"]
 
 
 # ------------------------------------------------------------------ admission (runs in every writing process)

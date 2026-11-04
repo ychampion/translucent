@@ -126,7 +126,8 @@ def objective(**kw) -> dict:
             "quantities": [{"name": "charge_time_80", "unit": "s", "source": "result"},
                            {"name": "max_temperature", "unit": "degC", "source": "result"}],
             "budget": {"model_usd": 0.0, "experiments": 8, "experiment_usd": 0.0},
-            "planner": {"kind": "external", "profile": None, "client": None}, "registered_by": "Ana"} | kw
+            "planner": {"kind": "external", "profile": None, "client": None}, "registered_by": "Ana",
+            "evaluator": "loop-compare/2"} | kw    # milestone 2 made /3 the default; these tests keep /2
 
 
 PREDICTION = {"charge_time_80": {"value": 3000.0, "lo": 2500.0, "hi": 3500.0, "unit": "s"}}

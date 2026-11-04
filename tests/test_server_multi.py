@@ -20,8 +20,8 @@ from translucent.loop_contracts import CampaignSummary
 from translucent.workspace import init_ledger
 
 DATA = Path(__file__).parent / "data" / "import_v2"
-TEAM = {"Authorization": "Bearer team-secret"}
-ADMIN = {"Authorization": "Bearer test-administrator"}
+TEAM = {"Authorization": "Bearer team-secret-0123456789ab-32chars-minimum"}
+ADMIN = {"Authorization": "Bearer test-administrator-0123-32chars-minimum"}
 SUMMARY = TypeAdapter(CampaignSummary)
 
 
@@ -33,12 +33,12 @@ def no_live_models(monkeypatch):
     for name in ("TRANSLUCENT_LIVE", "TRANSLUCENT_ADMIN_TOKEN", "TRANSLUCENT_CORS_ORIGINS", "TRANSLUCENT_IMPORT_ROOT",
                  "TRANSLUCENT_DATA_ROOT"):
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("TRANSLUCENT_TEAM_TOKEN", "team-secret")
+    monkeypatch.setenv("TRANSLUCENT_TEAM_TOKEN", "team-secret-0123456789ab-32chars-minimum")
 
 
 def enable_live(monkeypatch):
     monkeypatch.setenv("TRANSLUCENT_LIVE", "1")
-    monkeypatch.setenv("TRANSLUCENT_ADMIN_TOKEN", "test-administrator")
+    monkeypatch.setenv("TRANSLUCENT_ADMIN_TOKEN", "test-administrator-0123-32chars-minimum")
     for name in ("FIREWORKS_API_KEY", "MODEL_API_KEY"):  # placeholders: the fake campaigners never call a provider
         monkeypatch.setenv(name, "test-key")
 
@@ -71,6 +71,11 @@ def root(tmp_path):
     return root
 
 
+def Reader(app, **kw):
+    """A test client that sends the team (engineer) key unless a request names another: reads are private."""
+    return TestClient(app, headers=TEAM, **kw)
+
+
 def make_app(root, factory=None, **kw):
     return server.create_app(data_root=root, campaigner_factory=factory, poll_interval=0.01, **kw)
 
@@ -98,7 +103,7 @@ def items(client, lid, **params):
 # ------------------------------------------------------------------ 1. two ledgers, isolated lists
 
 def test_two_ledgers_from_one_process_list_only_their_own(root):
-    with TestClient(make_app(root)) as client:
+    with Reader(make_app(root)) as client:
         assert client.get("/api/v1/ledgers").json() == [
             {"id": "acme", "title": "Acme lab", "campaigns": 2, "datasets": 0},
             {"id": "beta", "title": "Beta lab", "campaigns": 1, "datasets": 0}]
@@ -140,14 +145,15 @@ def test_campaign_list_covers_every_kind(root, monkeypatch):
             L.emit("shared", "cost.updated", "runtime", "Spending updated", data={"usd": usd})
     finally:
         L.db.close()
-    with TestClient(make_app(root)) as client:
+    with Reader(make_app(root)) as client:
         listed = {c["id"]: c for c in items(client, "acme")["items"]}
         for item in listed.values():
             SUMMARY.validate_python(item)
         loop = listed[cid]
         assert (loop["kind"], loop["status"], loop["next_action"], loop["outcome"]) == (
             "loop", "waiting_for_approval", "awaiting_approval", None)
-        assert loop["objective"] == objective()["statement"][:140]
+        # the list shows the current version's summary (loop_view.summary_fields), not the registered statement
+        assert loop["objective"] == "Minimise time to 80 % charge with peak temperature <= 45 degC"
         assert (listed["nist"]["kind"], listed["nist"]["status"]) == ("intervention", "running")
         assert listed["shared"]["spend_usd"] == 0.375 and listed["shared"]["updated_at"] > 1.0
         assert [c["kind"] for c in items(client, "beta")["items"]] == ["video"]
@@ -159,7 +165,7 @@ def test_campaign_list_covers_every_kind(root, monkeypatch):
 def test_unknown_ledger_is_404_and_creates_nothing(root, monkeypatch, lid):
     enable_live(monkeypatch)
     app = make_app(root, import_root=root.parent)
-    with TestClient(app) as client:
+    with Reader(app) as client:
         assert app.state.export_ready.wait(30)     # the export cache is written by then
         before = tree(root)
         base = f"/api/v1/ledgers/{lid}"
@@ -180,9 +186,10 @@ def test_unknown_ledger_is_404_and_creates_nothing(root, monkeypatch, lid):
 
 
 def test_writes_need_the_same_tokens_as_legacy_writes(root, monkeypatch):
-    with TestClient(make_app(root)) as client:
-        assert client.put("/api/v1/ledgers/acme/uploads/" + "a" * 32 + "/x.csv", content=b"x").status_code == 403
-        assert client.post("/api/v1/ledgers/acme/datasets", json={"manifest": {}, "path": "."}).status_code == 403
+    with TestClient(make_app(root)) as client:          # no key: sign in (401)
+        assert client.put("/api/v1/ledgers/acme/uploads/" + "a" * 32 + "/x.csv", content=b"x").status_code == 401
+        assert client.post("/api/v1/ledgers/acme/datasets", json={"manifest": {}, "path": "."}).status_code == 401
+        assert client.get("/api/v1/ledgers/acme/campaigns").status_code == 401
         body = {"objective": "x", "experiment_id": "fixture", "profile": "dev", "budget": 0.25}
         assert client.post("/api/v1/ledgers/acme/video-campaigns", json=body, headers=TEAM).status_code == 403
         enable_live(monkeypatch)    # live on, but the team token still cannot start a paid run
@@ -210,7 +217,7 @@ def test_each_ledger_runs_one_legacy_job_and_a_second_in_the_same_ledger_is_409(
 
     body = {"objective": "Find it", "experiment_id": "fixture", "profile": "dev", "budget": 0.25}
     post = lambda client, lid: client.post(f"/api/v1/ledgers/{lid}/video-campaigns", json=body, headers=ADMIN)
-    with TestClient(make_app(root, Blocking)) as client:
+    with Reader(make_app(root, Blocking)) as client:
         try:
             first = {lid: post(client, lid) for lid in ("acme", "beta")}
             assert {lid: r.status_code for lid, r in first.items()} == {"acme": 202, "beta": 202}
@@ -239,7 +246,7 @@ def test_each_ledger_runs_one_legacy_job_and_a_second_in_the_same_ledger_is_409(
 # ------------------------------------------------------------------ 4. events and artifacts per ledger
 
 def test_sse_last_event_id_per_ledger(root):
-    with TestClient(make_app(root)) as client:
+    with Reader(make_app(root)) as client:
         ids, data = sse(client.get("/api/v1/ledgers/acme/campaigns/shared/events"))
         assert ids == [1, 2, 3] and [e["title"] for e in data] == ["acme start", "acme work", "acme done"]
         ids, data = sse(client.get("/api/v1/ledgers/beta/campaigns/shared/events"))
@@ -258,7 +265,7 @@ def test_artifacts_are_per_ledger(root):
     L = Ledger(root / "ledgers" / "acme")
     art = L.put_bytes(b"only in acme", kind="text", media_type="text/plain")
     L.db.close()
-    with TestClient(make_app(root)) as client:
+    with Reader(make_app(root)) as client:
         got = client.get(f"/api/v1/ledgers/acme/artifacts/{art.id}")
         assert got.content == b"only in acme" and got.headers["x-content-type-options"] == "nosniff"
         assert client.get(f"/api/v1/ledgers/beta/artifacts/{art.id}").status_code == 404
@@ -273,7 +280,7 @@ def test_artifacts_never_run_as_active_content_on_the_app_origin(root):
             for media in ("text/html; charset=utf-8", "image/svg+xml", "application/xhtml+xml", "text/javascript",
                           "application/octet-stream", "text/csv", "application/json", "image/png", "video/mp4")}
     L.db.close()
-    with TestClient(make_app(root)) as client:
+    with Reader(make_app(root)) as client:
         for media, aid in arts.items():
             got = client.get(f"/api/v1/ledgers/acme/artifacts/{aid}")
             assert got.status_code == 200 and got.headers["x-content-type-options"] == "nosniff", media
@@ -296,7 +303,7 @@ def test_prewarm_never_exports_a_campaign_without_video_or_intervention_protocol
     monkeypatch.setattr(replay, "export", lambda L, cid, *a, **kw: calls.append((L.original.root.name, cid)) or
                         (_ for _ in ()).throw(RuntimeError("stop here: the call is what this test checks")))
     app = make_app(root)
-    with TestClient(app):
+    with Reader(app):
         assert app.state.export_ready.wait(30)
     assert sorted(calls) == [("acme", "acme-only"), ("acme", "shared"), ("beta", "shared")]
     assert set(app.state.export_errors) == {"acme/acme-only", "acme/shared", "beta/shared"}
@@ -329,7 +336,7 @@ def imports(tmp_path):
 def test_the_same_dataset_id_imports_into_two_ledgers(root, imports):
     folder, manifest = imports
     uid = "ab" * 16
-    with TestClient(make_app(root, import_root=folder)) as client:
+    with Reader(make_app(root, import_root=folder)) as client:
         for name in manifest_files(manifest):     # acme: uploaded files
             put = client.put(f"/api/v1/ledgers/acme/uploads/{uid}/{name}", content=(DATA / name).read_bytes(),
                              headers=TEAM)
@@ -396,7 +403,7 @@ def test_a_path_import_stays_inside_the_import_root(root, imports, tmp_path, whe
         (folder / "bench" / "eclab-cell07.mpt").unlink()
         _link(folder / "bench" / "eclab-cell07.mpt", outside / "eclab-cell07.mpt")
     app = make_app(root, import_root=None if where == "no-root" else folder)
-    with TestClient(app) as client:
+    with Reader(app) as client:
         r = client.post("/api/v1/ledgers/acme/datasets", json={"manifest": manifest, "path": path}, headers=TEAM)
         assert r.status_code == 403, r.text
         assert {"absolute": "not a file in the import folder", "dotdot": "not a file in the import folder",

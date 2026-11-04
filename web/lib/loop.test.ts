@@ -9,7 +9,9 @@ import {
   categoriesLine, seriesFromBlob, spendLines, validityWarning, valueLine, standing, stateCounts, targetLine, thin, withUnit,
   actorIn, decidedByLimits, idWords, limitValue, OBJECTIVE_CUT, objectiveLine, plannerIsAgent, plannerWord, prose, reasonsLine,
   unbroken, verdictSentence, wordsFor,
-  type Comparison, type LoopView, type SystemSpecLite,
+  bestIsOlderModel, designCaveat, designHeading, designShown, leadLine, PARAM_RECORDED, paramText, cRatesLine, FASTCHARGE_LAB_HREF, labTestOf, marginLine, nextStepOf, paramLine, fitValue, traceChart, versionOf,
+  bytesWord, engineerConstraints, isRecordTest, priorLines, recordStretchLine, spanWord, uncertaintyWord,
+  type Comparison, type Learning, type LoopView, type SystemSpecLite,
 } from "./loop";
 
 // The S4b sample view (tests/data/loop_view_sample.json): a concluded toy campaign, one rejected and one completed request.
@@ -143,7 +145,7 @@ describe("words", () => {
   });
   test("the limit drawn on a series: same unit, the series named in the constraint", () => {
     const v = sample();
-    expect(limitFor(v, "temperature", "degC")).toEqual({ value: 45, label: "≤ 45 °C" });
+    expect(limitFor(v, "temperature", "degC")).toMatchObject({ value: 45, label: "≤ 45 °C" });
     expect(limitFor(v, "temperature", "degF")).toBeNull();
     expect(limitFor(v, "voltage", "V")).toBeNull();
   });
@@ -343,11 +345,12 @@ describe("the verdict in words", () => {
 });
 
 describe("live versus recorded", () => {
-  test("a recording never offers write controls; live needs a name and the team key", () => {
-    expect(canAct("recorded", "team-key", "Ana")).toBe(false);
-    expect(canAct("live", "", "Ana")).toBe(false);
-    expect(canAct("live", "team-key", " ")).toBe(false);
-    expect(canAct("live", "team-key", "Ana")).toBe(true);
+  test("a recording never offers write controls; live needs an engineer or administrator session", () => {
+    expect(canAct("recorded", "engineer")).toBe(false);
+    expect(canAct("live", "viewer")).toBe(false);
+    expect(canAct("live", null)).toBe(false);
+    expect(canAct("live", "engineer")).toBe(true);
+    expect(canAct("live", "admin")).toBe(true);
   });
   test("the banner says which, and how a recording was checked", () => {
     const v = sample();
@@ -379,31 +382,32 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 afterEach(() => { globalThis.fetch = realFetch; });
 
 describe("api", () => {
-  test("approve sends the content hash, the author, the team key and an idempotency key", async () => {
+  test("approve sends the content hash and an idempotency key on the session cookie; identity comes from the credential", async () => {
     const calls = stubFetch(() => json({ request_id: "rq_1", version: 1, state: "queued", content_hash: "h" }));
     const hash = "a".repeat(64);
-    await v1.approve("acme", "loop_1", "rq_1", { author: "Ana", content_hash: hash }, "team-key", "web:fixed");
+    await v1.approve("acme", "loop_1", "rq_1", { content_hash: hash }, "web:fixed");
     const [c] = calls;
     expect(c.url).toEndWith("/api/v1/ledgers/acme/campaigns/loop_1/requests/rq_1/approve");
     expect(c.init.method).toBe("POST");
-    expect(JSON.parse(String(c.init.body))).toEqual({ note: "", author: "Ana", content_hash: hash });
+    expect(JSON.parse(String(c.init.body))).toEqual({ note: "", content_hash: hash });
     const h = c.init.headers as Record<string, string>;
-    expect(h.Authorization).toBe("Bearer team-key");
+    expect(h.Authorization).toBeUndefined();
+    expect(c.init.credentials).toBe("include");
     expect(h["Idempotency-Key"]).toBe("web:fixed");
   });
   test("a fresh idempotency key fits the server's rule", async () => {
     const calls = stubFetch(() => json({}));
-    await v1.reject("acme", "loop_1", "rq_1", { author: "Ana", content_hash: "b".repeat(64), reason: "Above 3C" }, "k");
+    await v1.reject("acme", "loop_1", "rq_1", { content_hash: "b".repeat(64), reason: "Above 3C" });
     expect((calls[0].init.headers as Record<string, string>)["Idempotency-Key"]).toMatch(/^[A-Za-z0-9_.:-]{1,128}$/);
   });
   test("a stale hash is a 409 with the server's sentence", async () => {
     stubFetch(() => json({ detail: "request rq_1 is at version 2; review it" }, 409));
-    const err = await v1.approve("acme", "loop_1", "rq_1", { author: "Ana", content_hash: "c".repeat(64) }, "k").catch((e) => e);
+    const err = await v1.approve("acme", "loop_1", "rq_1", { content_hash: "c".repeat(64) }).catch((e) => e);
     expect(err).toBeInstanceOf(ApiError);
     expect(err.stale).toBe(true);
     expect(err.message).toBe("request rq_1 is at version 2; review it");
   });
-  test("reads need no key and name their ledger", async () => {
+  test("reads carry no key header and name their ledger", async () => {
     const calls = stubFetch((c) => json(c.url.endsWith("/ledgers") ? [] : { items: [], next_cursor: null }));
     await v1.ledgers();
     await v1.campaigns("lab", 7);
@@ -428,5 +432,182 @@ describe("api", () => {
     expect(r.receipt).toBe(true);
     stubFetch(() => new Response("", { status: 404 }));
     expect(await loadRecording("missing").catch((e) => e.message)).toBe("No recording named missing.");
+  });
+});
+
+// A recorded lab smoke campaign (tests/data/loop_lab_smoke.loop.json): hidden lab condition h=15, v0 nominal, v1
+// fitted; its first design was made under v0 and carries the model as a parameter, its best under v1.
+const LAB = parseLoopFile(JSON.parse(readFileSync(join(import.meta.dir, "..", "..", "tests", "data", "loop_lab_smoke.loop.json"), "utf-8"))).view;
+// The published lab recording (public/fixtures/loop/fastcharge-lab.loop.json), an evaluation campaign.
+const PUBLISHED_LAB = parseLoopFile(JSON.parse(readFileSync(join(import.meta.dir, "..", "public", "fixtures", "loop", "fastcharge-lab.loop.json"), "utf-8"))).view;
+const lab = () => structuredClone(LAB.learning!) as Learning;
+
+describe("thermal learning", () => {
+  test("older recordings carry no learning; the lab recordings do", () => {
+    expect(SAMPLE.learning).toBeUndefined();
+    expect(LAB.learning?.kind).toBe("thermal-learning/1");
+    expect(PUBLISHED_LAB.learning?.kind).toBe("thermal-learning/1");
+    expect(PUBLISHED_LAB.learning?.best_design?.model_version).toBe(1);
+    expect(PUBLISHED_LAB.requests.every((r) => !requestTitle(r).includes("{"))).toBe(true);
+    expect(FASTCHARGE_LAB_HREF).toBe("/w/?recording=fastcharge-lab");
+    expect(RECORDING_NAME.test("fastcharge-lab")).toBe(true);
+  });
+  test("C-rates read as one line, a missing step as a dash", () => {
+    expect(cRatesLine([1.5, 1.35, 0.9, 0.5])).toBe("1.5 · 1.35 · 0.9 · 0.5C");
+    expect(cRatesLine([1.5, null, 1.05, 0.8])).toBe("1.5 · – · 1.05 · 0.8C");
+    expect(cRatesLine(null)).toBe("–");
+    expect(cRatesLine([])).toBe("–");
+  });
+  test("fitted parameters keep four significant digits and their 95 % region", () => {
+    expect(fitValue(14.967)).toBe("14.97");
+    expect(fitValue(6)).toBe("6");
+    expect(fitValue(null)).toBe("–");
+    expect(paramLine("h", 14.967, [14.5, 15.4])).toBe("Heat transfer h 14.97 W/m²/K (95 %: 14.5–15.4)");
+    expect(paramLine("k", 1)).toBe("Thermal-mass scale k 1");
+  });
+  test("the anode margin reads above or below the limit", () => {
+    expect(marginLine({ min_anode_potential: 26.284, limits: { margin_mV: 25 } })).toBe("26.3 mV, 1.28 mV above the 25 mV margin");
+    expect(marginLine({ min_anode_potential: 20, limits: { margin_mV: 25 } })).toBe("20 mV, 5 mV below the 25 mV margin");
+    expect(marginLine({ min_anode_potential: null })).toBe("–");
+  });
+  test("versions and lab tests are found by number", () => {
+    const l = lab();
+    expect(versionOf(l, l.model_in_use)?.estimate?.h).toBe(14.967);
+    expect(versionOf(l, 7)).toBeUndefined();
+    expect(labTestOf(l, l.latest_lab_test)?.n).toBe(2);
+    expect(labTestOf(l, 1)?.forecast?.model_version).toBe(0);
+  });
+  test("next experiment: a pending request first, else the ranking says none is worth its cost", () => {
+    const l = lab();
+    const none = nextStepOf(l);
+    expect(none.kind).toBe("none");
+    if (none.kind === "none") expect(none.ranking.verdict).toContain("no test would change the design");
+    l.ranking!.best_measurement = 3;
+    const run = nextStepOf(l);
+    expect(run.kind === "run" && run.option?.label).toBe("1C constant current, then a 60 min rest");
+    // No best named: the options' values decide.
+    l.ranking!.best_measurement = null;
+    expect(nextStepOf(l).kind).toBe("none");
+    l.ranking!.options![1].value_min = 2.5;
+    const byValue = nextStepOf(l);
+    expect(byValue.kind === "run" && byValue.option?.option).toBe(2);
+    l.next_experiment = { request_id: "rq_x", action: "lab_charge", state: "awaiting_approval" };
+    expect(nextStepOf(l).kind).toBe("pending");
+    expect(nextStepOf({}).kind).toBe("unranked");
+  });
+  test("an object or a long string parameter is never printed inline", () => {
+    expect(paramText({ value: 25, unit: "degC" })).toBe("25 °C");
+    expect(paramText({ value: "nominal", unit: "" })).toBe("nominal");
+    expect(paramText({ value: { h: 6, k: 1 } as unknown as string, unit: "" })).toBe(PARAM_RECORDED);
+    expect(paramText({ value: "x".repeat(41), unit: "" })).toBe(PARAM_RECORDED);
+    expect(paramText({ value: "x".repeat(40), unit: "" })).toBe("x".repeat(40));
+    expect(paramText({ value: '{"h":6}', unit: "" })).toBe(PARAM_RECORDED);
+    // The lab recording's first design carries its whole model as a parameter.
+    const first = LAB.requests[0];
+    const line = paramsLine(first.params);
+    expect(line).toContain(`Model ${PARAM_RECORDED}`);
+    expect(line).not.toContain("{");
+    expect(LAB.requests.every((r) => !requestTitle(r).includes("{"))).toBe(true);
+  });
+  test("the assessment's best is flagged when made under an older model version than the best design", () => {
+    const first = LAB.learning!.first_design!.request_id!, best = LAB.learning!.best_design!.request_id!;
+    expect(bestIsOlderModel(LAB, first)).toBe(true);
+    expect(bestIsOlderModel(LAB, best)).toBe(false);
+    expect(bestIsOlderModel(LAB, null)).toBe(false);
+    expect(bestIsOlderModel({ ...LAB, learning: undefined }, first)).toBe(false);
+    expect(bestIsOlderModel(SAMPLE, SAMPLE.requests[0].request_id)).toBe(false);
+  });
+  test("a design without a model standing behind it is a lead, never the best design", () => {
+    const base = { model_version: 2, c_rates: [1.5, 1.4, 1.1, 0.8] };
+    const lead = { ...base, model_adequate: true, model_supported: false, standing: "model version 2 has not been checked on tests it did not fit" };
+    expect(designCaveat(lead)).toBe("Not a recommendation: model version 2 has not been checked on tests it did not fit. Treat it as a lead, not a result.");
+    expect(designHeading(lead)).toBe("Latest design, not a recommendation");
+    const backed = { ...base, model_adequate: true, model_supported: true, standing: "met the rule" };
+    expect(designCaveat(backed)).toBeNull();
+    expect(designHeading(backed)).toBe("Best design");
+    // a recording made before the rule: only an inadequate fit is flagged, in the fit's own terms
+    expect(designCaveat({ ...base, model_adequate: false })).toContain("does not fit its own tests within the noise");
+    expect(designCaveat({ ...base, model_adequate: null })).toBeNull();
+    expect(designHeading(LAB.learning!.best_design!)).toBe("Best design");
+  });
+  test("a later design without standing never hides an earlier recommendation", () => {
+    const A = { request_id: "rq_a", model_version: 1, c_rates: [1.5, 1.35, 0.9, 0.5], model_supported: true, standing: "met" };
+    const B = { request_id: "rq_b", model_version: 2, c_rates: [1.5, 1.5, 1.2, 0.8], model_supported: false, standing: "model version 2 has not been checked on tests it did not fit" };
+    expect(designShown({ best_design: B, recommended_design: A })).toEqual({ main: A, lead: B });
+    expect(leadLine(B)).toBe("A later design under v2 (1.5 · 1.5 · 1.2 · 0.8C) is a lead, not a recommendation: model version 2 has not been checked on tests it did not fit.");
+    expect(designShown({ best_design: B, recommended_design: null })).toEqual({ main: B, lead: null });
+    expect(designShown({ best_design: A, recommended_design: A })).toEqual({ main: A, lead: null });
+    // a recording made before the rule: its best design, as before
+    expect(designShown(LAB.learning)).toEqual({ main: LAB.learning!.best_design!, lead: null });
+    expect(designShown(undefined)).toEqual({ main: null, lead: null });
+  });
+  test("the chart data: seconds, observed and forecast, the members' band", () => {
+    const c = traceChart(lab().lab_tests![0].trace)!;
+    expect(c.observed.t[1]).toBe(60);
+    expect(c.observed.y[0]).toBe(24.76);
+    expect(c.observed.unit).toBe("degC");
+    expect(c.forecast!.y[0]).toBe(25);
+    expect(c.band.length).toBe(1);
+    expect(c.spread).toBe(0);   // v0 has one member: the band is the forecast line
+  });
+  test("nulls split the band and drop from the lines; no trace, no chart", () => {
+    const c = traceChart({
+      t_min: [0, 1, 2, 3, 4], observed_degC: [25, 26, null, 28, 29],
+      forecast_degC: [25, 26.5, 27.5, null, null], forecast_lo_degC: [24, 25, null, 27, 28], forecast_hi_degC: [26, 27, 28, 30, 31],
+    })!;
+    expect(c.observed.t).toEqual([0, 60, 180, 240]);
+    expect(c.forecast!.t).toEqual([0, 60, 120]);
+    expect(c.band.map((b) => b.t)).toEqual([[0, 60], [180, 240]]);
+    expect(c.spread).toBe(3);
+    expect(traceChart({ t_min: [0, 1], observed_degC: [25, 26], forecast_degC: null, forecast_lo_degC: null, forecast_hi_degC: null })!.forecast).toBeNull();
+    expect(traceChart(null)).toBeNull();
+    expect(traceChart({ t_min: [0], observed_degC: [null] })).toBeNull();
+  });
+});
+
+describe("investigation from the engineer's records", () => {
+  const stretch = {
+    ref: "lgm50-cells/cell02", segment: 27, mode: "discharge", t_start_s: 96190.21, t_end_s: 103280.74, test_current: 2.50004,
+    test_c_rate: 0.5, test_duration: 118.175, temperature_start: 26.8489, temperature_rise: 7.5637, ambient_temperature: 26.8791, current_departure: 0.00024,
+  };
+  test("a lab test with a record is a record test; a lab charge is not", () => {
+    expect(isRecordTest({ record: stretch })).toBe(true);
+    expect(isRecordTest({})).toBe(false);
+    expect(isRecordTest({ record: null })).toBe(false);
+  });
+  test("a record test reads as its stretch: ref, segment, mode, C-rate, duration, start temperature and rise", () => {
+    expect(recordStretchLine(stretch)).toBe("lgm50-cells/cell02 segment 27 · discharge at 0.5C for 118 min · from 26.8 °C, +7.56 K");
+    expect(recordStretchLine({ ref: "r", segment: 3, mode: "charge", temperature_rise: -0.5 })).toBe("r segment 3 · charge · from –, −0.5 K");
+    expect(recordStretchLine({})).toBe("record");
+  });
+  test("sizes in binary units and spans in the unit that reads best", () => {
+    expect(bytesWord(312)).toBe("312 B");
+    expect(bytesWord(597715)).toBe("584 KiB");
+    expect(bytesWord(64 * 1024 * 1024)).toBe("64 MiB");
+    expect(bytesWord(undefined)).toBe("–");
+    expect(spanWord([0, 173454.11])).toBe("0–48.2 h");
+    expect(spanWord([0, 1800])).toBe("0–30 min");
+    expect(spanWord([10, 70])).toBe("10–70 s");
+    expect(spanWord([0])).toBe("–");
+    expect(spanWord(null)).toBe("–");
+  });
+  test("an uncertainty the manifest did not declare reads as not declared, never as a number", () => {
+    expect(uncertaintyWord({ value: null, kind: "none", method: "not declared in the manifest" }, "degC")).toBe("not declared");
+    expect(uncertaintyWord(null)).toBe("not declared");
+    expect(uncertaintyWord({ value: 0.5, kind: "standard" }, "degC")).toBe("± 0.5 °C (standard)");
+  });
+  test("the prior's parameters, without its version or its words", () => {
+    expect(priorLines({ version: 0, h: 10, k: 1, source: "as shipped" })).toEqual(["Heat transfer h 10 W/m²/K", "Thermal-mass scale k 1"]);
+    expect(priorLines(null)).toEqual([]);
+  });
+  test("the engineer's constraints: the objective's, which the server points to, or the investigation's own list", () => {
+    const v = sample();
+    v.investigation = { engineer_constraints: "objective.constraints (only an engineer's amendment changes them)" };
+    expect(engineerConstraints(v)).toBe(v.objective.constraints);
+    const own = [{ quantity: "max_temperature", op: "<=", limit: 45, unit: "degC" }];
+    v.investigation = { engineer_constraints: own };
+    expect(engineerConstraints(v)).toBe(own);
+    delete v.investigation;
+    expect(engineerConstraints(v)).toBe(v.objective.constraints);
   });
 });

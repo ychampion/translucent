@@ -164,7 +164,9 @@ def steps(L, claim, overrides) -> tuple[list, list, set]:
     """The finding's runs in order, the ones the overrides reach (re-executed by a rerun), and the seed run ids."""
     ev = evidence(L, claim.id)
     used = _used(L, claim, ev)
-    runs = sorted((L.get("run", r["id"]) for r in ev["runs"]), key=lambda r: (r.started_at, r.id))
+    # original order: start time, then the order the ledger recorded them (a coarse clock gives two steps one time)
+    recorded = {r.id: i for i, r in enumerate(L.list("run"))}
+    runs = sorted((L.get("run", r["id"]) for r in ev["runs"]), key=lambda r: (r.started_at, recorded.get(r.id, 0)))
     seeds = set()
     for o in overrides:
         if o.quantity != "finding_window":
@@ -269,7 +271,9 @@ def replicate(L, claim_id: str, *, campaign_id: str | None = None) -> dict:
         raise LookupError("Finding not found")
     campaign_id = campaign_id or claim.campaign_id
     ev = evidence(L, claim.id)
-    runs = sorted((L.get("run", r["id"]) for r in ev["runs"]), key=lambda r: (r.started_at, r.id))
+    # original order: start time, then the order the ledger recorded them (a coarse clock gives two steps one time)
+    recorded = {r.id: i for i, r in enumerate(L.list("run"))}
+    runs = sorted((L.get("run", r["id"]) for r in ev["runs"]), key=lambda r: (r.started_at, recorded.get(r.id, 0)))
     todo = [r for r in runs if r.tool not in TRUSTED_RECORDS]
     prefix = f"replicate:{claim_id}:"
     n = len({r.step_id for r in L.list("run", campaign_id=campaign_id) if r.step_id.startswith(prefix)}) + 1

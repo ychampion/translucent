@@ -1,21 +1,23 @@
 "use client";
-// The app frame: a slim icon rail, a collapsible sidebar (new campaign, the server's campaigns, recent pages and the
-// recorded examples) and the page.
-// On a phone the rail and sidebar fold into a drawer opened from the page header.
+// The app frame: a slim icon rail (show/hide the sidebar, theme), a collapsible sidebar (new campaign, the server's
+// campaigns, recent pages, the recorded engineering example and a link to the other recorded examples) and the page.
+// Each destination is listed once. On a phone the sidebar folds into a drawer opened from the page header.
+// The session: asked once on load; the sign-in dialog opens over any page whose call answered 401.
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
-import { v1 } from "@/lib/api";
-import { EXPERIMENTS } from "@/lib/campaigns";
+import { ApiError, v1 } from "@/lib/api";
+import { useSession } from "@/lib/session";
 import { INTERVENTION_NAV, interventionHref } from "@/lib/intervention";
 import { dispatchKey, useCommands } from "@/lib/commands";
-import { loopHref, type CampaignSummary } from "@/lib/loop";
+import { FASTCHARGE_DEMO_HREF, FASTCHARGE_HREF, loopHref, type CampaignSummary } from "@/lib/loop";
 import { useAttention, useRecents, useRunning, useUnread } from "@/lib/recents";
 import { apiConfigured } from "@/lib/sources";
 import { THEME_KEY } from "@/lib/theme";
-import { IconAim, IconChats, IconChevron, IconClose, IconFlask, IconMemory, IconMoon, IconNew, IconProof, IconSidebar, IconSun } from "./Icons";
+import { IconAim, IconChats, IconClose, IconMoon, IconNew, IconSidebar, IconSun } from "./Icons";
 import { LogoMark } from "./Logo";
 import { Palette, ShortcutSheet } from "./Palette";
+import { Account, SignInDialog, useSessionProbe } from "./Session";
 
 type Theme = "dark" | "light";
 const SIDE_KEY = "translucent.sidebar";
@@ -42,6 +44,7 @@ function useTheme(): [Theme, () => void] {
 const keyIn = (path: string) => path.match(/^\/c\/([^/]+)/)?.[1] ?? null;
 
 export function Shell({ children }: { children: ReactNode }) {
+  useSessionProbe();
   const path = (usePathname() ?? "/").replace(/(.)\/$/, "$1");
   const [theme, toggleTheme] = useTheme();
   const [sidebar, setSidebar] = useState(true);
@@ -72,7 +75,9 @@ export function Shell({ children }: { children: ReactNode }) {
   useCommands("shell", () => [
     { id: "palette", label: "Search findings and commands", group: "Help", keys: ["Ctrl+K"], inFields: true, quiet: true, run: () => { setKeysSheet(false); setPalette((p) => !p); } },
     { id: "keys", label: "Keyboard shortcuts", group: "Help", keys: ["?", "Ctrl+/"], run: () => { setPalette(false); setKeysSheet((k) => !k); } },
-    { id: "new", label: "New campaign", group: "Navigate", run: () => router.push("/") },
+    { id: "home", label: "Home", group: "Navigate", run: () => router.push("/") },
+    { id: "new", label: "New campaign", group: "Navigate", run: () => router.push("/new/") },
+    { id: "examples", label: "Other recorded examples", group: "Navigate", run: () => router.push("/examples/") },
     { id: "campaigns", label: "Campaigns on the server", group: "Navigate", run: () => router.push("/campaigns/") },
     { id: "memory", label: "Memory", group: "Navigate", run: () => router.push(`/c/${memoryKey}/memory/`) },
     { id: "proof", label: "How it’s checked", group: "Navigate", run: () => router.push("/proof/") },
@@ -88,21 +93,10 @@ export function Shell({ children }: { children: ReactNode }) {
       <a className="skip-link" href="#main">Skip to content</a>
       <div className={`app ${sidebar ? "" : "no-sidebar"} ${drawer ? "drawer-open" : ""}`}>
         <nav className="rail" aria-label="Main">
-          <RailLink href="/" label="New campaign" on={path === "/"}><IconNew /></RailLink>
-          <button className="rail-btn" onClick={toggleSidebar} aria-label={sidebar ? "Hide sidebar" : "Show sidebar"} title="Campaigns">
+          <button className="rail-btn" onClick={toggleSidebar} aria-label={sidebar ? "Hide sidebar" : "Show sidebar"} title={sidebar ? "Hide sidebar" : "Show sidebar"}>
             <IconChats />
           </button>
-          <button className="rail-btn" onClick={() => {
-            if (!sidebar) toggleSidebar();
-            const s = document.getElementById("side-experiments");
-            if (s?.parentElement instanceof HTMLDetailsElement) s.parentElement.open = true;
-            s?.focus();
-          }} aria-label="Recorded examples" title="Recorded examples">
-            <IconFlask />
-          </button>
-          <RailLink href="/campaigns/" label="Campaigns on the server" on={path === "/campaigns" || path === "/w"}><IconAim /></RailLink>
-          <RailLink href={`/c/${memoryKey}/memory/`} label="Memory" on={path.endsWith("/memory")}><IconMemory /></RailLink>
-          <RailLink href="/proof/" label="How it’s checked" on={path.startsWith("/proof")}><IconProof /></RailLink>
+          {!sidebar && <RailLink href="/new/" label="New campaign" on={path === "/new"}><IconNew /></RailLink>}
           <span className="rail-gap" />
           <button className="rail-btn" onClick={toggleTheme} aria-label={theme === "dark" ? "Light theme" : "Dark theme"} title={theme === "dark" ? "Light theme" : "Dark theme"}>
             {theme === "dark" ? <IconSun /> : <IconMoon />}
@@ -116,6 +110,7 @@ export function Shell({ children }: { children: ReactNode }) {
 
         <div className="main" id="main" tabIndex={-1}>{children}</div>
       </div>
+      <SignInDialog />
       {palette && <Palette onClose={() => setPalette(false)} />}
       {keysSheet && <ShortcutSheet onClose={() => setKeysSheet(false)} />}
     </ShellContext.Provider>
@@ -130,16 +125,14 @@ function RailLink({ href, label, on, children }: { href: string; label: string; 
   );
 }
 
-/** Short names for the recorded examples. */
-const SHORT: Record<string, string> = { m4: "Lithium filaments (Movie 4)", lu: "Graphite fast charging" };
-const EXAMPLES_KEY = "translucent.sidebar.examples";
 
 /**
  * The newest campaigns of every ledger on the team server, for the sidebar. Null while loading or without a server;
  * "error" when the server didn't answer. Re-read when the page changes, so a new campaign shows up.
  */
-function useServerCampaigns(path: string, limit = 8): CampaignSummary[] | null | "error" {
-  const [items, setItems] = useState<CampaignSummary[] | null | "error">(null);
+function useServerCampaigns(path: string, limit = 8): CampaignSummary[] | null | "error" | "signin" {
+  const { epoch } = useSession();
+  const [items, setItems] = useState<CampaignSummary[] | null | "error" | "signin">(null);
   useEffect(() => {
     if (!apiConfigured()) return;
     const ctl = new AbortController();
@@ -147,9 +140,9 @@ function useServerCampaigns(path: string, limit = 8): CampaignSummary[] | null |
       const ledgers = await v1.ledgers(ctl.signal);
       const pages = await Promise.all(ledgers.map((l) => v1.campaigns(l.id, null, ctl.signal)));
       setItems(pages.flatMap((p) => p.items).sort((a, b) => b.updated_at - a.updated_at).slice(0, limit));
-    })().catch(() => { if (!ctl.signal.aborted) setItems((x) => (Array.isArray(x) ? x : "error")); });
+    })().catch((e) => { if (!ctl.signal.aborted) setItems((x) => (Array.isArray(x) ? x : e instanceof ApiError && e.status === 401 ? "signin" : "error")); });
     return () => ctl.abort();
-  }, [path, limit]);
+  }, [path, limit, epoch]);
   return items;
 }
 
@@ -157,6 +150,7 @@ function useServerCampaigns(path: string, limit = 8): CampaignSummary[] | null |
 function campaignDot(c: CampaignSummary): { tone: string; label: string } | null {
   if (c.next_action === "awaiting_approval" || c.status === "waiting_for_approval") return { tone: "is-wait", label: "Waiting for your approval" };
   if (c.next_action === "awaiting_result" || c.status === "waiting_for_result") return { tone: "is-wait", label: "Waiting for a person’s result" };
+  if (c.next_action === "planner_stopped") return { tone: "is-wait", label: "The planner stopped: decide whether to raise its budget or conclude" };
   if (c.next_action === "running" || c.next_action === "planner_thinking" || c.status === "running") return { tone: "is-busy", label: "Running" };
   return null;
 }
@@ -168,15 +162,7 @@ function Sidebar({ path, onClose, theme, toggleTheme }: { path: string; onClose(
   const unread = useUnread();
   const server = useServerCampaigns(path);
   const [search, setSearch] = useState("");
-  const [examples, setExamples] = useState(true);
   useEffect(() => { setSearch(window.location.search); }, [path]);
-  useEffect(() => {
-    try { if (localStorage.getItem(EXAMPLES_KEY) === "0") setExamples(false); } catch { /* default open */ }
-  }, []);
-  const toggleExamples = (open: boolean) => {
-    setExamples(open);
-    try { localStorage.setItem(EXAMPLES_KEY, open ? "1" : "0"); } catch { /* this tab only */ }
-  };
   const here = (href: string) => {
     const [p, q] = href.split("?");
     if (p.replace(/(.)\/$/, "$1") !== path) return false;
@@ -189,13 +175,13 @@ function Sidebar({ path, onClose, theme, toggleTheme }: { path: string; onClose(
   return (
     <div className="side">
       <div className="side-head">
-        <Link href="/" className="wordmark" aria-label="Translucent, new campaign">
+        <Link href="/" className="wordmark" aria-label="Translucent, home">
           <LogoMark size={20} />
           Translucent
         </Link>
         <button className="icon-btn side-close" onClick={onClose} aria-label="Close menu"><IconClose /></button>
       </div>
-      <Link href="/" className={`side-row is-new ${path === "/" ? "is-on" : ""}`}><IconNew size={16} />New campaign</Link>
+      <Link href="/new/" className={`side-row is-new ${path === "/new" ? "is-on" : ""}`}><IconNew size={16} />New campaign</Link>
 
       <div className="side-scroll">
         <div className="side-label-row">
@@ -221,6 +207,7 @@ function Sidebar({ path, onClose, theme, toggleTheme }: { path: string; onClose(
           <>
             <Link href="/campaigns/" className={`side-row ${path === "/campaigns" ? "is-on" : ""}`}><IconAim size={16} />Campaigns on the server</Link>
             {server === "error" && <p className="side-note">The team server didn’t answer.</p>}
+            {server === "signin" && <p className="side-note">Sign in to see them.</p>}
             {Array.isArray(server) && <p className="side-note">No campaigns yet. Start one with New campaign.</p>}
           </>
         )}
@@ -239,21 +226,20 @@ function Sidebar({ path, onClose, theme, toggleTheme }: { path: string; onClose(
           ))}
         </div>
 
-        <details className="side-group" open={examples} onToggle={(e) => toggleExamples((e.currentTarget as HTMLDetailsElement).open)}>
-          <summary className="side-label" id="side-experiments"><IconChevron size={12} className="side-chev" />Recorded examples</summary>
-          {INTERVENTION_NAV.map((x) => (
-            <Link key={x.key} href={interventionHref(x.key)} className={`side-row ${path === `/i/${x.key}` ? "is-on" : ""}`}>{x.name}</Link>
-          ))}
-          {EXPERIMENTS.map((x) => (
-            <Link key={x.key} href={`/?x=${x.key}`} className="side-row">{SHORT[x.key] ?? x.name}</Link>
-          ))}
-          <Link href="/?x=own" className="side-row">Your recordings</Link>
-        </details>
+        <p className="side-label">Recorded</p>
+        <Link href={FASTCHARGE_HREF} className={`side-row ${path === "/w" && new URLSearchParams(search).get("recording") === "fastcharge" ? "is-on" : ""}`}>
+          <span className="side-title">Faster LG M50 charge</span>
+        </Link>
+        <Link href={FASTCHARGE_DEMO_HREF} className={`side-row ${path === "/w" && new URLSearchParams(search).get("recording") === "fastcharge-demo" ? "is-on" : ""}`}>
+          <span className="side-title">Case B, browser demonstration</span>
+        </Link>
+        <Link href="/examples/" className={`side-row ${path === "/examples" || path.startsWith("/i/") || path.startsWith("/c/") ? "is-on" : ""}`}>Other recorded examples</Link>
       </div>
 
       <div className="side-foot">
         <Link href="/proof/" className="side-row">How it’s checked</Link>
-        <button className="side-row" onClick={toggleTheme}>{theme === "dark" ? <IconSun size={16} /> : <IconMoon size={16} />}{theme === "dark" ? "Light theme" : "Dark theme"}</button>
+        <div className="side-account only-phone-flex"><Account /></div>
+        <button className="side-row only-phone-flex" onClick={toggleTheme}>{theme === "dark" ? <IconSun size={16} /> : <IconMoon size={16} />}{theme === "dark" ? "Light theme" : "Dark theme"}</button>
       </div>
     </div>
   );
@@ -267,7 +253,7 @@ export function PageHeader({ title, children }: { title?: ReactNode; children?: 
       <button className="icon-btn only-phone" onClick={shell.openDrawer} aria-label="Open menu"><IconSidebar /></button>
       {!shell.sidebar && <button className="icon-btn only-wide" onClick={shell.toggleSidebar} aria-label="Show sidebar"><IconSidebar /></button>}
       {title != null && <h1 className="page-title">{title}</h1>}
-      <div className="page-actions">{children}</div>
+      <div className="page-actions">{children}<Account /></div>
     </header>
   );
 }

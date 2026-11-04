@@ -126,6 +126,66 @@ def _protocol_parameters(tolerance_c: float = 1e-6, tolerance_t: float = 0.0):
     )
 
 
+OBJECTIVE_TEMPLATE = {
+    # A new campaign: the fastest protocol meeting the constraints (loop-compare/3, kind fastest_feasible), or a
+    # hard time target the engineer sets (kind hard_target: the target's limit, never relaxed but by an amendment).
+    "evaluator": "loop-compare/3",
+    "kinds": ["fastest_feasible", "hard_target"],
+    "default_kind": "fastest_feasible",
+    "statement": {
+        "fastest_feasible": "Find the fastest protocol meeting these constraints.",
+        "hard_target": "Meet {target} while meeting these constraints.",
+    },
+    "target": {"quantity": "charge_time_80", "unit": "min", "direction": "minimize", "margin": 0.0},
+    "hard_target": {
+        "quantity": "charge_time_80",
+        "unit": "min",
+        "op": "<=",
+        "label": "Time from 10 to 80 % SOC at most",
+        "words": "a 10-80 % charge in at most {limit:g} {unit}",
+    },
+    "constraints": [
+        {"quantity": "min_anode_potential", "op": ">=", "limit": PLATING_MARGIN_MV, "unit": "mV",
+         "label": f"Plating margin: anode potential at or above +{PLATING_MARGIN_MV:g} mV"},
+        {"quantity": "max_temperature", "op": "<=", "limit": T_LIMIT_C, "unit": "degC",
+         "label": f"Cell at or below {T_LIMIT_C:g} degC"},
+    ],
+    "quantities": [
+        {"name": "charge_time_80", "unit": "min", "source": "result"},
+        {"name": "min_anode_potential", "unit": "mV", "source": "result"},
+        {"name": "max_temperature", "unit": "degC", "source": "result"},
+    ],
+    "summary": {
+        "fastest_feasible": "Fastest 10-80 % charge",
+        "hard_target": "10-80 % charge in at most {limit:g} {unit}",
+        "terms": {
+            "min_anode_potential": {"name": "anode potential", "signed": True},
+            "max_temperature": {"name": "peak temperature"},
+        },
+    },
+    "parameter_defaults": {"ambient": 25.0},
+    # The system reference search (translucent.loop_reference): bisection on one C-rate applied to all four windows
+    # (a single-step constant-current charge, finishing at 4.2 V constant voltage if it is reached), on the action's
+    # 0.05C lattice, at most 8 runs, to 0.05C. Faster is a higher C-rate.
+    "reference_search": {
+        "action": "simulate_protocol",
+        "label": "Single-step constant-current charge",
+        "parameter": {"name": "c_rate", "unit": "1/h", "unit_label": "C", "lo": C_LO, "hi": C_HI,
+                      "step": C_GRID, "sets": list(C_RATES), "faster": "higher"},
+        "fixed": {"ambient": 25.0},
+        "max_runs": 8,
+        "tolerance": C_GRID,
+        "method": "bisection on the C-rate of a single-step constant-current charge, on the solver",
+    },
+    # The system's own statement of what it cannot quantify (module docstring, "Validity, in plain words").
+    "model_uncertainty": (
+        "Not quantified: the model's voltage runs 70-160 mV above the Chen 2020 records during 0.5-1.5C "
+        "discharges, a gap no simple resistance explains, so the anode potential may be optimistic; no record "
+        "holds a charge faster than 0.3C. Confirm on a physical cell."
+    ),
+}
+
+
 SPEC = SystemSpec(
     id=SYSTEM_ID,
     version="1",
@@ -313,6 +373,7 @@ SPEC = SystemSpec(
             "charge above 0.3C unvalidated by records; computational only"
         ),
     },
+    objective_template=OBJECTIVE_TEMPLATE,
 )
 
 

@@ -281,9 +281,10 @@ def test_post_campaign_records_the_protocol_before_the_start(tmp_path, monkeypat
     video(L, tmp_path)
     L.db.close()
     monkeypatch.setenv("TRANSLUCENT_LIVE", "1")
-    monkeypatch.setenv("TRANSLUCENT_ADMIN_TOKEN", "admin")
+    monkeypatch.setenv("TRANSLUCENT_ADMIN_TOKEN", "admin-key-0123456789abc-32chars-minimum")
+    monkeypatch.setenv("TRANSLUCENT_ADMIN_NAME", "Ana")            # the protocol's author is the key's person
     monkeypatch.setenv("FIREWORKS_API_KEY", "test-key")  # a placeholder: the fake campaigner never calls a provider
-    headers = {"Authorization": "Bearer admin"}
+    headers = {"Authorization": "Bearer admin-key-0123456789abc-32chars-minimum"}
     seen = {}
 
     class Fake:
@@ -300,7 +301,7 @@ def test_post_campaign_records_the_protocol_before_the_start(tmp_path, monkeypat
     body = {"objective": "How long is it?", "experiment_id": "fixture", "profile": "dev", "budget": 0.25,
             "protocol": {"author": "Ana", "metrics": [METRIC]}}
     with TestClient(server.create_app(tmp_path / "ledger", tmp_path / "api", campaigner_factory=Fake,
-                                      poll_interval=0.01)) as client:
+                                      poll_interval=0.01), headers=headers) as client:
         for bad in ({**METRIC, "test": {"type": "value_within", "params": {**WINDOW, "lo": "x"}}},
                     {**METRIC, "test": {"type": "value_within", "params": {**WINDOW, "extra": 1}}},
                     {**METRIC, "test": {"type": "exists", "params": {}}}):
@@ -317,7 +318,7 @@ def test_post_campaign_records_the_protocol_before_the_start(tmp_path, monkeypat
             time.sleep(0.05)
         board = client.get(f"/api/campaigns/{cid}/protocol").json()
         assert board["pre_registered"] and board["metrics"][0]["metric"]["id"] == "length"
-        assert seen["protocol"].metrics[0].predicate.params == WINDOW
+        assert seen["protocol"].metrics[0].predicate.params == WINDOW and seen["protocol"].author == "Ana"
         assert client.get("/api/campaigns/nope/protocol").status_code == 404
     assert verify(tmp_path / "ledger").ok
 

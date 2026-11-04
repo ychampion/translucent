@@ -1,7 +1,7 @@
 # Visual corroboration and timing evidence
 
-These are the owner's supplied factual readings and recorded model outputs from
-`/root/intervene-inputs/nist-visual/`, copied unchanged on 2026-10-30. No new model
+These are factual readings and recorded model outputs from the published sources,
+copied unchanged on 2026-10-30. No new model
 calls were made to produce this copy. `MANIFEST.json` gives the SHA-256 and byte
 count of every supplied CSV and JSON file. Publisher images, video frames, video
 files, and the paper PDF are excluded.

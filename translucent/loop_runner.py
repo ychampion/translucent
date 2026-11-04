@@ -21,7 +21,7 @@ import traceback
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from translucent import chain
+from translucent import chain, loop_reference
 from translucent.executors import executor_digest, record_failure, run_computational
 from translucent.ledger import Ledger
 from translucent.locks import ExclusiveFileLock
@@ -51,11 +51,17 @@ class LoopRunner:
 
     def tick(self, campaign_id: str | None = None, limit: int | None = None) -> int:
         """Advance queued and abandoned computational requests (one campaign, or all); at most `limit` of them.
-        Returns how many were advanced. Planner turns are scheduled by the planner (S7), not here."""
+        Returns how many were advanced. Planner turns are scheduled by the planner (S7), not here. A reference
+        search step that is due (loop_reference) is queued first, so a restart resumes a search."""
         L = Ledger(self.root)
         try:
-            todo = [(cid, rq) for cid in ([campaign_id] if campaign_id else campaign_ids(L))
-                    if not chain.concluded(L, cid)
+            cids = [cid for cid in ([campaign_id] if campaign_id else campaign_ids(L)) if not chain.concluded(L, cid)]
+            for cid in cids:
+                try:
+                    loop_reference.queue(L, cid)
+                except Exception as e:  # noqa: BLE001 - one campaign's search must not stop the others' runs
+                    self.problems.append(f"{cid}: reference search not queued: {type(e).__name__}: {e}")
+            todo = [(cid, rq) for cid in cids
                     for rq, st in request_states(L, cid).items()
                     if st.executor == "computational" and st.state in ("queued", "running")]
         finally:

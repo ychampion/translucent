@@ -7,6 +7,7 @@ import threading
 import time
 
 import pytest
+from translucent.loop import StaleRequest
 from pydantic import TypeAdapter
 from support.loop_systems import PREDICTION, LoopCell, objective, register
 
@@ -402,7 +403,10 @@ def test_the_view_and_campaign_list_keep_the_contract(campaign):
                               "experiments_budget": 8}
         person.amend(cid, "Cooler.", constraints=[{"quantity": "max_temperature", "op": "<=", "limit": 40.0,
                                                    "unit": "degC", "label": "At or below 40 degC"}])
-        LoopService(L, MUSE).cancel(cid, ids["pending"]["request_id"], "no longer needed")
+        # the amendment withdrew the proposal still waiting under version 1; cancelling it again is refused plainly
+        assert person.request(cid, ids["pending"]["request_id"])["state"] == "cancelled"
+        with pytest.raises(StaleRequest, match="already cancelled"):
+            LoopService(L, MUSE).cancel(cid, ids["pending"]["request_id"], "no longer needed")
         LoopService(L, MUSE).conclude(cid, "Done.")
         v = person.view(cid)
         TypeAdapter(LoopView).validate_python(v)
@@ -413,10 +417,18 @@ def test_the_view_and_campaign_list_keep_the_contract(campaign):
         assert v["current_result"]["comparison_id"] == v["conclusion"]["comparison_id"]
         (item,) = person.campaigns(ledger="acme")["items"]
         TypeAdapter(CampaignSummary).validate_python(item)
+        # the list's objective is the current version's summary (v2: 40 degC), not the registered 45 degC statement;
+        # a concluded campaign carries what its outcome rests on (here speed was compared with a feasible baseline)
+        headline = item.pop("assessment_headline")
+        assert headline.startswith("Faster than the reference in simulation:") and "the baseline" in headline
         assert item | {"updated_at": 0, "created_at": 0} == {
             "id": cid, "ledger": "acme", "kind": "loop", "title": "Faster charge", "status": "concluded",
-            "created_at": 0, "updated_at": 0, "objective": objective()["statement"][:140], "next_action": "none",
-            "outcome": "improved_in_simulation", "spend_usd": 0.0}
+            "created_at": 0, "updated_at": 0,
+            "objective": "Minimise time to 80 % charge with peak temperature <= 40 degC", "next_action": "none",
+            "outcome": "improved_in_simulation", "spend_usd": 0.0,
+            "findings": {"basis": "computational",
+                         "feasibility": {"baseline": "meets", "best": "meets", "recovered": False},
+                         "speed": {"status": "faster"}, "objective": {"kind": "legacy", "status": "open"}}}
     finally:
         L.db.close()
 

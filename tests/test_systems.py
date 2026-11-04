@@ -62,6 +62,7 @@ def test_production_registry_lists_the_built_in_systems():
     assert [s.id for s in systems.available()] == [
         "nist-heat-interrupt",
         "pybamm-fastcharge",
+        "pybamm-fastcharge-lab",
     ]
     with pytest.raises(KeyError, match="Unknown system analytic-cell"):
         systems.get("analytic-cell")
@@ -103,6 +104,7 @@ def test_analytic_adapter_satisfies_protocol_and_registers_in_tests(
     assert {s.id for s in systems.available()} == {
         "nist-heat-interrupt",
         "pybamm-fastcharge",
+        "pybamm-fastcharge-lab",
         "analytic-cell",
     }
     with pytest.raises(TypeError):

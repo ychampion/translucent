@@ -35,7 +35,11 @@ def evidence_ids(L: Ledger, cid: str) -> tuple[set[str], set[str]]:
     records = chain.records(L, cid)
     runs = L.list("run", campaign_id=cid)
     measurements = [m for run in runs for m in L.list("measurement", ref=run.id)]
-    datasets = [d for did in obj.datasets if (d := L.get("dataset", did)) is not None]
+    from translucent.records import imported
+    # the objective's datasets and those the campaign imported from its uploads (an investigation from records):
+    # verify re-checks every record test against its dataset, so both travel with the export
+    dids = [*obj.datasets, *(d for d in imported(L, cid, records) if d not in obj.datasets)]
+    datasets = [d for did in dids if (d := L.get("dataset", did)) is not None]
     found: set[str] = set()
 
     def walk(value):
@@ -131,6 +135,55 @@ def verify_export(path: Path | str, result, data: dict | None = None):
             result.problems.append("The exported view names a different receipt than the one embedded")
         with read_ledger(root) as L:
             expected = loop_view.view(L, cid, source, ledger=receipt.get("ledger_id"))
-        if json.loads(json.dumps(expected)) != view:
+            legacy = current_objective(L, cid).evaluator in LEGACY_EVALUATORS
+        expected = json.loads(json.dumps(expected))
+        # Exported before milestone 2: its view has none of the added fields. Only a loop-compare/1 or /2 campaign can
+        # have been; a /3 export always carries its assessment and findings, so removing them is a difference.
+        if legacy and "assessment" not in view:
+            expected = without_m2_fields(expected)
+        expected = without_later_empty_fields(expected, view)
+        if expected != view:
             result.problems.append("Loop export view differs from the recorded evidence")
     return result
+
+
+# Optional view fields milestone 2 added (loop_view). An export written before them is compared without them; every
+# field it does hold is still recomputed from its receipt and compared exactly.
+LEGACY_EVALUATORS = ("loop-compare/1", "loop-compare/2")     # the evaluators that existed before milestone 2
+M2_OBJECTIVE_FIELDS = ("kind", "summary", "statement_version")
+M2_REQUEST_FIELDS = ("role", "revision")
+
+
+def without_m2_fields(view: dict) -> dict:
+    out = {k: v for k, v in view.items() if k != "assessment"}
+    if isinstance(out.get("objective"), dict):
+        out["objective"] = {k: v for k, v in out["objective"].items() if k not in M2_OBJECTIVE_FIELDS}
+    out["requests"] = [{k: v for k, v in r.items() if k not in M2_REQUEST_FIELDS} if isinstance(r, dict) else r
+                       for r in out.get("requests", [])]
+    if isinstance(out.get("conclusion"), dict):
+        out["conclusion"] = {k: v for k, v in out["conclusion"].items() if k != "findings"}
+    return out
+
+
+def without_later_empty_fields(expected: dict, stored: dict) -> dict:
+    """The learning summary's `model_gap` and each imported record's `import_notes` were added to the view after
+    exports already existed. An export written before them lacks the key; the recomputed view is compared without it
+    only where the stored view lacks it and the value recomputed from the receipt is empty (None, []), so no model
+    gap and no import note can be dropped from an export without verify noticing."""
+    def empty(value) -> bool:
+        return value is None or value == []
+
+    out = dict(expected)
+    learning, kept = out.get("learning"), stored.get("learning")
+    if isinstance(learning, dict) and isinstance(kept, dict) and "model_gap" not in kept and \
+            empty(learning.get("model_gap", [])):
+        out["learning"] = {k: v for k, v in learning.items() if k != "model_gap"}
+    inv, kept = out.get("investigation"), stored.get("investigation")
+    if isinstance(inv, dict) and isinstance(kept, dict) and isinstance(inv.get("instrument_facts"), list) and \
+            isinstance(kept.get("instrument_facts"), list) and len(inv["instrument_facts"]) == len(kept["instrument_facts"]):
+        out["investigation"] = dict(inv, instrument_facts=[
+            {k: v for k, v in f.items() if k != "import_notes"}
+            if isinstance(f, dict) and isinstance(g, dict) and "import_notes" not in g and empty(f.get("import_notes", []))
+            else f
+            for f, g in zip(inv["instrument_facts"], kept["instrument_facts"])])
+    return out

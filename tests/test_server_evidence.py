@@ -5,6 +5,7 @@ import cv2
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
+from support.keys import add_key
 
 from translucent import gate, runtime, server
 from translucent.contracts import Campaign, Claim, Measurement, Predicate, Run, Source, Uncertainty
@@ -45,7 +46,9 @@ def store(tmp_path):
 
 
 def client(store):
-    return TestClient(server.create_app(store[1], store[2], poll_interval=0.01))
+    """Reads are private: these read with a viewer's key, the least a reader needs."""
+    viewer = add_key(store[2], "Vic", "viewer", "viewer-0123456789abcdefghij")
+    return TestClient(server.create_app(store[1], store[2], poll_interval=0.01), headers=viewer)
 
 
 def test_campaign_graph(store):

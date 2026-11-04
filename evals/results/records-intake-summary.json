@@ -1,0 +1,1225 @@
+{
+  "arms": {
+    "general_meta": {
+      "feasible_recommendations": 6,
+      "model_usd_total": 4.6316704,
+      "recommended": 6,
+      "runs": 6,
+      "unsupported_recommendations": 1,
+      "wall_s_total": 9439.6
+    },
+    "numeric": {
+      "feasible_recommendations": 0,
+      "model_usd_total": 0.0,
+      "recommended": 0,
+      "runs": 3,
+      "unsupported_recommendations": 0,
+      "wall_s_total": 985.2
+    },
+    "translucent_meta": {
+      "feasible_recommendations": 5,
+      "model_usd_total": 11.882675,
+      "recommended": 5,
+      "runs": 6,
+      "unsupported_recommendations": 0,
+      "wall_s_total": 5698.4
+    }
+  },
+  "basis": "Historical frozen evaluation in simulated hidden labs. No physical cell was tested.",
+  "current_candidate_commit": "5ca4305",
+  "frozen_implementation_sha256": "5c1f56a3f95bbb6dc5a27e21b82860bc6c81f4a3920e3ea15f86d58d850379f2",
+  "historical_source_commit": "99e61ef",
+  "oracle_t80_min": {
+    "H1": 35.875,
+    "H2": 36.75,
+    "H3": 40.199
+  },
+  "replay_scope": "The original source and scored-run archive are not included. Current code has post-evaluation fixes and does not match the original freeze. These copied scores are not a new evaluation.",
+  "runs": [
+    {
+      "arm": "general_meta",
+      "case": "H1",
+      "code_or_config_changes": 0,
+      "feasible": true,
+      "import_correctness": {
+        "lgm50-cell02": {
+          "chamber_temperature": {
+            "compared": 6313,
+            "max_abs_diff": 0.0,
+            "of": 6313
+          },
+          "current": {
+            "compared": 6313,
+            "max_abs_diff": 0.0,
+            "of": 6313
+          },
+          "surface_temperature": {
+            "compared": 6313,
+            "max_abs_diff": 0.0,
+            "of": 6313
+          },
+          "voltage": {
+            "compared": 6313,
+            "max_abs_diff": 0.0,
+            "of": 6313
+          }
+        },
+        "lgm50-cell03": {
+          "chamber_temperature": {
+            "compared": 6315,
+            "max_abs_diff": 0.0,
+            "of": 6315
+          },
+          "current": {
+            "compared": 6315,
+            "max_abs_diff": 0.0,
+            "of": 6315
+          },
+          "surface_temperature": {
+            "compared": 6315,
+            "max_abs_diff": 0.0,
+            "of": 6315
+          },
+          "voltage": {
+            "compared": 6315,
+            "max_abs_diff": 0.0,
+            "of": 6315
+          }
+        }
+      },
+      "last_design_feasible": true,
+      "last_design_t80_min": 35.875,
+      "manual_corrections": 0,
+      "model_standing": true,
+      "model_usd": 0.624164,
+      "recommended": true,
+      "recommended_c_rates": [
+        1.5,
+        1.5,
+        1.2,
+        0.8
+      ],
+      "repeat": 1,
+      "run": "H1-general_meta-1",
+      "source_sha256": {
+        "assessment.json": "2ec73fd030f1556cd7eca011e52cd3f43071d0f77da7795045fbc66c0b6fe74d",
+        "metrics.json": "121e7d8b26f4f94c6ade0fdb479931c13d6913e8a32e01d562dfa023f7be7ae3",
+        "run.json": "f6276ca29b56b916e453400772c4de30e5403ee34a6d6dbbc389a52df5229489"
+      },
+      "standing_reason": "model version 4 met the rule on tests it did not fit (held-out RMSE 0.1475 K, rule 0.3 K); on the supplied records alone, an earlier fixture, its forecasts fail the rule (held-out RMSE 1.5263 K)",
+      "steps_completed": 9,
+      "steps_total": 9,
+      "stop": "concluded",
+      "true_min_anode_mV": 27.555,
+      "true_peak_temperature_degC": 44.733,
+      "true_t80_min": 35.875,
+      "unsupported_recommendation": false,
+      "wall_s": 1961.6
+    },
+    {
+      "arm": "general_meta",
+      "case": "H1",
+      "code_or_config_changes": 0,
+      "feasible": true,
+      "import_correctness": {
+        "lgm50-cell02": {
+          "chamber_temperature": {
+            "compared": 6313,
+            "max_abs_diff": 0.0,
+            "of": 6313
+          },
+          "current": {
+            "compared": 6313,
+            "max_abs_diff": 0.0,
+            "of": 6313
+          },
+          "surface_temperature": {
+            "compared": 6313,
+            "max_abs_diff": 0.0,
+            "of": 6313
+          },
+          "voltage": {
+            "compared": 6313,
+            "max_abs_diff": 0.0,
+            "of": 6313
+          }
+        },
+        "lgm50-cell03": {
+          "chamber_temperature": {
+            "compared": 6315,
+            "max_abs_diff": 0.0,
+            "of": 6315
+          },
+          "current": {
+            "compared": 6315,
+            "max_abs_diff": 0.0,
+            "of": 6315
+          },
+          "surface_temperature": {
+            "compared": 6315,
+            "max_abs_diff": 0.0,
+            "of": 6315
+          },
+          "voltage": {
+            "compared": 6315,
+            "max_abs_diff": 0.0,
+            "of": 6315
+          }
+        }
+      },
+      "last_design_feasible": true,
+      "last_design_t80_min": 40.63,
+      "manual_corrections": 0,
+      "model_standing": false,
+      "model_usd": 0.7993848,
+      "recommended": true,
+      "recommended_c_rates": [
+        1.5,
+        1.5,
+        1.15,
+        0.6
+      ],
+      "repeat": 2,
+      "run": "H1-general_meta-2",
+      "source_sha256": {
+        "assessment.json": "508b68bc628ec55d4a3425ff93ca60d6aa5499a5c295a66ba4c38229ce534661",
+        "metrics.json": "43005020bde491dcded1063fed32385de8e219bb6b1521e9ac516120b8c1a459",
+        "run.json": "83418304f373e69abd4aaed061ee6c0e0e67aa37b07aa213df9864b6d161d11d"
+      },
+      "standing_reason": "model version 7 does not fit its own tests within the noise (fit RMSE 1.1221 K, rule 0.3 K): a mechanism outside its family",
+      "steps_completed": 8,
+      "steps_total": 9,
+      "stop": "concluded",
+      "true_min_anode_mV": 29.752,
+      "true_peak_temperature_degC": 44.307,
+      "true_t80_min": 40.63,
+      "unsupported_recommendation": true,
+      "wall_s": 1512.2
+    },
+    {
+      "arm": "numeric",
+      "case": "H1",
+      "code_or_config_changes": 0,
+      "feasible": false,
+      "import_correctness": {
+        "lgm50-cell02": {
+          "chamber_temperature": {
+            "compared": 6313,
+            "max_abs_diff": 0.0,
+            "of": 6313
+          },
+          "current": {
+            "compared": 6313,
+            "max_abs_diff": 0.0,
+            "of": 6313
+          },
+          "surface_temperature": {
+            "compared": 6313,
+            "max_abs_diff": 0.0,
+            "of": 6313
+          },
+          "voltage": {
+            "compared": 6313,
+            "max_abs_diff": 0.0,
+            "of": 6313
+          }
+        },
+        "lgm50-cell03": {
+          "chamber_temperature": {
+            "compared": 6315,
+            "max_abs_diff": 0.0,
+            "of": 6315
+          },
+          "current": {
+            "compared": 6315,
+            "max_abs_diff": 0.0,
+            "of": 6315
+          },
+          "surface_temperature": {
+            "compared": 6315,
+            "max_abs_diff": 0.0,
+            "of": 6315
+          },
+          "voltage": {
+            "compared": 6315,
+            "max_abs_diff": 0.0,
+            "of": 6315
+          }
+        }
+      },
+      "last_design_feasible": true,
+      "last_design_t80_min": 39.323,
+      "manual_corrections": 0,
+      "model_standing": null,
+      "model_usd": 0.0,
+      "recommended": false,
+      "recommended_c_rates": null,
+      "repeat": 1,
+      "run": "H1-numeric-1",
+      "source_sha256": {
+        "assessment.json": "4fae92c22e526069a06bf4472695272015461be197d4450c1869fe084c3266b8",
+        "metrics.json": "6e2e8f8b52496dd034ec4314caa443b78c07ba60519ac70bd2dec5adb85edfee",
+        "run.json": "edb51f87f158f77f8d43eb1ddb5ea123668cecd07a206e95273cd1976b32e01f"
+      },
+      "standing_reason": null,
+      "steps_completed": 10,
+      "steps_total": 10,
+      "stop": "policy finished",
+      "true_min_anode_mV": null,
+      "true_peak_temperature_degC": null,
+      "true_t80_min": null,
+      "unsupported_recommendation": false,
+      "wall_s": 229.2
+    },
+    {
+      "arm": "translucent_meta",
+      "case": "H1",
+      "code_or_config_changes": 0,
+      "feasible": true,
+      "import_correctness": {
+        "lgm50-cell02": {
+          "chamber_temperature": {
+            "compared": 6313,
+            "max_abs_diff": 0.0,
+            "of": 6313
+          },
+          "current": {
+            "compared": 6313,
+            "max_abs_diff": 0.0,
+            "of": 6313
+          },
+          "surface_temperature": {
+            "compared": 6313,
+            "max_abs_diff": 0.0,
+            "of": 6313
+          },
+          "voltage": {
+            "compared": 6313,
+            "max_abs_diff": 0.0,
+            "of": 6313
+          }
+        },
+        "lgm50-cell03": {
+          "chamber_temperature": {
+            "compared": 6315,
+            "max_abs_diff": 0.0,
+            "of": 6315
+          },
+          "current": {
+            "compared": 6315,
+            "max_abs_diff": 0.0,
+            "of": 6315
+          },
+          "surface_temperature": {
+            "compared": 6315,
+            "max_abs_diff": 0.0,
+            "of": 6315
+          },
+          "voltage": {
+            "compared": 6315,
+            "max_abs_diff": 0.0,
+            "of": 6315
+          }
+        }
+      },
+      "last_design_feasible": true,
+      "last_design_t80_min": 35.875,
+      "manual_corrections": 0,
+      "model_standing": true,
+      "model_usd": 1.988348,
+      "recommended": true,
+      "recommended_c_rates": [
+        1.5,
+        1.5,
+        1.2,
+        0.8
+      ],
+      "repeat": 1,
+      "run": "H1-translucent_meta-1",
+      "source_sha256": {
+        "assessment.json": "694cce838a0c3fd5bf80c34662740333143ee07a4c519f1f0737579a8d08c250",
+        "metrics.json": "b0bdefdb61f7cb2c7b4980c957ab6d41da04c8a22df8f737c697a77c1d329706",
+        "run.json": "0480e97a98108b9902a5b2db0bf9733915319fe20b7baa9ae150454d837139cf"
+      },
+      "standing_reason": "model version 5 met the rule on tests it did not fit (held-out RMSE 0.1533 K, rule 0.3 K)",
+      "steps_completed": 10,
+      "steps_total": 10,
+      "stop": "concluded",
+      "true_min_anode_mV": 27.555,
+      "true_peak_temperature_degC": 44.733,
+      "true_t80_min": 35.875,
+      "unsupported_recommendation": false,
+      "wall_s": 945.1
+    },
+    {
+      "arm": "translucent_meta",
+      "case": "H1",
+      "code_or_config_changes": 0,
+      "feasible": true,
+      "import_correctness": {
+        "lgm50-cell02": {
+          "chamber_temperature": {
+            "compared": 6313,
+            "max_abs_diff": 0.0,
+            "of": 6313
+          },
+          "current": {
+            "compared": 6313,
+            "max_abs_diff": 0.0,
+            "of": 6313
+          },
+          "surface_temperature": {
+            "compared": 6313,
+            "max_abs_diff": 0.0,
+            "of": 6313
+          },
+          "voltage": {
+            "compared": 6313,
+            "max_abs_diff": 0.0,
+            "of": 6313
+          }
+        },
+        "lgm50-cell03": {
+          "chamber_temperature": {
+            "compared": 6315,
+            "max_abs_diff": 0.0,
+            "of": 6315
+          },
+          "current": {
+            "compared": 6315,
+            "max_abs_diff": 0.0,
+            "of": 6315
+          },
+          "surface_temperature": {
+            "compared": 6315,
+            "max_abs_diff": 0.0,
+            "of": 6315
+          },
+          "voltage": {
+            "compared": 6315,
+            "max_abs_diff": 0.0,
+            "of": 6315
+          }
+        }
+      },
+      "last_design_feasible": true,
+      "last_design_t80_min": 35.875,
+      "manual_corrections": 0,
+      "model_standing": true,
+      "model_usd": 2.091392,
+      "recommended": true,
+      "recommended_c_rates": [
+        1.5,
+        1.5,
+        1.2,
+        0.8
+      ],
+      "repeat": 2,
+      "run": "H1-translucent_meta-2",
+      "source_sha256": {
+        "assessment.json": "1ef967cf4b1f5d312aed0fccd0fbcf0f23941f35999c9d64ca253b1c7a47736f",
+        "metrics.json": "a53c253246d7ad8ad84e7f638c3f454274706dc59dbe377d0393b7d0e22a180d",
+        "run.json": "66bdc3c2bf04bc4c7ccdbbbbc58f6baa6a4c867a16e38f431c4899dcd639bb13"
+      },
+      "standing_reason": "model version 3 met the rule on tests it did not fit (held-out RMSE 0.1576 K, rule 0.3 K)",
+      "steps_completed": 9,
+      "steps_total": 10,
+      "stop": "planner stopped: budget: Next request reserves $0.466430; the campaign's model budget has $0.408608 left of $2.50",
+      "true_min_anode_mV": 27.555,
+      "true_peak_temperature_degC": 44.733,
+      "true_t80_min": 35.875,
+      "unsupported_recommendation": false,
+      "wall_s": 895.9
+    },
+    {
+      "arm": "general_meta",
+      "case": "H2",
+      "code_or_config_changes": 0,
+      "feasible": true,
+      "import_correctness": {
+        "lgm50-cell03": {
+          "chamber_temperature": {
+            "compared": 6315,
+            "max_abs_diff": 0.0,
+            "of": 6315
+          },
+          "current": {
+            "compared": 6315,
+            "max_abs_diff": 0.0,
+            "of": 6315
+          },
+          "surface_temperature": {
+            "compared": 6315,
+            "max_abs_diff": 0.0,
+            "of": 6315
+          },
+          "voltage": {
+            "compared": 6315,
+            "max_abs_diff": 0.0,
+            "of": 6315
+          }
+        },
+        "lgm50-cell04": {
+          "chamber_temperature": {
+            "compared": 6307,
+            "max_abs_diff": 0.0,
+            "of": 6307
+          },
+          "current": {
+            "compared": 6307,
+            "max_abs_diff": 0.0,
+            "of": 6307
+          },
+          "surface_temperature": {
+            "compared": 6307,
+            "max_abs_diff": 0.0,
+            "of": 6307
+          },
+          "voltage": {
+            "compared": 6307,
+            "max_abs_diff": 0.0,
+            "of": 6307
+          }
+        }
+      },
+      "last_design_feasible": true,
+      "last_design_t80_min": 36.991,
+      "manual_corrections": 0,
+      "model_standing": true,
+      "model_usd": 0.7632744,
+      "recommended": true,
+      "recommended_c_rates": [
+        1.5,
+        1.45,
+        1.2,
+        0.75
+      ],
+      "repeat": 1,
+      "run": "H2-general_meta-1",
+      "source_sha256": {
+        "assessment.json": "d556762ce65a9214d3325a18602e208ce7bf03c6b8e1479b1c3b1478ec88ab11",
+        "metrics.json": "34dd8d455308563de1495cdea542a4bb908ca140cce335882233c74b7c138909",
+        "run.json": "e02e9ea9acde61f46e470cf665a3b99e4c8807ab9d022a94541fc05bf3aa6a46"
+      },
+      "standing_reason": "model version 8 met the rule on tests it did not fit (held-out RMSE 0.1581 K, rule 0.3 K)",
+      "steps_completed": 9,
+      "steps_total": 9,
+      "stop": "concluded",
+      "true_min_anode_mV": 26.577,
+      "true_peak_temperature_degC": 42.74,
+      "true_t80_min": 36.991,
+      "unsupported_recommendation": false,
+      "wall_s": 1829.6
+    },
+    {
+      "arm": "general_meta",
+      "case": "H2",
+      "code_or_config_changes": 0,
+      "feasible": true,
+      "import_correctness": {
+        "lgm50-cell03": {
+          "chamber_temperature": {
+            "compared": 6315,
+            "max_abs_diff": 0.0,
+            "of": 6315
+          },
+          "current": {
+            "compared": 6315,
+            "max_abs_diff": 0.0,
+            "of": 6315
+          },
+          "surface_temperature": {
+            "compared": 6315,
+            "max_abs_diff": 0.0,
+            "of": 6315
+          },
+          "voltage": {
+            "compared": 6315,
+            "max_abs_diff": 0.0,
+            "of": 6315
+          }
+        },
+        "lgm50-cell04": {
+          "chamber_temperature": {
+            "compared": 6307,
+            "max_abs_diff": 0.0,
+            "of": 6307
+          },
+          "current": {
+            "compared": 6307,
+            "max_abs_diff": 0.0,
+            "of": 6307
+          },
+          "surface_temperature": {
+            "compared": 6307,
+            "max_abs_diff": 0.0,
+            "of": 6307
+          },
+          "voltage": {
+            "compared": 6307,
+            "max_abs_diff": 0.0,
+            "of": 6307
+          }
+        }
+      },
+      "last_design_feasible": true,
+      "last_design_t80_min": 36.991,
+      "manual_corrections": 0,
+      "model_standing": true,
+      "model_usd": 0.7633216,
+      "recommended": true,
+      "recommended_c_rates": [
+        1.5,
+        1.45,
+        1.2,
+        0.75
+      ],
+      "repeat": 2,
+      "run": "H2-general_meta-2",
+      "source_sha256": {
+        "assessment.json": "5f0064bdf71bd12aefe81b1c66bd2bc036f452689d12f0973a9a9d05243f4f14",
+        "metrics.json": "86f3aeb37eb0ece3c66c8ae36a689bc9a764593c4d81981745e787e2501cfcb4",
+        "run.json": "0f632157107be822bfcf8fe3832ed3ae431de259d7e8cb0916937e9b7912bbd1"
+      },
+      "standing_reason": "model version 8 met the rule on tests it did not fit (held-out RMSE 0.1492 K, rule 0.3 K); on the supplied records alone, an earlier fixture, its forecasts fail the rule (held-out RMSE 2.6448 K)",
+      "steps_completed": 9,
+      "steps_total": 9,
+      "stop": "concluded",
+      "true_min_anode_mV": 26.577,
+      "true_peak_temperature_degC": 42.74,
+      "true_t80_min": 36.991,
+      "unsupported_recommendation": false,
+      "wall_s": 1142.1
+    },
+    {
+      "arm": "numeric",
+      "case": "H2",
+      "code_or_config_changes": 0,
+      "feasible": false,
+      "import_correctness": {
+        "lgm50-cell03": {
+          "chamber_temperature": {
+            "compared": 6315,
+            "max_abs_diff": 0.0,
+            "of": 6315
+          },
+          "current": {
+            "compared": 6315,
+            "max_abs_diff": 0.0,
+            "of": 6315
+          },
+          "surface_temperature": {
+            "compared": 6315,
+            "max_abs_diff": 0.0,
+            "of": 6315
+          },
+          "voltage": {
+            "compared": 6315,
+            "max_abs_diff": 0.0,
+            "of": 6315
+          }
+        },
+        "lgm50-cell04": {
+          "chamber_temperature": {
+            "compared": 6307,
+            "max_abs_diff": 0.0,
+            "of": 6307
+          },
+          "current": {
+            "compared": 6307,
+            "max_abs_diff": 0.0,
+            "of": 6307
+          },
+          "surface_temperature": {
+            "compared": 6307,
+            "max_abs_diff": 0.0,
+            "of": 6307
+          },
+          "voltage": {
+            "compared": 6307,
+            "max_abs_diff": 0.0,
+            "of": 6307
+          }
+        }
+      },
+      "last_design_feasible": true,
+      "last_design_t80_min": 40.062,
+      "manual_corrections": 0,
+      "model_standing": null,
+      "model_usd": 0.0,
+      "recommended": false,
+      "recommended_c_rates": null,
+      "repeat": 1,
+      "run": "H2-numeric-1",
+      "source_sha256": {
+        "assessment.json": "f8a14731312887a570433bf6d2155b691882f1cd216b92b1f5b865456b88a560",
+        "metrics.json": "f3b7b6a3cb6f295560167c0ac01f1d7899e697f2ff4eae850e31de37faeccd54",
+        "run.json": "fb653313357b2984ce42825af51ff3a74e08b3d71a2aea9c1ffbca2e78b7a3be"
+      },
+      "standing_reason": null,
+      "steps_completed": 10,
+      "steps_total": 10,
+      "stop": "policy finished",
+      "true_min_anode_mV": null,
+      "true_peak_temperature_degC": null,
+      "true_t80_min": null,
+      "unsupported_recommendation": false,
+      "wall_s": 306.7
+    },
+    {
+      "arm": "translucent_meta",
+      "case": "H2",
+      "code_or_config_changes": 0,
+      "feasible": true,
+      "import_correctness": {
+        "lgm50-cell03": {
+          "chamber_temperature": {
+            "compared": 6315,
+            "max_abs_diff": 0.0,
+            "of": 6315
+          },
+          "current": {
+            "compared": 6315,
+            "max_abs_diff": 0.0,
+            "of": 6315
+          },
+          "surface_temperature": {
+            "compared": 6315,
+            "max_abs_diff": 0.0,
+            "of": 6315
+          },
+          "voltage": {
+            "compared": 6315,
+            "max_abs_diff": 0.0,
+            "of": 6315
+          }
+        },
+        "lgm50-cell04": {
+          "chamber_temperature": {
+            "compared": 6307,
+            "max_abs_diff": 0.0,
+            "of": 6307
+          },
+          "current": {
+            "compared": 6307,
+            "max_abs_diff": 0.0,
+            "of": 6307
+          },
+          "surface_temperature": {
+            "compared": 6307,
+            "max_abs_diff": 0.0,
+            "of": 6307
+          },
+          "voltage": {
+            "compared": 6307,
+            "max_abs_diff": 0.0,
+            "of": 6307
+          }
+        }
+      },
+      "last_design_feasible": true,
+      "last_design_t80_min": 36.991,
+      "manual_corrections": 0,
+      "model_standing": true,
+      "model_usd": 1.86133,
+      "recommended": true,
+      "recommended_c_rates": [
+        1.5,
+        1.45,
+        1.2,
+        0.75
+      ],
+      "repeat": 1,
+      "run": "H2-translucent_meta-1",
+      "source_sha256": {
+        "assessment.json": "e160a056a96b239e6ed716b10a785d03573d9f330abe4353a3c4f46c8d8d4d41",
+        "metrics.json": "6b75571bc73f82c26d781850f4372c66adbaf299a19e3d5d8cdeac32ea71fe18",
+        "run.json": "a77e3e13641ca2632425119fad5790f08a027e54b41d89fc311dd4180d15afc3"
+      },
+      "standing_reason": "model version 4 met the rule on tests it did not fit (held-out RMSE 0.1437 K, rule 0.3 K)",
+      "steps_completed": 10,
+      "steps_total": 10,
+      "stop": "concluded",
+      "true_min_anode_mV": 26.577,
+      "true_peak_temperature_degC": 42.74,
+      "true_t80_min": 36.991,
+      "unsupported_recommendation": false,
+      "wall_s": 954.0
+    },
+    {
+      "arm": "translucent_meta",
+      "case": "H2",
+      "code_or_config_changes": 0,
+      "feasible": true,
+      "import_correctness": {
+        "lgm50-cell03": {
+          "chamber_temperature": {
+            "compared": 6315,
+            "max_abs_diff": 0.0,
+            "of": 6315
+          },
+          "current": {
+            "compared": 6315,
+            "max_abs_diff": 0.0,
+            "of": 6315
+          },
+          "surface_temperature": {
+            "compared": 6315,
+            "max_abs_diff": 0.0,
+            "of": 6315
+          },
+          "voltage": {
+            "compared": 6315,
+            "max_abs_diff": 0.0,
+            "of": 6315
+          }
+        },
+        "lgm50-cell04": {
+          "chamber_temperature": {
+            "compared": 6307,
+            "max_abs_diff": 0.0,
+            "of": 6307
+          },
+          "current": {
+            "compared": 6307,
+            "max_abs_diff": 0.0,
+            "of": 6307
+          },
+          "surface_temperature": {
+            "compared": 6307,
+            "max_abs_diff": 0.0,
+            "of": 6307
+          },
+          "voltage": {
+            "compared": 6307,
+            "max_abs_diff": 0.0,
+            "of": 6307
+          }
+        }
+      },
+      "last_design_feasible": true,
+      "last_design_t80_min": 36.991,
+      "manual_corrections": 0,
+      "model_standing": true,
+      "model_usd": 1.76145,
+      "recommended": true,
+      "recommended_c_rates": [
+        1.5,
+        1.45,
+        1.2,
+        0.75
+      ],
+      "repeat": 2,
+      "run": "H2-translucent_meta-2",
+      "source_sha256": {
+        "assessment.json": "9a461267cfdc54e8d7bd2145425b1346416c0b23e8b6f6195578a52ab5badcdf",
+        "metrics.json": "181551c9a2cf6a269d9f53f837225c2e740b5630597e437fe22ec31a304bf8a1",
+        "run.json": "543e5115ef2fc00fc2bd68c190f2949d72ceac7a34c500091f59c08c1780eebd"
+      },
+      "standing_reason": "model version 4 met the rule on tests it did not fit (held-out RMSE 0.1514 K, rule 0.3 K)",
+      "steps_completed": 10,
+      "steps_total": 10,
+      "stop": "concluded",
+      "true_min_anode_mV": 26.577,
+      "true_peak_temperature_degC": 42.74,
+      "true_t80_min": 36.991,
+      "unsupported_recommendation": false,
+      "wall_s": 931.4
+    },
+    {
+      "arm": "general_meta",
+      "case": "H3",
+      "code_or_config_changes": 0,
+      "feasible": true,
+      "import_correctness": {
+        "lgm50-cell02": {
+          "chamber_temperature": {
+            "compared": 6313,
+            "max_abs_diff": 0.0,
+            "of": 6313
+          },
+          "current": {
+            "compared": 6313,
+            "max_abs_diff": 0.0,
+            "of": 6313
+          },
+          "surface_temperature": {
+            "compared": 6313,
+            "max_abs_diff": 0.0,
+            "of": 6313
+          },
+          "voltage": {
+            "compared": 6313,
+            "max_abs_diff": 0.0,
+            "of": 6313
+          }
+        },
+        "lgm50-cell04": {
+          "chamber_temperature": {
+            "compared": 6307,
+            "max_abs_diff": 0.0,
+            "of": 6307
+          },
+          "current": {
+            "compared": 6307,
+            "max_abs_diff": 0.0,
+            "of": 6307
+          },
+          "surface_temperature": {
+            "compared": 6307,
+            "max_abs_diff": 0.0,
+            "of": 6307
+          },
+          "voltage": {
+            "compared": 6307,
+            "max_abs_diff": 0.0,
+            "of": 6307
+          }
+        }
+      },
+      "last_design_feasible": true,
+      "last_design_t80_min": 40.199,
+      "manual_corrections": 0,
+      "model_standing": true,
+      "model_usd": 1.0928976,
+      "recommended": true,
+      "recommended_c_rates": [
+        1.5,
+        1.4,
+        1.1,
+        0.65
+      ],
+      "repeat": 1,
+      "run": "H3-general_meta-1",
+      "source_sha256": {
+        "assessment.json": "de4b9b8a2aa38dc4ece6d2dd4bc40728d1b60a6ffa60e05340fa408b27df2f8d",
+        "metrics.json": "76e73a1ad5e8744dfb38db5cd65e0638601afd036a555822fa2d2c5e6273a034",
+        "run.json": "37ce53399071a5e0d21e37e76b8fe98d4e4cb65cf66923e298191937e7f00511"
+      },
+      "standing_reason": "model version 6 met the rule on tests it did not fit (held-out RMSE 0.1462 K, rule 0.3 K); on the supplied records alone, an earlier fixture, its forecasts fail the rule (held-out RMSE 2.2152 K)",
+      "steps_completed": 9,
+      "steps_total": 9,
+      "stop": "concluded",
+      "true_min_anode_mV": 26.0,
+      "true_peak_temperature_degC": 39.86,
+      "true_t80_min": 40.199,
+      "unsupported_recommendation": false,
+      "wall_s": 1967.9
+    },
+    {
+      "arm": "general_meta",
+      "case": "H3",
+      "code_or_config_changes": 0,
+      "feasible": true,
+      "import_correctness": {
+        "lgm50-cell02": {
+          "chamber_temperature": {
+            "compared": 6313,
+            "max_abs_diff": 0.0,
+            "of": 6313
+          },
+          "current": {
+            "compared": 6313,
+            "max_abs_diff": 0.0,
+            "of": 6313
+          },
+          "surface_temperature": {
+            "compared": 6313,
+            "max_abs_diff": 0.0,
+            "of": 6313
+          },
+          "voltage": {
+            "compared": 6313,
+            "max_abs_diff": 0.0,
+            "of": 6313
+          }
+        },
+        "lgm50-cell04": {
+          "chamber_temperature": {
+            "compared": 6307,
+            "max_abs_diff": 0.0,
+            "of": 6307
+          },
+          "current": {
+            "compared": 6307,
+            "max_abs_diff": 0.0,
+            "of": 6307
+          },
+          "surface_temperature": {
+            "compared": 6307,
+            "max_abs_diff": 0.0,
+            "of": 6307
+          },
+          "voltage": {
+            "compared": 6307,
+            "max_abs_diff": 0.0,
+            "of": 6307
+          }
+        }
+      },
+      "last_design_feasible": true,
+      "last_design_t80_min": 40.199,
+      "manual_corrections": 0,
+      "model_standing": true,
+      "model_usd": 0.588628,
+      "recommended": true,
+      "recommended_c_rates": [
+        1.5,
+        1.4,
+        1.1,
+        0.65
+      ],
+      "repeat": 2,
+      "run": "H3-general_meta-2",
+      "source_sha256": {
+        "assessment.json": "9b78b9f5ee6ee5b320bcecc699be15be8719f6a7c3b740235263669bcbd01482",
+        "metrics.json": "69c613821bef733638491d9b5b7cae013619f14df7742b93304e291ce35bd429",
+        "run.json": "39d196121b45f80dc66e10dbb4a3e33d65d049be92104f00aa6142f242959f9b"
+      },
+      "standing_reason": "model version 6 met the rule on tests it did not fit (held-out RMSE 0.1553 K, rule 0.3 K); on the supplied records alone, an earlier fixture, its forecasts fail the rule (held-out RMSE 2.2195 K)",
+      "steps_completed": 9,
+      "steps_total": 9,
+      "stop": "concluded",
+      "true_min_anode_mV": 26.0,
+      "true_peak_temperature_degC": 39.86,
+      "true_t80_min": 40.199,
+      "unsupported_recommendation": false,
+      "wall_s": 1026.2
+    },
+    {
+      "arm": "numeric",
+      "case": "H3",
+      "code_or_config_changes": 0,
+      "feasible": false,
+      "import_correctness": {
+        "lgm50-cell02": {
+          "chamber_temperature": {
+            "compared": 6313,
+            "max_abs_diff": 0.0,
+            "of": 6313
+          },
+          "current": {
+            "compared": 6313,
+            "max_abs_diff": 0.0,
+            "of": 6313
+          },
+          "surface_temperature": {
+            "compared": 6313,
+            "max_abs_diff": 0.0,
+            "of": 6313
+          },
+          "voltage": {
+            "compared": 6313,
+            "max_abs_diff": 0.0,
+            "of": 6313
+          }
+        },
+        "lgm50-cell04": {
+          "chamber_temperature": {
+            "compared": 6307,
+            "max_abs_diff": 0.0,
+            "of": 6307
+          },
+          "current": {
+            "compared": 6307,
+            "max_abs_diff": 0.0,
+            "of": 6307
+          },
+          "surface_temperature": {
+            "compared": 6307,
+            "max_abs_diff": 0.0,
+            "of": 6307
+          },
+          "voltage": {
+            "compared": 6307,
+            "max_abs_diff": 0.0,
+            "of": 6307
+          }
+        }
+      },
+      "last_design_feasible": false,
+      "last_design_t80_min": 37.991,
+      "manual_corrections": 0,
+      "model_standing": null,
+      "model_usd": 0.0,
+      "recommended": false,
+      "recommended_c_rates": null,
+      "repeat": 1,
+      "run": "H3-numeric-1",
+      "source_sha256": {
+        "assessment.json": "c0882d8d6fb59d21cb35441e3cb32130bdba2fb439d352d35cac23e6b799db25",
+        "metrics.json": "c76da40de6de2825cc590e2bb7479b3426cf055dd5f6a3ccdf50c2ea0cd04c5c",
+        "run.json": "5962a7a722c44a698e0df6945ac83fa1db9dde8656e92deddaa84e11e066de71"
+      },
+      "standing_reason": null,
+      "steps_completed": 10,
+      "steps_total": 10,
+      "stop": "policy finished",
+      "true_min_anode_mV": null,
+      "true_peak_temperature_degC": null,
+      "true_t80_min": null,
+      "unsupported_recommendation": false,
+      "wall_s": 449.3
+    },
+    {
+      "arm": "translucent_meta",
+      "case": "H3",
+      "code_or_config_changes": 0,
+      "feasible": true,
+      "import_correctness": {
+        "lgm50-cell02": {
+          "chamber_temperature": {
+            "compared": 6313,
+            "max_abs_diff": 0.0,
+            "of": 6313
+          },
+          "current": {
+            "compared": 6313,
+            "max_abs_diff": 0.0,
+            "of": 6313
+          },
+          "surface_temperature": {
+            "compared": 6313,
+            "max_abs_diff": 0.0,
+            "of": 6313
+          },
+          "voltage": {
+            "compared": 6313,
+            "max_abs_diff": 0.0,
+            "of": 6313
+          }
+        },
+        "lgm50-cell04": {
+          "chamber_temperature": {
+            "compared": 6307,
+            "max_abs_diff": 0.0,
+            "of": 6307
+          },
+          "current": {
+            "compared": 6307,
+            "max_abs_diff": 0.0,
+            "of": 6307
+          },
+          "surface_temperature": {
+            "compared": 6307,
+            "max_abs_diff": 0.0,
+            "of": 6307
+          },
+          "voltage": {
+            "compared": 6307,
+            "max_abs_diff": 0.0,
+            "of": 6307
+          }
+        }
+      },
+      "last_design_feasible": true,
+      "last_design_t80_min": 40.199,
+      "manual_corrections": 0,
+      "model_standing": true,
+      "model_usd": 2.027444,
+      "recommended": true,
+      "recommended_c_rates": [
+        1.5,
+        1.4,
+        1.1,
+        0.65
+      ],
+      "repeat": 1,
+      "run": "H3-translucent_meta-1",
+      "source_sha256": {
+        "assessment.json": "a6810e665ba5b2cf27f080176a1188198dcbcb925b316ea053cb8b3927e56e8c",
+        "metrics.json": "9c1bafb73ec9b0e7ad5bce4007475ffefc5f41e3e6209c6bec453a736f00df56",
+        "run.json": "f87ad535e6ff88efffe7945ef3eb9f0ba5501030755080006e2656bab888068e"
+      },
+      "standing_reason": "model version 2 met the rule on tests it did not fit (held-out RMSE 0.15 K, rule 0.3 K)",
+      "steps_completed": 10,
+      "steps_total": 10,
+      "stop": "concluded",
+      "true_min_anode_mV": 26.0,
+      "true_peak_temperature_degC": 39.86,
+      "true_t80_min": 40.199,
+      "unsupported_recommendation": false,
+      "wall_s": 1226.3
+    },
+    {
+      "arm": "translucent_meta",
+      "case": "H3",
+      "code_or_config_changes": 0,
+      "feasible": false,
+      "import_correctness": {
+        "lgm50-cell02": {
+          "chamber_temperature": {
+            "compared": 6308,
+            "max_abs_diff": 0.09960000000000946,
+            "of": 6313
+          },
+          "current": {
+            "compared": 6308,
+            "max_abs_diff": 0.0,
+            "of": 6313
+          },
+          "surface_temperature": {
+            "compared": 6308,
+            "max_abs_diff": 0.01659999999998263,
+            "of": 6313
+          },
+          "voltage": {
+            "compared": 6308,
+            "max_abs_diff": 0.01540000000000008,
+            "of": 6313
+          }
+        },
+        "lgm50-cell04": {
+          "chamber_temperature": {
+            "compared": 6302,
+            "max_abs_diff": 0.09960000000000946,
+            "of": 6307
+          },
+          "current": {
+            "compared": 6302,
+            "max_abs_diff": 0.0,
+            "of": 6307
+          },
+          "surface_temperature": {
+            "compared": 6302,
+            "max_abs_diff": 0.05020000000001801,
+            "of": 6307
+          },
+          "voltage": {
+            "compared": 6302,
+            "max_abs_diff": 0.015000000000000124,
+            "of": 6307
+          }
+        }
+      },
+      "last_design_feasible": false,
+      "last_design_t80_min": null,
+      "manual_corrections": 0,
+      "model_standing": null,
+      "model_usd": 2.152711,
+      "recommended": false,
+      "recommended_c_rates": null,
+      "repeat": 2,
+      "run": "H3-translucent_meta-2",
+      "source_sha256": {
+        "assessment.json": "b2336c8348bc4a642ca93521424dcfe65583a79b3121dd9a514b19e3e7866c9f",
+        "metrics.json": "09a6bbde545aa886a32c9efbc5ea1245244e81d11503928fd5bfdbf95e6ec700",
+        "run.json": "c63385223df0db45016a75436d28fc20f9fd8af9f2f59781fa9cfc79775eedce"
+      },
+      "standing_reason": null,
+      "steps_completed": 8,
+      "steps_total": 10,
+      "stop": "planner stopped: budget: Next request reserves $0.445420; the campaign's model budget has $0.347289 left of $2.50",
+      "true_min_anode_mV": null,
+      "true_peak_temperature_degC": null,
+      "true_t80_min": null,
+      "unsupported_recommendation": false,
+      "wall_s": 745.7
+    }
+  ],
+  "source_sha256": {
+    "REPORT.md": "a15735f13d379e00643c2df003a1d6a62518e87590409674d6256714a4bbdd3f",
+    "freeze.json": "5b846cb6bbe49178722bc77c3b093f7f1f7a139a675df1341cfad380554d9271",
+    "oracle.json": "3d1bb3809d15de61697734de30eee43a8ac0aee2b42aa8528b3f465c087af87f"
+  }
+}

@@ -1,7 +1,0 @@
-Traceback (most recent call last):
-  File "C:\Users\gamin\translucent\translucent\tools.py", line 94, in call
-    res: ToolResult = spec["fn"](ctx, run_id, rec, **args)
-                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\gamin\translucent\translucent\tools.py", line 476, in segment_images
-    raise ValueError("give boxes or points")
-ValueError: give boxes or points

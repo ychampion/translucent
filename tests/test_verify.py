@@ -1,6 +1,7 @@
 import json
 import sqlite3
 import time
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -115,6 +116,34 @@ def test_historical_reviews_survive_later_invalidation(recorded):
     ledger.invalidate_run("r", "A later calibration issue")
     review = gate.review(ledger, "k")
     assert review.verdict == "unsupported"
+    result = verify(ledger.root)
+    assert result.ok, result.problems
+    assert result.matches == 1
+
+
+RECORDINGS = sorted((Path(__file__).resolve().parents[1] / "web" / "public" / "fixtures" / "loop").glob("*.loop.json"))
+
+
+@pytest.mark.parametrize("path", RECORDINGS, ids=[p.name for p in RECORDINGS])
+def test_every_shipped_loop_recording_verifies(path):
+    """The README and the web app tell a reader to verify these recordings offline; each must pass as shipped."""
+    result = verify(path)
+    assert result.ok, result.problems
+
+
+def test_an_invalidation_in_the_same_clock_tick_as_a_review_is_still_after_it(recorded, monkeypatch):
+    """The flake this replaces: on a coarse clock the invalidation got the review's own time, and verify re-checked
+    the earlier supported review with the later invalidation in place."""
+    from translucent import ledger as ledger_mod
+    ledger = recorded[0]
+    tick = ledger.db.execute("SELECT MAX(inserted_at) FROM record").fetchone()[0]
+    monkeypatch.setattr(ledger_mod.time, "time", lambda: tick)
+    ledger.invalidate_run("r", "A later calibration issue")
+    assert ledger.db.execute("SELECT at FROM invalidation").fetchone()[0] > tick
+    assert gate.review(ledger, "k").verdict == "unsupported"       # the new review, in that same tick, is after it
+    at, = ledger.db.execute("SELECT at FROM invalidation").fetchone()
+    assert ledger.db.execute("SELECT MAX(inserted_at) FROM record").fetchone()[0] > at
+    monkeypatch.undo()
     result = verify(ledger.root)
     assert result.ok, result.problems
     assert result.matches == 1

@@ -65,7 +65,9 @@ async function call<T>(path: string, init: { method?: string; body?: unknown; ke
   try {
     r = await fetch(`${API_BASE}${path}`, {
       method: init.method ?? "GET",
+      credentials: "include",
       headers: {
+        ...(init.method && init.method !== "GET" ? { "X-Translucent-Client": "web" } : {}),
         ...(init.body !== undefined ? { "Content-Type": "application/json" } : {}),
         ...(init.key ? { Authorization: `Bearer ${init.key}` } : {}),
       },
@@ -134,12 +136,17 @@ function write(storage: () => Storage, k: string, v: string) {
 const seed = { name: "", key: "" };
 export function seedIdentity(name: string, key: string) { seed.name = name; seed.key = key; }
 
-/** Your name stays on this device; the access key only for this tab. */
+/** A key typed for a legacy microscopy action: kept in this page's memory only, never in storage (M2). */
+let typedKey = "";
+// Older builds kept the key in sessionStorage: remove it.
+try { if (typeof sessionStorage !== "undefined") sessionStorage.removeItem(KEY); } catch { /* storage blocked */ }
+
+/** Your name stays on this device; an access key only in this page's memory. */
 export const identity = {
   name: () => read(() => localStorage, NAME) || seed.name,
   setName: (v: string) => { seed.name = ""; write(() => localStorage, NAME, v.trim().slice(0, 80)); },
-  key: () => read(() => sessionStorage, KEY) || seed.key,
-  setKey: (v: string) => { seed.key = ""; write(() => sessionStorage, KEY, v.trim()); },
+  key: () => typedKey || seed.key,
+  setKey: (v: string) => { seed.key = ""; typedKey = v.trim(); },
 };
 
 /**

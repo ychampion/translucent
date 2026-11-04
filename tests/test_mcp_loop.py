@@ -31,7 +31,7 @@ from translucent.workspace import init_ledger
 ROOT = Path(__file__).resolve().parents[1]
 TESTS = Path(__file__).resolve().parent
 DATA = TESTS / "data" / "import_v2"
-TEAM = {"Authorization": "Bearer team-secret"}
+TEAM = {"Authorization": "Bearer team-secret-0123456789ab-32chars-minimum"}
 CLIENT = {"name": "external-agent", "version": "0.1"}
 BOOT = f"""import sys
 sys.path.insert(0, {str(TESTS)!r})
@@ -55,7 +55,8 @@ def adapter(monkeypatch):
     for name in ("TRANSLUCENT_LIVE", "TRANSLUCENT_ADMIN_TOKEN", "TRANSLUCENT_DATA_ROOT", "TRANSLUCENT_IMPORT_ROOT",
                  "TRANSLUCENT_PROFILE"):
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("TRANSLUCENT_TEAM_TOKEN", "team-secret")
+    monkeypatch.setenv("TRANSLUCENT_TEAM_TOKEN", "team-secret-0123456789ab-32chars-minimum")      # an engineer's key: Ana's
+    monkeypatch.setenv("TRANSLUCENT_TEAM_NAME", "Ana")
     return register(monkeypatch)
 
 
@@ -193,7 +194,8 @@ def wait_until_settled(mcp, cid, rq):
 @pytest.mark.parametrize("approver", ["http", "operator"])
 def test_external_agent_journey(lab, started, approver):
     data, ledger, imports = lab
-    flags = ["--write", "--import-root", str(imports)] + (["--operator", "Ana"] if approver == "operator" else [])
+    flags = ["--write", "--import-root", str(imports), "--agent", "external-agent"] + \
+        (["--operator", "Ana"] if approver == "operator" else [])
     api = started("api", data) if approver == "http" else None
     agent = started("mcp", ledger, *flags)
     person_tools = {"approve_request", "reject_request", "revise_request", "submit_result", "amend_objective",
@@ -262,8 +264,9 @@ def test_external_agent_journey(lab, started, approver):
 def test_api_and_two_mcp_processes_share_one_ledger(lab, started):
     data, ledger, _ = lab
     api = started("api", data)
-    first = started("mcp", ledger, "--write", client={"name": "agent-one", "version": "1"})
-    second = started("mcp", ledger, "--write", "--adopt", client={"name": "agent-two", "version": "1"})
+    first = started("mcp", ledger, "--write", "--agent", "agent-one", client={"name": "agent-one", "version": "1"})
+    second = started("mcp", ledger, "--write", "--adopt", "--agent", "agent-two",
+                     client={"name": "agent-two", "version": "1"})
     cid = first.call("open_loop_campaign", title="Shared campaign",
                      objective={**journey_objective("x"), "datasets": [], "baseline": [],
                                 "budget": {"model_usd": 0, "experiments": 1000, "experiment_usd": 0}})["campaign_id"]
@@ -410,16 +413,17 @@ def test_ownership_adopt_and_concluded_campaigns(lab):
     _, ledger, _ = lab
     owner = initialize(Protocol(ledger, write=True))
     cid = invoke(owner, "open_loop_campaign", title="Mine", objective=toy_objective())["campaign_id"]
-    other = initialize(Protocol(ledger, write=True), {"name": "other-agent", "version": "1"})
+    other = initialize(Protocol(ledger, write=True, agent="other-agent"), {"name": "other-agent", "version": "1"})
     with pytest.raises(McpError, match="did not open that campaign.*--adopt"):
         proposal(other, cid)
     assert invoke(other, "get_campaign_view", campaign_id=cid)["campaign"]["id"] == cid     # reading is open
     reader = initialize(Protocol(ledger))                       # a read-only session reads a snapshot
     assert invoke(reader, "get_campaign_view", campaign_id=cid)["source"]["ledger"] == "lab"
     assert invoke(reader, "list_loop_campaigns")["items"][0]["id"] == cid
-    adopter = initialize(Protocol(ledger, write=True, adopt=True), {"name": "other-agent", "version": "1"})
+    adopter = initialize(Protocol(ledger, write=True, adopt=True, agent="other-agent"),
+                         {"name": "other-agent", "version": "1"})
     req = proposal(adopter, cid)
-    assert req["proposed_by"] == "agent:other-agent"
+    assert req["proposed_by"] == "agent:other-agent"            # the operator's --agent, not the client's name
     with pytest.raises(McpError, match="an agent cancels only its own requests"):
         invoke(owner, "cancel_request", campaign_id=cid, request_id=req["request_id"], reason="mine now")
     with pytest.raises(McpError, match="not a loop campaign"):
@@ -472,7 +476,8 @@ def test_operator_name_not_client_name_and_keys_replay(lab):
                params={"current_A": 1.2}, reason="Rated 1.2 A", idempotency_key="rv-1")
     ok = invoke(session, "approve_request", campaign_id=cid, request_id=req["request_id"],
                 content_hash=revised["content_hash"], idempotency_key="a-1")
-    assert ok["approved_by"] == "person:Ana" and ok["proposed_by"] == "agent:Ben"
+    # the client calls itself Ben: an unverified label. The agent is the operator's --agent (default local-agent)
+    assert ok["approved_by"] == "person:Ana" and ok["proposed_by"] == "agent:local-agent"
     assert invoke(session, "approve_request", campaign_id=cid, request_id=req["request_id"],
                   content_hash=revised["content_hash"], idempotency_key="a-1")["state"] == ok["state"]
     amended = invoke(session, "amend_objective", campaign_id=cid, reason="Cooler cell",

@@ -42,6 +42,7 @@ from translucent.loop_contracts import LoopRecord, ScalarSpec, TableSpec, TimeBa
 from translucent.systems.base import ActionSpec, ExecutionOutput, ResultTable, SystemAdapter
 
 CHILD_START_S = 20.0      # interpreter start and imports, on top of the execution's own wall-time limit
+STAGED_INPUTS = "inputs.json"   # what an adapter's stage() writes in the work folder; removed once the child ends
 _SECRET_NAME = re.compile(r"KEY|TOKEN|SECRET|PASSW|PWD|CREDENTIAL|AUTH|COOKIE|DSN", re.I)
 # what a Python solver (numpy, SciPy, CasADi, PyBaMM) needs: the OS, temp and home folders, locale, thread counts,
 # the interpreter's own settings. Anything else (DATABASE_URL, SMTP_PASS, SENTRY_DSN...) stays with the parent.
@@ -163,7 +164,7 @@ def decode_output(body: dict, workdir: Path) -> ExecutionOutput:
                             scalars={q: (v, u) for q, (v, u) in tb.get("scalars", {}).items()})
         files, root = {}, workdir.resolve()
         for name, p in o.get("files", {}).items():
-            path = Path(p).resolve()
+            path = (root / p).resolve()            # relative to the work folder (an absolute path stays as is)
             if not path.is_relative_to(root) or not path.is_file():
                 raise ResultInvalid([f"output file {name} is not a file in the run's work folder"])
             files[name] = path
@@ -193,7 +194,15 @@ def run_computational(L: Ledger, cid: str, req: RequestState, adapter: SystemAda
     the result, or a failure. No ledger transaction is open while the child runs."""
     attempt, started = req.attempt, time.time()
     try:
-        body, sha = run_child(adapter, req.action, dict(req.data.params), workdir, timeout_s)
+        if (stage := getattr(adapter, "stage", None)) is not None:
+            try:                                 # inputs the system derives from the ledger, for the child to read
+                stage(L, cid, req, workdir)
+            except (ValueError, KeyError, OSError) as e:
+                return record_failure(L, cid, req, attempt, f"the request's inputs could not be staged: {e}", False)
+        try:
+            body, sha = run_child(adapter, req.action, dict(req.data.params), workdir, timeout_s)
+        finally:
+            (Path(workdir) / STAGED_INPUTS).unlink(missing_ok=True)    # staged inputs never outlive the child
         output = decode_output(body, workdir)
         raw = workdir / "output.json"            # the child's exact answer, kept as evidence; its sha256 is `sha`
         raw.write_bytes(_loose(body))
@@ -308,63 +317,16 @@ def upload_sha256(upload: HumanUpload, files: dict[str, Path]) -> str:
                          "files": {n: sha256_file(p) for n, p in sorted(files.items())}})
 
 
-def _read_table(path: Path, spec: TableSpec) -> tuple[list[float], dict[str, list[float]]] | list[str]:
-    """CSV/TSV (with preamble and unit rows) or JSON columns. Import v2 (S2, translucent.datasets) owns the full
-    grammar; this reads the same TableSpec for returned results until that parser merges."""
-    from translucent.datasets import MAX_JSON_TABLE_BYTES, MAX_POINTS   # the limits an imported table has
-    wanted = [spec.time_column, *spec.columns]
-    too_many = [f"{spec.file}: more than {MAX_POINTS:,} rows; split the file"]
+def _read_table(path: Path, spec: TableSpec, tbase: TimeBase | None = None):
+    """A returned table read as an imported one is (translucent.datasets: the same grammar, refusals and limits;
+    no row is dropped or changed without a refusal), as (time, columns, import note), or the reasons it cannot be."""
+    from translucent import datasets
     try:
-        if spec.format == "json":
-            if path.stat().st_size > MAX_JSON_TABLE_BYTES:   # parsed JSON takes many times its size in memory
-                return [f"{spec.file}: a JSON table can be up to {MAX_JSON_TABLE_BYTES // 2**20} MB; send a larger "
-                        "one as CSV"]
-            raw = json.loads(path.read_text(encoding="utf-8-sig"))
-            cols = raw.get("columns", raw) if isinstance(raw, dict) else None
-            if not isinstance(cols, dict):
-                return [f"{spec.file}: JSON columns are an object of column name to values"]
-            if any(isinstance(cols.get(n), list) and len(cols[n]) > MAX_POINTS for n in wanted):
-                return too_many
-        else:
-            # streamed, keeping only the wanted columns: the file can be 500 MB (lines as str.splitlines cuts them)
-            delim = spec.delimiter or ("\t" if spec.format == "tsv" else ",")
-            header, cols, index, n, rows = None, {}, {}, 0, 0
-            with path.open(encoding="utf-8-sig") as fh:
-                for ln in (x for raw in fh for x in (raw.splitlines() or [""])):
-                    n += 1
-                    if n <= spec.header_row:
-                        continue
-                    if header is None:
-                        header = [h.strip() for h in ln.split(delim)]
-                        index = {name: header.index(name) for name in wanted if name in header}
-                        cols = {name: [] for name in index}
-                    elif n > spec.header_row + 1 + spec.skip_rows and ln.strip():
-                        rows += 1
-                        if rows > MAX_POINTS:
-                            return too_many
-                        r = ln.split(delim)
-                        for name, i in index.items():
-                            cols[name].append(r[i].strip() if i < len(r) else "")
-    except (OSError, UnicodeDecodeError, ValueError) as e:
-        return [f"{spec.file}: cannot be read ({e})"]
-    out, parsed = [], {}
-    for name in wanted:
-        if name not in cols:
-            out.append(f"{spec.file}: no column {name}")
-            continue
-        values = []
-        for row, v in enumerate(cols[name], start=spec.header_row + spec.skip_rows + 2):
-            try:
-                x = float(v.replace(",", ".") if isinstance(v, str) and spec.decimal == "," else v)
-            except (TypeError, ValueError):
-                out.append(f"{spec.file}: row {row}, column {name}: {v!r} is not a number")
-                break
-            if not math.isfinite(x):
-                out.append(f"{spec.file}: row {row}, column {name}: {v!r} is not a finite number")
-                break
-            values.append(x)
-        parsed[name] = values
-    return out or (parsed.pop(spec.time_column), parsed)
+        table = datasets._table(path, spec)
+    except (OSError, ValueError) as e:
+        return [str(e)]
+    note = datasets._import_note(spec, table, tbase) if tbase is not None else None
+    return table.t, table.columns, note
 
 
 def parse_human_result(req: RequestState, adapter: SystemAdapter, upload: HumanUpload,
@@ -395,14 +357,14 @@ def parse_human_result(req: RequestState, adapter: SystemAdapter, upload: HumanU
                 out.append(f"executed {k}: {e}")
     if bad := [n for n in files if Path(n).name != n or not Path(files[n]).is_file()]:
         out.append(f"uploaded files are flat names of existing files: {', '.join(bad)}")
-    t, series = (), {}
+    t, series, note = (), {}, None
     if upload.table is not None:
         if upload.time is None:
             out.append("a table needs its time base (what t = 0 means, and the time unit)")
         elif upload.table.file not in files:
             out.append(f"the table file {upload.table.file} was not uploaded")
         else:
-            read = _read_table(Path(files[upload.table.file]), upload.table)
+            read = _read_table(Path(files[upload.table.file]), upload.table, upload.time)
             if isinstance(read, list):
                 out += read
             else:
@@ -410,6 +372,7 @@ def parse_human_result(req: RequestState, adapter: SystemAdapter, upload: HumanU
                     t = tuple(x - upload.time.offset_s for x in units.convert(read[0], upload.time.unit, "s"))
                 except ValueError as e:
                     out.append(f"time: {e}")
+                note = read[2]
                 for col, ch in upload.table.columns.items():
                     if ch.quantity in series:
                         out.append(f"{ch.quantity} is given by more than one column")
@@ -422,7 +385,8 @@ def parse_human_result(req: RequestState, adapter: SystemAdapter, upload: HumanU
     if out:
         return out
     return ExecutionOutput(table=ResultTable(time_unit="s" if series else None, t=t, series=series, scalars=scalars),
-                           files={n: Path(p) for n, p in files.items()}, solver={}, executed=executed)
+                           files={n: Path(p) for n, p in files.items()}, solver={}, executed=executed,
+                           import_note=note)
 
 
 def human_uncertainties(upload: HumanUpload) -> dict[str, Uncertainty]:
@@ -499,6 +463,8 @@ def ingest_output(L: Ledger, cid: str, req: RequestState, output: ExecutionOutpu
     if human:
         tool, params = "human_result", {"author": submitted_by, "content_hash": req.approved_hash,
                                         "payload_sha256": payload_sha256}
+        if output.import_note is not None:      # what reading the returned table did, as an import records it
+            params["import_note"] = output.import_note
     else:
         tool, params = f"execute:{adapter.spec.id}.{req.action}", {
             "request_id": req.request_id, "attempt": attempt, "content_hash": req.approved_hash,

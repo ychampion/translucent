@@ -1,7 +1,7 @@
 # Memory test with a real model: memory on vs off
 
 Run 2026-10-29 with `uv run python -m evals.ablation --real --profile dev --n 3` (Muse Spark Open on Fireworks for
-every role, SAM replayed in strict mode). Raw results: `evals/results/ablation-real-20261029T212224.json`. Total cost
+every role, SAM replayed in strict mode). Measured results: `evals/results/ablation-summary-20261029.json`. Total cost
 $0.37 for 7 campaigns.
 
 **Setup.** Campaign 1 asks when Movie 4's cell shorts and recovers, and whether the electrical record agrees with

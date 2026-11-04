@@ -73,9 +73,9 @@ Medians are reported, and every run is listed.
 
 Total model spend for the evaluation is limited to $25. The harness stops before a call that would pass this limit.
 
-## Reference optima
+## Reference protocols
 
-These were found by a deterministic compass search on the 0.05C lattice, before this freeze.
+Each is the best protocol found by the reference search: a deterministic compass search on the 0.05C lattice, run before this freeze. No search proves a protocol optimal.
 
 | Case | Protocol (C, by SOC window) | Time to 80 % | Best feasible single step |
 |---|---|---|---|
@@ -87,7 +87,7 @@ These were found by a deterministic compass search on the 0.05C lattice, before 
 
 Each metric is computed per run and summarised by its median across repeats.
 
-1. Best feasible time to 80 % at the end of the budget, and regret against the reference optimum (primary).
+1. Best feasible time to 80 % at the end of the budget, and regret against the best protocol found by the reference search (primary).
 2. Experiments run before the first feasible protocol that beats the case's best feasible single step.
 3. Infeasible experiments, duplicate experiments, and requests refused for bounds or rejected.
 4. Model spend, wall time and solver failures.

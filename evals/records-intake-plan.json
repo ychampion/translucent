@@ -1,0 +1,33 @@
+{
+  "at": 1793735364.6681736,
+  "frozen_implementation_sha256": "5c1f56a3f95bbb6dc5a27e21b82860bc6c81f4a3920e3ea15f86d58d850379f2",
+  "package_versions": {
+    "casadi": "3.8.1",
+    "numpy": "2.4.6",
+    "pybamm": "26.10.1.1",
+    "pydantic": "2.14.1",
+    "scipy": "1.17.1"
+  },
+  "plan": {
+    "primary": "the recommended design (Translucent: the view's recommended_design; the general agent: its concluded design) assessed under the seal, with the standing of its model; a run that recommends nothing is reported as declined",
+    "runs": [
+      "H1-translucent_meta-1",
+      "H1-translucent_meta-2",
+      "H1-general_meta-1",
+      "H1-general_meta-2",
+      "H1-numeric-1",
+      "H2-translucent_meta-1",
+      "H2-translucent_meta-2",
+      "H2-general_meta-1",
+      "H2-general_meta-2",
+      "H2-numeric-1",
+      "H3-translucent_meta-1",
+      "H3-translucent_meta-2",
+      "H3-general_meta-1",
+      "H3-general_meta-2",
+      "H3-numeric-1"
+    ],
+    "secondary": "the last design found, assessed the same way"
+  },
+  "source_freeze_file_sha256": "5b846cb6bbe49178722bc77c3b093f7f1f7a139a675df1341cfad380554d9271"
+}

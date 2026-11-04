@@ -220,17 +220,24 @@ def run_analysis_code(ctx, run_id, rec, code, inputs, outputs):
     if not measured:
         raise ValueError("analysis must read at least one recorded measurement, so its outputs can be checked "
                          "against the record")
+    # One nudge can leave honest code's output where it was: a ratio of two inputs does not move when both happen to
+    # move by the same factor (about 1 call in 2,400). So an output that stays put is nudged once more, independently;
+    # only one that stays put both times is refused. A typed-in number never moves, so it is still refused.
     rng = random.Random(secrets.randbits(64))  # unpredictable, so code can't anticipate the moved inputs
-    nudged = {**files, **{f: _nudged(files[f], rng) for f in measured}}
-    check = run_untrusted(code, nudged, timeout_s=120)
-    rec["check_request_id"] = check.sandbox_id
-    if check.status != "ok" or not check.terminated or type(check.outputs) is not dict \
-            or set(check.outputs) != set(names):
-        raise RuntimeError("the code did not run when its recorded inputs changed slightly "
-                           f"({check.status}: {str(check.reason)[:300]}); it must compute from /work/inputs")
-    fixed = [spec["name"] for spec, (v, u), name in zip(outputs, parsed, names)
-             for v2, u2 in [_result(check.outputs[name])]
-             if _same(v, v2) or (u.kind != "none" and _same(u.value, u2.value))]
+    fixed = [spec["name"] for spec in outputs]
+    for attempt in range(2):
+        nudged = {**files, **{f: _nudged(files[f], rng) for f in measured}}
+        check = run_untrusted(code, nudged, timeout_s=120)
+        rec["check_request_id" if attempt == 0 else "recheck_request_id"] = check.sandbox_id
+        if check.status != "ok" or not check.terminated or type(check.outputs) is not dict \
+                or set(check.outputs) != set(names):
+            raise RuntimeError("the code did not run when its recorded inputs changed slightly "
+                               f"({check.status}: {str(check.reason)[:300]}); it must compute from /work/inputs")
+        fixed = [spec["name"] for spec, (v, u), name in zip(outputs, parsed, names) if spec["name"] in fixed
+                 for v2, u2 in [_result(check.outputs[name])]
+                 if _same(v, v2) or (u.kind != "none" and _same(u.value, u2.value))]
+        if not fixed:
+            break
     if fixed:
         raise ValueError(f"{', '.join(fixed)} did not change when the recorded inputs changed slightly, so it is "
                          "not computed from them. Read every number from /work/inputs instead of typing it into "

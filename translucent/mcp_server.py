@@ -2,10 +2,13 @@
 
 Loop campaigns (design §2.9): one tool for each capability of translucent.loop_service.CAPABILITIES that an agent or
 a person may call (LOOP_TOOLS), plus wait_for_request; the runner's and the comparator's capabilities have no tool.
-Reads are open to every session. Agent tools need --write and act as the client ("agent:<clientInfo name>"). Person
-tools (approve, reject, revise, submit a result, amend, note) exist only when the local operator started the server
-with --operator "<name>": the operator vouches for that name, as holding the team token does over HTTP, and records
-are written under it, never under the client's self-declared name. Files are read only under --import-root.
+Reads are open to every session. Agent tools need --write and act as the agent the local operator named when
+starting the server (--agent, default "local-agent"); a client's self-declared clientInfo name is not an identity
+and is kept only as an unverified label (the session's opening note, a campaign's planner.client). Person tools
+(approve, reject, revise, submit a result, amend, note) exist only when the operator started the server with
+--operator "<name>": the operator vouches for that name, as a person's key does over HTTP, and records are written
+under it. An operator acts as an engineer: an amendment may lower a budget, never raise one. Files are read only
+under --import-root.
 
 Several writers may share a ledger: the API server, any number of MCP sessions and the CLI. Loop records are safe
 by construction (chain admission in one IMMEDIATE transaction). A legacy video or intervention campaign is written
@@ -161,7 +164,10 @@ LOOP_TOOLS = {
                       {**CAMPAIGN, "upload": {"type": "object"}, "files": _FILES}, ("campaign_id", "upload")),
     "amend": ("amend_objective", "As the server's operator.",
               {**CAMPAIGN, "reason": _TEXT, "target": {"type": "object"},
-               "constraints": {"type": "array", "items": {"type": "object"}, "maxItems": 50}, **_KEY},
+               "constraints": {"type": "array", "items": {"type": "object"}, "maxItems": 50},
+               "budget": {"type": "object", "description": "Lower model_usd, experiments, experiment_usd or "
+                                                           "max_wall_s; raising one needs an administrator over HTTP"},
+               **_KEY},
               ("campaign_id", "reason")),
     "note": ("add_note", "As the server's operator.", {**CAMPAIGN, "text": {**_TEXT, "maxLength": 2000}},
              ("campaign_id", "text")),
@@ -339,7 +345,8 @@ def _writer(root):
 
 
 class Protocol:
-    def __init__(self, root, *, write=False, adopt=False, state_dir=None, operator=None, import_root=None):
+    def __init__(self, root, *, write=False, adopt=False, state_dir=None, operator=None, import_root=None,
+                 agent="local-agent"):
         # state_dir is accepted for compatibility: MCP writers no longer lock the API's state directory or the
         # ledger (several writers share a ledger; see the module docstring)
         self.root, self.initialized, self.ready = Path(root).resolve(), False, False
@@ -353,6 +360,10 @@ class Protocol:
             if not write or not operator or len(operator) > 80 or re.search(r"[\x00-\x1f\x7f]", operator):
                 raise ValueError("--operator needs --write and a person's name (1-80 characters)")
         self.operator = operator
+        agent = agent.strip() if isinstance(agent, str) else ""
+        if not agent or len(agent) > 80 or re.search(r"[\x00-\x1f\x7f]", agent):
+            raise ValueError("--agent needs a name (1-80 characters)")
+        self.agent = agent           # who agent tools act as: the operator's launch flag, never the client's name
         self.import_root = Path(import_root).resolve() if import_root is not None else None
         if self.import_root is not None and not self.import_root.is_dir():
             raise ValueError("The --import-root folder does not exist")
@@ -395,7 +406,7 @@ class Protocol:
                 return [{"name": n, "description": s["schema"]["function"]["description"], "inputSchema": _schema(n)}
                         for n, s in tools.REGISTRY.items() if n not in EXCLUDED]
         with _writer(self.root) as ledger:
-            actor = "agent:" + self.client_info["name"]
+            actor = "agent:" + self.agent
             if name == "open_campaign":
                 from translucent.loop_surface import budget_problem
                 from translucent.server import _profile
@@ -441,7 +452,7 @@ class Protocol:
         from translucent.loop_service import CAPABILITIES, Actor, LoopService, ResultRefused
         tool = next(t for t in self.tools if t["name"] == name)
         _arguments(tool["inputSchema"], arguments)
-        agent = Actor("agent", self.client_info.get("name") or "reader", "mcp")
+        agent = Actor("agent", self.agent, "mcp")
         if name == WAIT["name"]:
             return self._wait(agent, arguments)
         capability = LOOP_BY_TOOL[name]
@@ -502,7 +513,7 @@ class Protocol:
             from translucent.server import _profile
             objective = dict(a["objective"])
             objective["planner"] = {"kind": "external", "profile": None, "client": dict(self.client_info)}
-            objective["registered_by"] = self.operator or self.client_info["name"]
+            objective["registered_by"] = self.operator or self.agent
             if problems := objective_budget_problems(objective, _profile()):
                 raise ValueError("; ".join(problems))
             opened = service.open_campaign(objective, a["title"])
@@ -540,8 +551,9 @@ class Protocol:
             return service.submit_result(cid, upload, located)
         if capability == "amend":
             return replay(service, "amend", cid, reason=a["reason"], target=a.get("target"),
-                          constraints=a.get("constraints")) or \
-                service.amend(cid, a["reason"], target=a.get("target"), constraints=a.get("constraints"))
+                          constraints=a.get("constraints"), budget=a.get("budget")) or \
+                service.amend(cid, a["reason"], target=a.get("target"), constraints=a.get("constraints"),
+                              budget=a.get("budget"))
         if capability == "note":
             from translucent import chain
             if done := chain.concluded(service.L, cid):
@@ -647,6 +659,7 @@ class Protocol:
                       "instructions": ("Open a campaign, run recorded measurement tools, and propose findings to the gate. "
                                        "Only the gate decides verdicts. SAM follows TRANSLUCENT_SAM (strict replay by default). "
                                        "Loop campaigns: open_loop_campaign, propose_experiment, then wait_for_request; "
+                                       + f"your actions are recorded as agent {self.agent}; "
                                        + (f"approvals are recorded as {self.operator}, the operator who started this server."
                                           if self.operator else
                                           "a person approves each experiment over HTTP or in the web app.")
@@ -690,6 +703,9 @@ def add_arguments(parser):
                         help="Offer the person tools (approve, reject, revise, submit results, amend, note), recorded "
                              "as this person: you, the local operator, vouch for the name. Needs --write")
     parser.add_argument("--import-root", type=Path, help="The one folder import_dataset and submit_result may read")
+    parser.add_argument("--agent", metavar="NAME", default="local-agent",
+                        help="The agent this session's agent tools act as (default local-agent). The client's own "
+                             "self-declared name is kept only as an unverified label")
     return parser
 
 
@@ -707,7 +723,7 @@ def run(args, parser):
         sys.stdout.reconfigure(encoding="utf-8")
     try:
         protocol = Protocol(args.ledger, write=args.write, adopt=args.adopt, state_dir=args.state,
-                            operator=args.operator, import_root=args.import_root)
+                            operator=args.operator, import_root=args.import_root, agent=args.agent)
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
     try:

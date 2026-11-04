@@ -163,6 +163,9 @@
 .lp-req-exec { margin-left: auto; font-size: 12px; color: var(--text-3); }
 .lp-req-who, .lp-req-result { margin: 0; font-size: 13.5px; color: var(--text-2); }
 .lp-req-why { margin: 0; font-size: 14px; line-height: 1.5; color: var(--text); }
+.lp-req-why.is-clamped { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.lp-more { align-self: flex-start; padding: 0; border: 0; background: none; font: inherit; font-size: 13px; color: var(--text-secondary); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.lp-more:hover { color: var(--text-primary); }
 .lp-req-refused { margin: 0; font-size: 13.5px; color: var(--danger); }
 .lp-chart-btn { font-size: 13.5px; color: var(--text-primary); }
 .lp-state { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 6px; font-size: 12px; font-weight: 500; white-space: nowrap; background: var(--pill); color: var(--text-secondary); }

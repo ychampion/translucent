@@ -10,12 +10,15 @@ import pytest
 from fastapi.testclient import TestClient
 
 from evals.fake_llm import FakeClient
+from support.keys import add_key
 from translucent import cli, runtime, server, tools
 from translucent.contracts import Campaign, Check, Claim, Predicate, Review, Source
 from translucent.ledger import Ledger
 
-TEAM = {"Authorization": "Bearer team-secret"}
-ADMIN = {"Authorization": "Bearer test-administrator"}
+TEAM = {"Authorization": "Bearer team-secret-0123456789ab-32chars-minimum"}              # Ana's key (the env team token, named Ana)
+BEN_KEY = "ben-0123456789abcdefghij"
+BEN = {"Authorization": f"Bearer {BEN_KEY}"}
+ADMIN = {"Authorization": "Bearer test-administrator-0123-32chars-minimum"}
 
 
 @pytest.fixture(autouse=True)
@@ -48,14 +51,22 @@ def make_app(store, factory=None):
     return server.create_app(store[1], store[2], campaigner_factory=factory, poll_interval=0.01)
 
 
+def Reader(app, **kw):
+    """A test client that reads with Ana's key unless a request names another: reads are private."""
+    return TestClient(app, headers=TEAM, **kw)
+
+
 @pytest.fixture
-def team(monkeypatch):
-    monkeypatch.setenv("TRANSLUCENT_TEAM_TOKEN", "team-secret")
+def team(monkeypatch, store):
+    """Two people: Ana holds the env team token, Ben a stored key. Each acts only as themself."""
+    monkeypatch.setenv("TRANSLUCENT_TEAM_TOKEN", "team-secret-0123456789ab-32chars-minimum")
+    monkeypatch.setenv("TRANSLUCENT_TEAM_NAME", "Ana")
+    add_key(store[2], "Ben", "engineer", BEN_KEY)
 
 
 def live(monkeypatch):
     monkeypatch.setenv("TRANSLUCENT_LIVE", "1")
-    monkeypatch.setenv("TRANSLUCENT_ADMIN_TOKEN", "test-administrator")
+    monkeypatch.setenv("TRANSLUCENT_ADMIN_TOKEN", "test-administrator-0123-32chars-minimum")
     for name in ("FIREWORKS_API_KEY", "MODEL_API_KEY"):  # placeholders: the fake campaigners never call a provider
         monkeypatch.setenv(name, "test-key")
 
@@ -102,7 +113,7 @@ class Fake:
 def test_session_flags_never_show_secrets(store, monkeypatch):
     with TestClient(make_app(store)) as client:
         assert client.get("/api/session").json() == {"live": False, "team": False, "model": "Muse Spark Open"}
-        monkeypatch.setenv("TRANSLUCENT_TEAM_TOKEN", "team-secret")
+        monkeypatch.setenv("TRANSLUCENT_TEAM_TOKEN", "team-secret-0123456789ab-32chars-minimum")
         assert client.get("/api/session").json() == {"live": False, "team": True, "model": "Muse Spark Open"}
         live(monkeypatch)
         monkeypatch.setenv("TRANSLUCENT_PROFILE", "meta")
@@ -110,35 +121,52 @@ def test_session_flags_never_show_secrets(store, monkeypatch):
         assert body == {"live": True, "team": True, "model": "Muse Wonder"} and "secret" not in json.dumps(body)
 
 
-def test_experiments_list(store):
-    with TestClient(make_app(store)) as client:
+def test_experiments_list(store, team):
+    with Reader(make_app(store)) as client:
         assert client.get("/api/experiments").json() == [{"experiment": "fixture", "video_id": store[3].id,
             "label": "Fixture movie", "citation": "Fixture et al.", "licence": "CC BY 4.0"}]
 
 
-@pytest.mark.parametrize("headers,status", [({}, 403), ({"Authorization": "Bearer wrong"}, 403),
-    ({"Authorization": "team-secret"}, 403), (TEAM, 201), (ADMIN, 201)])
-def test_people_actions_need_the_team_or_admin_token_but_not_live(store, monkeypatch, team, headers, status):
-    monkeypatch.setenv("TRANSLUCENT_ADMIN_TOKEN", "test-administrator")  # live stays off
+@pytest.mark.parametrize("headers,status,author", [({}, 401, None), ({"Authorization": "Bearer wrong"}, 401, None),
+    ({"Authorization": "team-secret-0123456789ab-32chars-minimum"}, 401, None), (TEAM, 201, "Ana"), (BEN, 201, "Ben"),
+    (ADMIN, 201, "administrator")])
+def test_people_actions_need_the_team_or_admin_token_but_not_live(store, monkeypatch, team, headers, status, author):
+    """No key or a malformed one is "sign in"; a person's key writes, live or not, as the person the key names."""
+    monkeypatch.setenv("TRANSLUCENT_ADMIN_TOKEN", "test-administrator-0123-32chars-minimum")  # live stays off
     store[0].emit("seed", "campaign.started", "runtime", "Start")
     with TestClient(make_app(store)) as client:
-        r = client.post("/api/campaigns/seed/notes", json={"text": "Check frame 40", "author": "Ana"}, headers=headers)
+        r = client.post("/api/campaigns/seed/notes", json={"text": "Check frame 40"}, headers=headers)
         assert r.status_code == status
     notes = [e for e in store[0].events("seed") if e.type == "human.note"]
-    assert len(notes) == (status == 201)
+    assert [(e.actor, e.data["author"]) for e in notes] == ([(f"person:{author}", author)] if author else [])
 
 
 def test_no_configured_token_refuses_people(store):
     store[0].emit("seed", "campaign.started", "runtime", "Start")
     with TestClient(make_app(store)) as client:
         assert client.post("/api/campaigns/seed/notes", json={"text": "x", "author": "Ana"},
-                           headers={"Authorization": "Bearer "}).status_code == 403
+                           headers={"Authorization": "Bearer "}).status_code == 401
+        assert client.get("/api/campaigns/seed").status_code == 401
+    assert [e.type for e in store[0].events("seed")] == ["campaign.started"]
+
+
+def test_a_key_acts_only_as_its_person(store, monkeypatch, team):
+    """The author field may only repeat the key's person: Ana's key cannot sign as Ben, nor Ben's as Ana."""
+    monkeypatch.setenv("TRANSLUCENT_ADMIN_TOKEN", "test-administrator-0123-32chars-minimum")
+    store[0].emit("seed", "campaign.started", "runtime", "Start")
+    with TestClient(make_app(store)) as client:
+        for headers, author in ((TEAM, "Ben"), (BEN, "Ana"), (ADMIN, "Ana")):
+            r = client.post("/api/campaigns/seed/notes", json={"text": "x", "author": author}, headers=headers)
+            assert r.status_code == 403 and "This key acts as" in r.json()["detail"], r.text
+            r = client.post("/api/campaigns/seed/control", json={"action": "pause", "author": author}, headers=headers)
+            assert r.status_code == 403
+    assert [e.type for e in store[0].events("seed")] == ["campaign.started"]
 
 
 def test_team_token_cannot_start_or_resume(store, monkeypatch, team):
     live(monkeypatch)
     store[0].emit("seed", "campaign.started", "runtime", "Start")
-    with TestClient(make_app(store, Fake)) as client:
+    with Reader(make_app(store, Fake)) as client:
         assert client.post("/api/campaigns", json={"objective": "x", "experiment_id": "fixture", "budget": 0.1},
                            headers=TEAM).status_code == 403
         assert client.post("/api/campaigns/seed/resume", json={"budget": 0.1}, headers=TEAM).status_code == 403
@@ -147,7 +175,7 @@ def test_team_token_cannot_start_or_resume(store, monkeypatch, team):
 
 def test_note_event_and_409_unless_running_or_paused(store, team):
     L = store[0]
-    with TestClient(make_app(store)) as client:
+    with Reader(make_app(store)) as client:
         post = lambda: client.post("/api/campaigns/seed/notes", json={"text": "  Use the scale bar  ", "author": "Ana"},
                                    headers=TEAM)
         assert post().status_code == 409  # never started
@@ -169,7 +197,7 @@ def test_note_event_and_409_unless_running_or_paused(store, team):
     ("notes", {"text": "", "author": "Ana"}), ("notes", {"text": "   ", "author": "Ana"}),
     ("notes", {"text": "x" * 2001, "author": "Ana"}), ("notes", {"text": "x", "author": "A" * 81}),
     ("notes", {"text": "x", "author": "Ana\nAdmin"}), ("notes", {"text": "x", "author": ""}),
-    ("notes", {"text": "x", "author": "Ana", "extra": 1}), ("notes", {"text": "x"}),
+    ("notes", {"text": "x", "author": "Ana", "extra": 1}), ("notes", {"author": "Ana"}),
     ("reviews", {"claim_id": "finding", "verdict": "challenge", "reason": "", "author": "Ana"}),
     ("reviews", {"claim_id": "finding", "verdict": "supported", "reason": "x", "author": "Ana"}),
     ("control", {"action": "restart", "author": "Ana"}),
@@ -177,7 +205,7 @@ def test_note_event_and_409_unless_running_or_paused(store, team):
 ])
 def test_people_bodies_are_validated(store, team, path, body):
     store[0].emit("seed", "campaign.started", "runtime", "Start")
-    with TestClient(make_app(store)) as client:
+    with Reader(make_app(store)) as client:
         assert client.post(f"/api/campaigns/seed/{path}", json=body, headers=TEAM).status_code == 422
     assert [e.type for e in store[0].events("seed")] == ["campaign.started"]
 
@@ -189,8 +217,8 @@ def test_answers_only_for_open_questions_and_people_summary(store, team):
         L.emit("seed", "question.asked", "orchestrator", "Asked the team: How long is the bar?",
                data={"question_id": qid, "question": "How long is the bar?", "options": ["10 um", "20 um"]})
     L.emit("seed", "question.expired", "runtime", "No answer", data={"question_id": "q_gone"})
-    with TestClient(make_app(store)) as client:
-        answer = lambda qid: client.post("/api/campaigns/seed/answers", headers=TEAM,
+    with Reader(make_app(store)) as client:
+        answer = lambda qid: client.post("/api/campaigns/seed/answers", headers=BEN,
                                          json={"question_id": qid, "text": "10 um", "author": "Ben"})
         r = answer("q_open")
         assert r.status_code == 201 and r.json()["event"]["type"] == "question.answered"
@@ -215,14 +243,14 @@ def test_human_reviews_after_the_campaign_ended_never_decide(store, team):
     L.add(Campaign(id="other", objective="o", title="o", inputs=[store[3].id], budget_usd=1, created_at=0))
     other = add_claim(L, "other", "elsewhere")
     L.emit("seed", "campaign.finished", "runtime", "Done", data={"status": "finished"})
-    with TestClient(make_app(store)) as client:
-        review = lambda **b: client.post("/api/campaigns/seed/reviews", headers=TEAM,
-                                         json={"claim_id": "finding", "author": "Ana", **b})
+    with Reader(make_app(store)) as client:
+        review = lambda headers=TEAM, **b: client.post("/api/campaigns/seed/reviews", headers=headers,
+                                                       json={"claim_id": "finding", "author": "Ana", **b})
         r = review(verdict="challenge", reason="The scale bar was read from the wrong frame.")
         assert r.status_code == 201
         got = r.json()["review"]
         assert got["reviewer"] == "human" and got["verdict"] == "refuted" and got["author"] == "Ana"
-        signed = review(verdict="agree", author="Ben").json()["review"]
+        signed = review(BEN, verdict="agree", author="Ben").json()["review"]
         assert signed["verdict"] == "supported" and signed["reason"] == "Ben agrees with this finding."
         assert L.claim_status("finding") == "unsupported"
         assert client.post("/api/campaigns/seed/reviews", headers=TEAM, json={"claim_id": other.id, "author": "Ana",
@@ -244,7 +272,7 @@ def test_human_reviews_after_the_campaign_ended_never_decide(store, team):
 
 def test_control_events_and_409(store, team):
     L = store[0]
-    with TestClient(make_app(store)) as client:
+    with Reader(make_app(store)) as client:
         control = lambda action: client.post("/api/campaigns/seed/control", headers=TEAM,
                                              json={"action": action, "author": "Ana"})
         assert control("pause").status_code == 409
@@ -256,10 +284,10 @@ def test_control_events_and_409(store, team):
         assert control("stop").status_code == 202
 
 
-def test_resume_endpoint_rules_and_worker_settings(store, monkeypatch):
+def test_resume_endpoint_rules_and_worker_settings(store, monkeypatch, team):
     live(monkeypatch)
     L, Fake.made = store[0], []
-    with TestClient(make_app(store, Fake)) as client:
+    with Reader(make_app(store, Fake)) as client:
         resume = lambda **b: client.post("/api/campaigns/seed/resume", json={"budget": 0.5, **b}, headers=ADMIN)
         assert resume().status_code == 409  # never started
         L.emit("seed", "campaign.started", "runtime", "Start")  # then the process died: interrupted
@@ -274,7 +302,7 @@ def test_resume_endpoint_rules_and_worker_settings(store, monkeypatch):
         assert client.post("/api/campaigns/unknown/resume", json={"budget": 0.5}, headers=ADMIN).status_code == 404
 
 
-def test_resume_after_stop_and_one_campaign_at_a_time(store, monkeypatch):
+def test_resume_after_stop_and_one_campaign_at_a_time(store, monkeypatch, team):
     live(monkeypatch)
     L, entered, release = store[0], threading.Event(), threading.Event()
     L.emit("seed", "campaign.started", "runtime", "Start")
@@ -285,7 +313,7 @@ def test_resume_after_stop_and_one_campaign_at_a_time(store, monkeypatch):
             entered.set()
             assert release.wait(10)
             return super().run()
-    with TestClient(make_app(store, Blocking)) as client:
+    with Reader(make_app(store, Blocking)) as client:
         try:
             first = client.post("/api/campaigns", json={"objective": "x", "experiment_id": "fixture", "budget": 0.1},
                                 headers=ADMIN)
@@ -310,7 +338,7 @@ def test_job_shows_paused_and_paused_blocks_new_campaigns(store, monkeypatch, te
             assert release.wait(10)
             self.s.on_status("running")
             return super().run()
-    with TestClient(make_app(store, Pausing)) as client:
+    with Reader(make_app(store, Pausing)) as client:
         try:
             cid = client.post("/api/campaigns", json={"objective": "x", "experiment_id": "fixture", "budget": 0.1},
                               headers=ADMIN).json()["id"]
@@ -325,12 +353,12 @@ def test_job_shows_paused_and_paused_blocks_new_campaigns(store, monkeypatch, te
         wait_job(client, cid, "finished")
 
 
-def test_paused_job_is_interrupted_on_restart(store):
+def test_paused_job_is_interrupted_on_restart(store, team):
     directory = store[2] / "jobs"
     directory.mkdir(parents=True)
     job = server.Job(campaign_id="seed", status="paused", profile="dev", created_at=0, updated_at=0)
     (directory / (hashlib.sha256(b"seed").hexdigest() + ".json")).write_text(job.model_dump_json())
-    with TestClient(make_app(store)) as client:
+    with Reader(make_app(store)) as client:
         assert client.get("/api/campaigns/seed").json()["job"]["status"] == "interrupted"
 
 
@@ -352,7 +380,7 @@ def test_api_answer_reaches_a_waiting_real_campaigner(store, monkeypatch, team):
         fake = FakeClient(agent)
         camp.clients = {"fireworks": fake, "meta": fake}
         return camp
-    with TestClient(make_app(store, factory)) as client:
+    with Reader(make_app(store, factory)) as client:
         cid = client.post("/api/campaigns", json={"objective": "x", "experiment_id": "fixture", "budget": 0.1},
                           headers=ADMIN).json()["id"]
         deadline = time.monotonic() + 30
@@ -390,3 +418,31 @@ def test_cli_run_ask_wait_and_resume(store, monkeypatch, capsys):
         cli.main(["resume", "unknown", "--ledger", str(store[1])])
     with pytest.raises(SystemExit):
         cli.main(["run", "--ledger", str(store[1]), "--ask-wait", "-1"])
+
+
+def test_a_job_file_is_never_read_while_a_worker_replaces_it(store):
+    """Windows refuses to open a file another thread is replacing (PermissionError, seen once in
+    test_resume_after_stop_and_one_campaign_at_a_time): reads and writes of job files share one lock."""
+    import threading
+    with TestClient(make_app(store)) as client:
+        host = client.app.state.translucent.host("default")
+        job = host.save(server.Job(campaign_id="seed", status="queued", profile="dev", created_at=0, updated_at=0))
+        errors, done = [], threading.Event()
+
+        def writer():
+            try:
+                for i in range(400):
+                    host.save(job, status="running" if i % 2 else "paused")
+            except Exception as e:      # noqa: BLE001 - the test reports any failure of the writer
+                errors.append(e)
+            finally:
+                done.set()
+        t = threading.Thread(target=writer)
+        t.start()
+        try:
+            while not done.is_set():
+                assert host.load_job("seed").campaign_id == "seed"
+                assert [j.campaign_id for j in host.jobs()] == ["seed"]
+        finally:
+            t.join()
+        assert not errors, errors

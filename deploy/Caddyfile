@@ -1,6 +1,14 @@
 {
 	admin off
 	auto_https off
+	# Trust only the compose network's gateway (deploy/compose.yaml), where a front door on this host
+	# (deploy/nginx-site.conf) connects from through the published port: its X-Forwarded-Proto and the address it
+	# appends to X-Forwarded-For are kept. Any other peer is the client itself. Strict: the client address is read
+	# right to left, skipping trusted hops, so entries a client wrote on the left are never taken.
+	servers {
+		trusted_proxies static 172.29.80.1
+		trusted_proxies_strict
+	}
 }
 
 :8080 {
@@ -12,6 +20,9 @@
 		# flush at once: campaign updates are a server-sent event stream
 		reverse_proxy api:8000 {
 			flush_interval -1
+			# one address, the real client's as resolved above, replacing any list the client sent; the API
+			# trusts Caddy's address only (FORWARDED_ALLOW_IPS) and counts failed keys per this address
+			header_up X-Forwarded-For {client_ip}
 		}
 	}
 	# recorded runs and exports live on a volume, not in the image (seed-ledger.sh copies and splits them)

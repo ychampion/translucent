@@ -99,6 +99,24 @@ def test_a_wrong_upload_is_refused_recorded_and_the_request_keeps_waiting(L, cid
     assert counts(L, cid) == (1, 1) and chain.problems(L, cid) == []
 
 
+def test_a_returned_table_loses_no_row_and_its_run_says_what_reading_it_did(L, cid, tmp_path):
+    """A returned table is read as an import reads it: skip_rows over a row of data is refused with the line, a
+    blank line inside the data is refused, and the accepted result's run keeps the import note."""
+    req = bench_request(L, cid)
+    body, files = upload(req, tmp_path)
+    over = {**body, "table": {**body["table"], "skip_rows": 2}}
+    refused(L, cid, over, files, r"run.csv, line 3: skip_rows 2 would drop this line, but it is a row of data")
+    lines = files["run.csv"].read_text().splitlines()
+    (tmp_path / "gap.csv").write_text("\n".join([*lines[:5], "", *lines[5:]]) + "\n")
+    gap = {**body, "table": {**body["table"], "file": "gap.csv"}}
+    refused(L, cid, gap, {"gap.csv": tmp_path / "gap.csv"}, "gap.csv, line 6: a blank line inside the data")
+    assert LoopService(L, ANA).submit_result(cid, body, files)["state"] == "completed"
+    run = next(r for r in L.list("run", cid) if r.tool == "human_result")
+    note = run.params["import_note"]
+    assert note["rows_read"] == len(lines) - 2 and note["lines_skipped"] == [] and note["first_data_line"] == 3
+    assert note["units_not_in_file"] == [{"column": "time_s", "unit": "s"}, {"column": "T", "unit": "degC"}]
+
+
 def test_a_returned_table_has_the_row_cap_an_import_has_and_json_is_size_checked_before_parsing(
         L, cid, tmp_path, monkeypatch):
     """A 500 MB upload of short rows would be ~125M rows in memory: the human path refuses past datasets.MAX_POINTS
@@ -109,7 +127,8 @@ def test_a_returned_table_has_the_row_cap_an_import_has_and_json_is_size_checked
     body, files = upload(req, tmp_path)
     rows = len(simulate(2.0, 25.0)[0])
     monkeypatch.setattr(datasets, "MAX_POINTS", rows - 1)
-    refused(L, cid, body, files, f"run.csv: more than {rows - 1:,} rows; split the file")
+    # read as an import reads it, the refusal names the line where the cap is passed
+    refused(L, cid, body, files, rf"run.csv, line \d+: more than {rows - 1:,} rows; split the file")
     t, y, _ = simulate(2.0, 25.0)
     (tmp_path / "run.json").write_text(json.dumps({"time_s": t, "T": y}))
     as_json = {**body, "table": {**body["table"], "file": "run.json", "format": "json", "header_row": 0}}
@@ -325,6 +344,24 @@ def test_output_files_must_stay_in_the_work_folder(tmp_path):
         decode_output(body, work)
     with pytest.raises(ResultInvalid, match="malformed"):
         decode_output({"output": {"table": None}}, work)
+    body["output"]["files"] = {"up": "../secret.txt"}                 # a relative name may not climb out either
+    with pytest.raises(ResultInvalid, match="not a file in the run's work folder"):
+        decode_output(body, work)
+
+
+def test_the_child_names_its_files_relative_to_the_work_folder(tmp_path):
+    """The result is kept as evidence: where the work folder sits on this machine is not part of it."""
+    from translucent.exec_child import encode_output
+    from translucent.systems.base import ExecutionOutput, ResultTable
+    work = tmp_path / "work" / "rq_1" / "1"
+    work.mkdir(parents=True)
+    (work / "result.json").write_text("{}")
+    out = ExecutionOutput(table=ResultTable(time_unit=None, t=(), series={}, scalars={}),
+                          files={"result.json": work / "result.json"}, solver={}, executed={})
+    body = {"output": encode_output(out, work)}
+    assert body["output"]["files"] == {"result.json": "result.json"}
+    assert str(tmp_path) not in str(body)
+    assert decode_output(body, work).files["result.json"] == (work / "result.json").resolve()
 
 
 def test_a_category_output_is_recorded_on_the_result_and_an_undeclared_one_is_refused(tmp_path, monkeypatch):

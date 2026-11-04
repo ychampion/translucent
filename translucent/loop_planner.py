@@ -19,6 +19,13 @@ Planner kinds (objective.planner.kind), one turn loop for all of them:
   scripted          ScriptedLoopPlanner: scripted replies, for tests and offline demos
   external          an MCP client plans itself; never scheduled here
 
+An investigation from the engineer's own records (objective.uploads, translucent.records) adds three tools: read an
+uploaded file (inspect_upload), import it with a manifest the planner writes (import_records, refused by the importer
+with file, line and column), list a record's computed segments (list_segments) and run its own analysis of the
+uploads in the network-blocked, credential-free sandbox (run_analysis; what it prints is for reading, never a fit
+input); the context then separates the instrument facts, the model assumptions, the engineer's constraints and what
+is missing. Campaigns without uploads see exactly the tools, prompt and context they always had.
+
 `planner_tick` is the trigger a runner thread or the CLI calls; `dry_run` estimates a model campaign's cost without
 contacting a provider. Lessons from memory (S8) reach the context through the `lessons` hook of `planner_context`.
 """
@@ -35,13 +42,14 @@ from typing import Any, Callable, Iterable
 
 from pydantic import ValidationError
 
-from translucent import chain
+from translucent import chain, datasets, records
 from translucent.intervention_chat import ChatSession, Settings, StopCampaign, assistant_message, worst_case_cost
 from translucent.intervention_errors import RecordingError
 from translucent.ledger import AdmissionError, Ledger
 from translucent.locks import ExclusiveFileLock
-from translucent.loop import (PENDING, REGISTRATION, NotAllowed, NotFound, _baseline_record, adapter_for,
-                              campaign_ids, current_objective, experiments_used, request_states)
+from translucent.loop import (AMENDED, PENDING, REFERENCE, REGISTRATION, NotAllowed, NotFound, _baseline_record,
+                              adapter_for, campaign_ids, current_objective, experiments_used, request_states)
+from translucent.loop_compare import objective_kind
 from translucent.loop_contracts import ObjectiveData
 from translucent.loop_service import CAPABILITIES, Actor, LoopService, planner_tools
 from translucent.recordings import NoRecording
@@ -77,9 +85,33 @@ _OPERATORS = ["final", "initial", "max", "min", "mean", "value_at", "time_to_thr
               "duration_where"]
 
 
-def offered_tools() -> dict[str, str | None]:
-    """Planner tool name -> the capability it uses (None for turn control), from planner_tools()."""
+# An investigation from records: reading the uploads (the campaign's view capability) and importing them
+RECORDS_TOOLS = {"inspect_upload": "view", "import_records": "import_dataset", "list_segments": "view",
+                 "run_analysis": "view"}
+ANALYSIS_CODE_CHARS = 20000
+ANALYSIS_STDOUT_CHARS, ANALYSIS_STDERR_CHARS, ANALYSIS_OUTPUT_CHARS = 6000, 3000, 4000
+# run_analysis's sandbox: translucent.sandbox.runner.run_untrusted (Modal, network-blocked, no credentials); tests and
+# evaluations replace it
+ANALYSIS_RUNNER = None
+
+
+def _analysis_runner():
+    if ANALYSIS_RUNNER is not None:
+        return ANALYSIS_RUNNER
+    from translucent.sandbox.runner import run_untrusted
+    return run_untrusted
+
+
+def from_records(obj: ObjectiveData | None) -> bool:
+    return bool(obj is not None and getattr(obj, "uploads", None))
+
+
+def offered_tools(obj: ObjectiveData | None = None) -> dict[str, str | None]:
+    """Planner tool name -> the capability it uses (None for turn control), from planner_tools(); with the records
+    tools when the objective starts from uploads."""
     out: dict[str, str | None] = {TOOL_FOR[c]: c for c in planner_tools() if c in TOOL_FOR}
+    if from_records(obj):
+        out |= RECORDS_TOOLS
     return out | {name: None for name in CONTROL_TOOLS}
 
 
@@ -90,10 +122,17 @@ def _prediction_schema() -> dict:
                                                     "hi": {"type": "number"}, "unit": {"type": "string"}}}}
 
 
+def allowed_action(obj: ObjectiveData, action: str) -> bool:
+    """objective.planner.actions, when the registering person set it, limits the actions the planner may propose."""
+    only = obj.planner.get("actions")
+    return not isinstance(only, list) or action in only
+
+
 def tool_schemas(obj: ObjectiveData) -> list[dict]:
     """Chat-completions function schemas for the offered tools, with the system's actions and series named."""
     spec = obj.system.get("spec") or {}
-    actions = [a["name"] for a in spec.get("actions", []) if a.get("executor") != "retrospective"]
+    actions = [a["name"] for a in spec.get("actions", []) if a.get("executor") != "retrospective" and
+               allowed_action(obj, a["name"])]
     series = [q["name"] for q in spec.get("quantities", []) if q.get("kind") == "series"]
     params = {
         "get_view": ({}, [], "The campaign state as at the start of the turn, rebuilt from the ledger now."),
@@ -142,11 +181,45 @@ def tool_schemas(obj: ObjectiveData) -> list[dict]:
                      ["text"], "End the campaign. The outcome is computed from the comparisons; you write the text."),
         "ask_person": ({"question": {"type": "string"}}, ["question"],
                        "Ask the engineer a question; the turn ends and the answer arrives as a note."),
+        "inspect_upload": ({"file": {"type": "string", "description": "an uploaded file's name"},
+                            "start_line": {"type": "integer", "minimum": 1}, "lines": {"type": "integer",
+                                                                                       "maximum": records.MAX_LINES},
+                            "header_row": {"type": "integer", "minimum": 0, "description": "lines before the header "
+                                           "(as in a manifest); with it, Translucent computes every column's "
+                                           "statistics under that header"},
+                            "delimiter": {"type": "string"}, "decimal": {"type": "string", "enum": [".", ","]},
+                            "skip_rows": {"type": "integer", "minimum": 0}},
+                           ["file"], "Read raw lines of an uploaded file; with header_row, also the computed "
+                                     "statistics of every column under that header. Nothing is interpreted."),
+        "import_records": ({"manifest": {"type": "object", "description": "an import v2 manifest "
+                                         "(manifest_version 2): id, title, author, citation, licence, records "
+                                         "with specimen, configuration, conditions, time, tables, provenance"},
+                            "missing_information": {"type": "array", "items": {
+                                "type": "object", "required": ["item", "why_it_matters"],
+                                "properties": {"item": {"type": "string"}, "why_it_matters": {"type": "string"}}},
+                                "description": "what the files and documentation do not establish"}},
+                           ["manifest", "missing_information"],
+                           "Import uploaded files with the manifest you write. The importer refuses a wrong one "
+                           "with the file, line and column; correct it and import again. Files come only from "
+                           "this campaign's uploads."),
+        "list_segments": ({"record": {"type": "integer", "minimum": 1}}, ["record"],
+                          "Every segment Translucent computed for imported record n (rest, constant current, "
+                          "other), with measured current, voltage, temperatures and chamber."),
+        "run_analysis": ({"code": {"type": "string", "description": "Python 3.12 with numpy, scipy and pandas; the "
+                                   "uploads are at /work/inputs/<name>; print what you need"},
+                          "files": {"type": "array", "items": {"type": "string"},
+                                    "description": "the uploads to give it (default: all)"},
+                          "outputs": {"type": "array", "items": {"type": "string"},
+                                      "description": "files it writes to /work/outputs/ to return (text)"},
+                          "timeout_s": {"type": "number", "minimum": 5, "maximum": 120}},
+                         ["code"], "Run your own analysis of the uploads in a fresh sandbox with no network and no "
+                                   "credentials. What it prints is for your reading; fits, checks and designs take "
+                                   "their inputs only from imported records and tests."),
         "wait": ({"reason": {"type": "string"}}, [],
                  "End the turn with nothing to do until something new happens."),
     }
     out = []
-    for name, capability in offered_tools().items():
+    for name, capability in offered_tools(obj).items():
         properties, required, text = params[name]
         description = text or CAPABILITIES[capability].summary
         out.append({"type": "function", "function": {
@@ -200,10 +273,86 @@ This campaign is the no-feedback arm. Propose all {n} experiments now, in this o
 and prediction. You will not see their results and will not be called again."""
 
 
+# loop-compare/3 objectives (milestone 2). A loop-compare/1 or /2 campaign keeps the prompt it ran with, so its
+# recorded turns replay byte for byte.
+OBJECTIVE_KINDS = {
+    "fastest_feasible": """
+
+The objective
+- Find the fastest protocol that meets every constraint of the current objective version. Meeting the constraints \
+comes first: a result that breaks one is infeasible, however fast it is.
+- Speed is judged against a reference that meets the same constraints: the baseline when it does, otherwise the \
+best single-step protocol found by the system's reference search (requests marked as reference-search runs, which \
+the system runs and which do not count against your budget). A failing baseline is never a speed reference.
+- Say "meets the constraints" for a result that only recovers feasibility, and "faster than the reference" only \
+when its comparison says so. No result is proven to be the fastest possible: never call one optimal.""",
+    "hard_target": """
+
+The objective
+- Meet the hard target (objective.target.limit) while meeting every constraint of the current objective version. \
+The target is fixed: only an engineer's amendment changes it. Never relax it, and never report a result that misses \
+it as meeting the objective.
+- Meeting the constraints comes first: a result that breaks one is infeasible, however fast it is.
+- Say "meets the constraints" for a result that only recovers feasibility; never call a result optimal.""",
+}
+
+
+RECORDS_GUIDANCE = """This campaign starts from the engineer's own records: raw files (investigation.uploads) and \
+their documentation (investigation.documentation), not a prepared dataset. Nothing is imported until you import it.
+
+Intake
+- Read each file with inspect_upload: its raw lines (preamble, header, first rows), then the column statistics \
+Translucent computes under the header row you name. Establish from the files and the documentation the units, the \
+time base, which column is which quantity, the sign convention of the current, which cell and fixture each record \
+comes from, and the chamber temperature.
+- Import with import_records. The manifest holds instrument facts only: what the files or the documentation state. \
+Name system quantities where they apply (surface_temperature for the cell surface thermocouple, current for the cell \
+current, voltage for the terminal voltage, chamber_temperature for the chamber or ambient sensor) and lab:<name> \
+for anything else; give units as recorded (Translucent converts them). Give an uncertainty only where the \
+documentation states one. Use the system pybamm-fastcharge-lab.
+- missing_information lists what the files and documentation do not establish and the work needs (a calibration, \
+thermocouple placement, the current's direction, a test's start state, a chamber log). Never fill a gap in the \
+manifest by assumption; if a missing fact blocks the work, ask the engineer.
+- A refused manifest names the file, line and column: correct it and import again.
+- When a question needs a calculation no tool makes, write it in run_analysis (a sandbox with the uploads, numpy, \
+scipy and pandas, no network). Its printout informs you; it never becomes a fit input or a reported result.
+
+Record tests
+- Translucent divides each imported record's current into segments (rest, constant current, other) with the \
+measured current, voltage, temperatures and chamber (investigation.segments lists those of at least 10 min; \
+list_segments gives all). A record test (record_test) is one constant-current segment. You state whether it is a \
+discharge or a charge (Translucent checks the voltage) and the state of charge at its start: that is your \
+assumption, so cite the evidence for it (for example a constant-voltage charge to 4.2 V and a rest before it).
+- Record tests and lab tests share one numbering, in the order their results arrive (investigation.tests); \
+fit_thermal and check_model name tests by it. Keep some tests out of a fit to check it.
+
+Model and design
+- Model version 0 is the parameter set as shipped, calibrated to no fixture. The records come from their own \
+fixture; the objective's fixture may differ, so a fit to the records is evidence, not proof, about the next test.
+- Designs come only from optimize_protocol: the numerical controller searches; you never type a design. A lab test \
+(lab_charge, in the simulated lab, computational; bench_charge, on a real bench, run by a person) is the next \
+experiment; when its result arrives, compare it with the forecast and revise the model or the design if the \
+evidence warrants it.
+- A design is a recommendation only when its model version stands behind it: a fit that met the adequacy rule and \
+a check_model on tests it did not fit that met the same rule, with no check failing it. Translucent enforces this: \
+a design under any other version is withheld from the comparison with the limits (its result's model_standing says \
+why) and is a lead, not a result. When no family the system offers explains the records, say so and conclude with \
+that as the unresolved dependency (what measurement or model would settle it), rather than recommend a design.
+- Keep three things apart in what you write: instrument facts (the records and their documentation), model \
+assumptions (families, start states, what a fit cannot identify) and the engineer's constraints (the objective). \
+You can change the second, never the first or the third."""
+
+
 def system_prompt(obj: ObjectiveData, remaining: int | None = None) -> str:
+    prompt = PROMPT + OBJECTIVE_KINDS.get(objective_kind(obj), "")
+    guidance = ((obj.system.get("spec") or {}).get("objective_template") or {}).get("planner_guidance")
+    if isinstance(guidance, str) and guidance:      # the system's own working rules, frozen with its spec
+        prompt += "\n\n" + guidance
+    if from_records(obj):
+        prompt += "\n\n" + RECORDS_GUIDANCE
     if obj.planner.get("kind") == "muse_no_feedback":
-        return PROMPT + NO_FEEDBACK.format(n=remaining if remaining is not None else obj.budget.get("experiments"))
-    return PROMPT
+        return prompt + NO_FEEDBACK.format(n=remaining if remaining is not None else obj.budget.get("experiments"))
+    return prompt
 
 
 # ------------------------------------------------------------------ the context
@@ -260,6 +409,8 @@ def planner_context(L: Ledger, cid: str, *, turn: dict | None = None, full_reque
     except KeyError:
         adapter = None
     validity = getattr(adapter, "validity", None)
+    details = getattr(adapter, "result_details", None)      # a system's own summary of what a result found
+    bound = (spec.get("objective_template") or {}).get("bound_parameters") or {}
 
     # the objective, each constraint with the version since which it holds as it stands
     since, target_since = {}, 1
@@ -273,6 +424,9 @@ def planner_context(L: Ledger, cid: str, *, turn: dict | None = None, full_reque
                 if since.get(key, (None, None))[1] != (c["limit"], c["unit"]):
                     since[key] = (version, (c["limit"], c["unit"]))
     objective = dict(view["objective"])
+    legacy = objective_kind(obj) == "legacy"
+    if legacy:              # loop-compare/1 and /2: the context they were recorded with, so their turns replay
+        objective = {k: x for k, x in objective.items() if k not in ("kind", "summary", "statement_version")}
     objective["target"] = dict(objective["target"], since_version=target_since)
     objective["constraints"] = [dict(c, since_version=since[(c["quantity"], c["op"])][0])
                                 for c in objective["constraints"]]
@@ -322,6 +476,9 @@ def planner_context(L: Ledger, cid: str, *, turn: dict | None = None, full_reque
                  "objective_version": d.objective_version, "cost": d.cost}
         if st.proposed_by == REGISTRATION:
             item["note"] = "re-run of a baseline configuration on the solver, pre-approved at registration"
+        elif st.proposed_by == REFERENCE:
+            item["note"] = ("a run of the system's reference search (the fastest single-step protocol meeting the "
+                            "constraints, by bisection); not counted against the experiment budget")
         if callable(validity):
             try:
                 item["validity"] = validity(d.action, dict(d.params))
@@ -336,6 +493,14 @@ def planner_context(L: Ledger, cid: str, *, turn: dict | None = None, full_reque
             item["result"] = {"result_id": r["result_id"], "basis": r["basis"], "measurements": r["measurements"],
                               "categories": r["categories"], "series": [s["quantity"] for s in r["series"]],
                               "prediction_error": r["prediction_error"]}
+            if callable(details):
+                try:
+                    if (found := details(L, st)) is not None:
+                        item["result"]["details"] = found
+                except (KeyError, ValueError, TypeError, OSError):
+                    pass
+        if bound.get(st.action):          # set by Translucent from the ledger: the agent sees them, never types them
+            item["bound_params"] = {k: item["params"].pop(k) for k in bound[st.action] if k in item["params"]}
         if cmp is not None:
             item["comparison"] = _comparison(cmp)
         if st.failure is not None:
@@ -352,6 +517,7 @@ def planner_context(L: Ledger, cid: str, *, turn: dict | None = None, full_reque
              for e in L.events(cid) if e.type in ("human.note", "question.asked", "question.answered")][-NOTES:]
     used = experiments_used(states)
     limit = obj.budget.get("experiments")
+    template_bound = (spec.get("objective_template") or {}).get("bound_parameters") or {}
     system = {"id": obj.system["id"], "version": obj.system["version"], "title": spec.get("title"),
               "description": spec.get("description"), "solver": spec.get("solver"),
               "quantities": [{k: q[k] for k in ("name", "unit", "kind", "label", "tolerance", "categories")
@@ -361,9 +527,11 @@ def planner_context(L: Ledger, cid: str, *, turn: dict | None = None, full_reque
                            "deterministic": a.get("deterministic"), "produces": a.get("produces"),
                            "parameters": [{k: p[k] for k in ("name", "unit", "lo", "hi", "choices", "integer",
                                                               "label") if _stated(p.get(k))}
-                                          for p in a.get("parameters", [])],
+                                          for p in a.get("parameters", [])
+                                          if p["name"] not in (template_bound.get(a["name"]) or ())],
                            **({"procedure": a["procedure"]} if a.get("procedure") else {})}
-                          for a in spec.get("actions", []) if a.get("executor") != "retrospective"]}
+                          for a in spec.get("actions", []) if a.get("executor") != "retrospective" and
+                          allowed_action(obj, a["name"])]}
     out = {"campaign": {"id": cid, "title": view["campaign"]["title"], "status": view["campaign"]["status"],
                         "planner": obj.planner},
            "turn": turn or {}, "objective": objective, "system": system,
@@ -377,6 +545,11 @@ def planner_context(L: Ledger, cid: str, *, turn: dict | None = None, full_reque
                       "model_usd_spent": round(model_spend(L, cid, recs), 6),
                       "model_usd_budget": float(obj.budget.get("model_usd", 0.0) or 0.0)},
            "conclusion": view["conclusion"], "events_cursor": view["events_cursor"]}
+    if not legacy:          # feasibility, speed against the reference and the objective, kept apart
+        a = view["assessment"]
+        out["assessment"] = {k: a[k] for k in ("headline", "feasibility", "speed", "objective", "uncertainty")}
+    if from_records(obj):
+        out["investigation"] = records.investigation(L, cid, obj, recs, states)
     if lessons is not None:
         found = lessons(L, cid, obj)
         if found is not None:
@@ -536,18 +709,25 @@ class ScriptedChatClient:
 
 
 def baseline_history(L: Ledger, cid: str) -> list[dict]:
-    """A BaselinePolicy's history from the ledger, in seq order: {"action", "params", "result": {quantity: value}}
-    for every request but registration re-runs (a request with no result counts as tried), and
-    {"constraints": {quantity: limit}, "objective_version": v} where an amendment changed the constraints."""
+    """A BaselinePolicy's history from the ledger, in seq order: first the registered constraints
+    {"constraints": {quantity: limit}, "objective_version": 1}, then {"action", "params", "result": {quantity: value}}
+    for every request but the system's runs (registration re-runs and reference-search runs) and the proposals an
+    amendment withdrew before they ran (a request with no result otherwise counts as tried), and
+    {"constraints": ..., "objective_version": v} where an amendment changed the constraints."""
     recs = chain.records(L, cid)
     states = request_states(L, cid, recs)
     out = []
     for rec in recs:
-        if rec.type == "amendment" and rec.data.get("constraints") is not None:
+        if rec.type == "objective":
+            out.append({"constraints": {c["quantity"]: c["limit"] for c in rec.data["constraints"]},
+                        "objective_version": 1})
+        elif rec.type == "amendment" and rec.data.get("constraints") is not None:
             out.append({"constraints": {c["quantity"]: c["limit"] for c in rec.data["constraints"]},
                         "objective_version": rec.data["version"]})
-        elif rec.type == "request" and rec.data["version"] == 1 and rec.actor != REGISTRATION:
+        elif rec.type == "request" and rec.data["version"] == 1 and rec.actor not in (REGISTRATION, REFERENCE):
             st = states[rec.data["request_id"]]
+            if st.closed_by is not None and st.closed_by.actor == AMENDED:
+                continue                  # superseded unrun: free to be proposed again under the new version
             entry = {"action": st.action, "params": dict(st.data.params), "state": st.state}
             if st.result is not None:
                 entry["result"] = {q: m.value for q, mid in st.result.data["measurements"].items()
@@ -559,7 +739,12 @@ def baseline_history(L: Ledger, cid: str) -> list[dict]:
 class DomainBaselinePlanner:
     """The adapter's deterministic baseline policy as a planner (no model): each turn proposes what
     `policy.propose(history, remaining)` returns, waits while requests are pending, and concludes when the policy has
-    nothing left or the budget is spent. It states no prediction: it is a comparator, not a forecaster."""
+    nothing left or the budget is spent. It states no prediction: it is a comparator, not a forecaster.
+
+    It proposes nothing while one of its proposals still awaits a person's approval: a turn started by something
+    else (a baseline or reference-search result, a note) must not stack more proposals behind an unapproved one,
+    or the budget is spent before any result can teach the policy. A policy's own batch (the Bayesian optimiser's
+    initial Sobol points) still arrives in one turn. Under auto-approval nothing waits, so nothing changes there."""
 
     predicts = False
 
@@ -578,9 +763,11 @@ class DomainBaselinePlanner:
         limit = obj.budget.get("experiments")
         remaining = (limit - experiments_used(states)) if limit is not None else 10 ** 6
         pending = any(s.state in PENDING for s in states.values())
+        unapproved = any(s.state == "awaiting_approval" and s.proposed_by not in (REGISTRATION, REFERENCE)
+                         for s in states.values())
         first = len(messages) == 2
-        proposals = self.policy.propose(baseline_history(self.L, self.cid), remaining) if first and remaining > 0 \
-            else []
+        proposals = self.policy.propose(baseline_history(self.L, self.cid), remaining) \
+            if first and remaining > 0 and not unapproved else []
         if proposals:
             calls = [("propose_experiment", {"action": action, "params": params, "prediction": {},
                                              "hypothesis": f"{self.policy.name} needs no hypothesis",
@@ -684,7 +871,7 @@ class _Turn:
 
     # the tools
     def dispatch(self, name: str, args: dict) -> dict:
-        tools = offered_tools()
+        tools = offered_tools(self.obj)
         if name not in tools:
             raise _Refused(f"{name} is not a planner tool; the planner's tools are {', '.join(tools)}")
         key = f"{self.cid}/turn-{self.number}/step-{self.steps}"
@@ -707,6 +894,8 @@ class _Turn:
                                       "unit": m["unit"], "h": m["uncertainty"]["value"]}
                                      for m in res["measurements"]]}
         if name == "propose_experiment":
+            if not allowed_action(self.obj, args.get("action", "")):
+                raise _Refused(f"{args.get('action')} is not among the actions this campaign's planner may propose")
             if self.kind == "muse_no_feedback" and self.remaining is not None and \
                     len(self.proposed) >= self.remaining:
                 raise _Refused(f"all {self.remaining} experiments of the budget are proposed")
@@ -735,6 +924,63 @@ class _Turn:
             rec = svc.conclude(cid, args["text"], args.get("unresolved_reasons") or ())
             return {"record_id": rec["id"], "outcome": rec["data"]["outcome"],
                     "comparison_id": rec["data"]["comparison_id"]}
+        if name == "inspect_upload":
+            path = records.upload_path(self.L.root, cid, self.obj.uploads or [], str(args["file"]))
+            return records.inspect(path, start_line=int(args.get("start_line") or 1),
+                                   lines=int(args.get("lines") or 30), header_row=args.get("header_row"),
+                                   delimiter=args.get("delimiter"), decimal=args.get("decimal") or ".",
+                                   skip_rows=int(args.get("skip_rows") or 0))
+        if name == "import_records":
+            manifest, missing = args["manifest"], args["missing_information"]
+            if not isinstance(manifest, dict):
+                raise _Refused("send the manifest itself, as an object")
+            if not isinstance(missing, list):
+                raise _Refused("missing_information is a list (empty when nothing is missing)")
+            if manifest.get("system") not in (None, self.obj.system["id"]):
+                raise _Refused(f"the records are imported for this campaign's system, {self.obj.system['id']}")
+            manifest = {**manifest, "system": self.obj.system["id"]}
+            svc._allow("import_dataset")
+            files = {n: records.upload_path(self.L.root, cid, self.obj.uploads or [], n)
+                     for n in datasets.file_names(manifest)}
+            stored = datasets.import_dataset(self.L, manifest, files)
+            known = records.campaign_records(self.L, self.obj, cid)
+            start = len(known) + 1 if stored.id not in records.imported(self.L, cid) else None
+            return {"dataset_id": stored.id,
+                    "records": [{"record": (start + i) if start else None, "ref": f"{stored.id}/{r.id}",
+                                 "channels": [{"quantity": c.quantity, "unit": c.unit, "n": c.n,
+                                               "t_range_s": list(c.t_range)} for c in r.channels],
+                                 "ignored_columns": list(r.ignored_columns), "import_notes": list(r.import_notes)}
+                                for i, r in enumerate(stored.records)],
+                    "missing_information": missing}
+        if name == "run_analysis":
+            code = args["code"]
+            if not isinstance(code, str) or not code.strip() or len(code) > ANALYSIS_CODE_CHARS:
+                raise _Refused(f"code is Python text of at most {ANALYSIS_CODE_CHARS} characters")
+            uploads = self.obj.uploads or []
+            names = args.get("files") or [u["name"] for u in uploads]
+            outputs = [str(n) for n in args.get("outputs") or []]
+            inputs = {str(n): records.upload_path(self.L.root, cid, uploads, str(n)).read_bytes() for n in names}
+            inputs["__outputs__.json"] = json.dumps(outputs).encode()
+            run = _analysis_runner()(code, inputs, timeout_s=float(args.get("timeout_s") or 60))
+
+            def text(b: bytes) -> str:
+                try:
+                    return b.decode("utf-8")[:ANALYSIS_OUTPUT_CHARS]
+                except UnicodeDecodeError:
+                    return f"<{len(b)} bytes, not text>"
+            return {"status": run.status, "exit_code": run.exit_code, "reason": run.reason,
+                    "elapsed_s": round(run.elapsed, 1), "stdout": run.stdout[-ANALYSIS_STDOUT_CHARS:],
+                    "stderr": run.stderr[-ANALYSIS_STDERR_CHARS:],
+                    "outputs": {n: text(b) for n, b in run.outputs.items()},
+                    "input_sha256": run.input_sha256}
+        if name == "list_segments":
+            from translucent.systems import lgm50_lab as lab
+
+            found = records.campaign_records(self.L, self.obj, cid)
+            n = int(args["record"])
+            if not 1 <= n <= len(found):
+                raise _Refused(f"record must be 1 to {len(found)}" if found else "no record is imported yet")
+            return {"record": n, "ref": found[n - 1][0], "segments": lab.record_segments(self.L, found[n - 1][1])}
         if name == "ask_person":
             question = scrub(str(args["question"]).strip())     # a model may echo a secret it saw
             if not question:
@@ -817,7 +1063,7 @@ class _Turn:
                                                      "result": result, "garbled": True})
                     else:
                         # a well-formed call of a planner tool is progress, even when it is refused
-                        ran = ran or name in offered_tools()
+                        ran = ran or name in offered_tools(self.obj)
                         self.receipt("tool_call", {"turn": self.number, "step": self.steps, "tool": name,
                                                    "arguments": args})
                         try:
@@ -967,12 +1213,17 @@ def planner_tick(root: Path | str, session_for: Callable[[Ledger, str, Objective
 # ------------------------------------------------------------------ cost estimate (no provider) and the paid smoke
 
 def fastcharge_objective(*, kind: str = "muse", profile: str | None = "meta", model_usd: float = 1.5,
-                         experiments: int = 8, registered_by: str = "integrator") -> dict:
-    """The milestone campaign's case A (campaign-choice §2): minimise the 10-80 % charge time of the LG M50 with the
-    anode potential at or above +10 mV and the cell at or below 45 degC, 8 computational experiments."""
-    return {"statement": "Charge the LG M50 from 10 to 80 % faster than the failing 1.5C single-step baseline while "
-                         "the anode potential stays at or above +10 mV vs Li/Li+ and the cell at or below 45 degC.",
-            "system": {"id": "pybamm-fastcharge"}, "datasets": [], "baseline": [],
+                         experiments: int = 8, registered_by: str = "integrator", objective_kind: str | None = None,
+                         target_min: float | None = None) -> dict:
+    """A pybamm-fastcharge objective, 8 computational experiments by default.
+
+    objective_kind None: the milestone campaign's case A (campaign-choice §2) as the frozen evaluation protocol
+    registers it (loop-compare/2): minimise the 10-80 % charge time of the LG M50 with the anode potential at or
+    above +10 mV and the cell at or below 45 degC.
+    objective_kind "fastest_feasible" or "hard_target" (loop-compare/3, milestone 2), from the adapter's objective
+    template: "Find the fastest protocol meeting these constraints.", or with `target_min` "Meet a 10-80 % charge in
+    at most <target_min> min while meeting these constraints." A hard target changes only by an amendment."""
+    data = {"system": {"id": "pybamm-fastcharge"}, "datasets": [], "baseline": [],
             "target": {"quantity": "charge_time_80", "unit": "min", "direction": "minimize"},
             "constraints": [{"quantity": "min_anode_potential", "op": ">=", "limit": 10.0, "unit": "mV",
                              "label": "Plating margin: anode potential at or above +10 mV"},
@@ -983,6 +1234,28 @@ def fastcharge_objective(*, kind: str = "muse", profile: str | None = "meta", mo
                            {"name": "max_temperature", "unit": "degC", "source": "result"}],
             "budget": {"model_usd": model_usd, "experiments": experiments, "experiment_usd": 0.0},
             "planner": {"kind": kind, "profile": profile, "client": None}, "registered_by": registered_by}
+    if objective_kind is None:
+        if target_min is not None:
+            raise ValueError("A hard target needs objective_kind='hard_target'")
+        return data | {"evaluator": "loop-compare/2",
+                       "statement": "Charge the LG M50 from 10 to 80 % faster than the failing 1.5C single-step "
+                                    "baseline while the anode potential stays at or above +10 mV vs Li/Li+ and the "
+                                    "cell at or below 45 degC."}
+    from translucent.systems.lgm50_fastcharge import OBJECTIVE_TEMPLATE as template
+    if objective_kind == "fastest_feasible":
+        if target_min is not None:
+            raise ValueError("A fastest_feasible objective has no hard target; use objective_kind='hard_target'")
+        statement = template["statement"]["fastest_feasible"]
+    elif objective_kind == "hard_target":
+        if target_min is None or not math.isfinite(target_min) or target_min <= 0:
+            raise ValueError("A hard target needs a positive target_min in minutes")
+        statement = template["statement"]["hard_target"].format(
+            target=template["hard_target"]["words"].format(limit=float(target_min), unit="min"))
+        data["target"] = dict(data["target"], limit=float(target_min))
+    else:
+        raise ValueError(f"Unknown objective kind {objective_kind!r}")
+    data["constraints"] = [dict(c) for c in template["constraints"]]
+    return data | {"evaluator": "loop-compare/3", "kind": objective_kind, "statement": statement}
 
 
 def dry_run(objective: dict | None = None, *, profile: str = "meta", step_cap: int = STEP_CAP,
@@ -1050,14 +1323,16 @@ def dry_run(objective: dict | None = None, *, profile: str = "meta", step_cap: i
                     "model budget."}
 
 
-def smoke(ledger: Path, *, profile: str, budget_usd: float, step_cap: int = 8, max_tokens: int = 4000) -> dict:
-    """The integrator's paid smoke run: open a muse campaign on pybamm-fastcharge (case A) with a model budget of
-    `budget_usd` and run one metered planner turn. It ends at the first proposal (no solver runs: a person has not
-    approved anything) or at the budget."""
+def smoke(ledger: Path, *, profile: str, budget_usd: float, step_cap: int = 8, max_tokens: int = 4000,
+          objective_kind: str | None = "fastest_feasible", target_min: float | None = None) -> dict:
+    """The integrator's paid smoke run: open a muse campaign on pybamm-fastcharge (a new campaign's objective by
+    default; objective_kind None is case A) with a model budget of `budget_usd` and run one metered planner turn. It
+    ends at the first proposal (no solver runs: a person has not approved anything) or at the budget."""
     L = Ledger(ledger)
     try:
         person = Actor("person", "integrator", "cli")
-        data = fastcharge_objective(kind="muse", profile=profile, model_usd=budget_usd)
+        data = fastcharge_objective(kind="muse", profile=profile, model_usd=budget_usd, objective_kind=objective_kind,
+                                    target_min=target_min)
         cid = LoopService(L, person).open_campaign(data, "Planner smoke run")["campaign_id"]
         settings = Settings(profile=profile, budget_usd=budget_usd, max_tokens=max_tokens, step_cap=step_cap)
         session = turn_session(L.root, cid, next_turn(L, cid), settings)
@@ -1080,6 +1355,9 @@ def main(argv: Iterable[str] | None = None) -> int:
     d.add_argument("--experiments", type=int, default=8)
     d.add_argument("--model-usd", type=float, default=1.5)
     d.add_argument("--step-cap", type=int, default=STEP_CAP)
+    d.add_argument("--objective", choices=["fastest_feasible", "hard_target", "case-a"], default="fastest_feasible",
+                   help="a new campaign's objective (loop-compare/3), or the evaluation's case A (loop-compare/2)")
+    d.add_argument("--target-min", type=float, default=None, help="the hard target, minutes (hard_target only)")
     s = sub.add_parser("smoke", help="PAID: one metered planner turn on a new pybamm-fastcharge campaign")
     s.add_argument("--ledger", type=Path, required=True)
     s.add_argument("--profile", choices=["meta", "dev"], default="dev")
@@ -1087,10 +1365,16 @@ def main(argv: Iterable[str] | None = None) -> int:
     s.add_argument("--step-cap", type=int, default=8)
     s.add_argument("--max-tokens", type=int, default=4000)
     s.add_argument("--live", action="store_true", help="required: this calls a paid model")
+    s.add_argument("--objective", choices=["fastest_feasible", "hard_target", "case-a"], default="fastest_feasible")
+    s.add_argument("--target-min", type=float, default=None)
     args = ap.parse_args(list(argv) if argv is not None else None)
+    objective_kind = None if args.objective == "case-a" else args.objective
+    if (args.target_min is not None) != (objective_kind == "hard_target"):
+        ap.error("--target-min goes with --objective hard_target, and only with it")
     if args.command == "dry-run":
         out = dry_run(fastcharge_objective(kind=args.kind, profile=args.profile, model_usd=args.model_usd,
-                                           experiments=args.experiments), profile=args.profile,
+                                           experiments=args.experiments, objective_kind=objective_kind,
+                                           target_min=args.target_min), profile=args.profile,
                       step_cap=args.step_cap)
     else:
         if not args.live:
@@ -1098,7 +1382,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         if not math.isfinite(args.budget_usd) or not 0 < args.budget_usd <= 0.25:
             ap.error("the smoke run's budget is at most $0.25")
         out = smoke(args.ledger, profile=args.profile, budget_usd=args.budget_usd, step_cap=args.step_cap,
-                    max_tokens=args.max_tokens)
+                    max_tokens=args.max_tokens, objective_kind=objective_kind, target_min=args.target_min)
     print(json.dumps(out, indent=2, sort_keys=True))
     return 0
 

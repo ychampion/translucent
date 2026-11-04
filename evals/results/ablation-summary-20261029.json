@@ -1,0 +1,182 @@
+{
+  "mode": "real",
+  "profile": "dev",
+  "n": 3,
+  "campaign2_movie": "4",
+  "campaign1": {
+    "campaign_id": "cmp_09ae940c22",
+    "memory": "on",
+    "status": "finished",
+    "steps": 9,
+    "tool_runs": 16,
+    "tool_failures": 2,
+    "first_tools": [
+      "inspect_video",
+      "lookup_calibration",
+      "lookup_calibration"
+    ],
+    "cost_usd": 0.057719,
+    "earned": 3,
+    "refused": 0,
+    "not_proven": 0,
+    "stale": 0,
+    "lessons_loaded": 0,
+    "used_campaign1_lesson": false,
+    "lessons_learned": 1
+  },
+  "campaign1_lessons": [
+    "lesson_1779cdb9d1"
+  ],
+  "arms": {
+    "on": [
+      {
+        "campaign_id": "cmp_1fd26bcb7d",
+        "memory": "on",
+        "status": "finished",
+        "steps": 12,
+        "tool_runs": 17,
+        "tool_failures": 2,
+        "first_tools": [
+          "inspect_video",
+          "lookup_calibration",
+          "lookup_calibration"
+        ],
+        "cost_usd": 0.064221,
+        "earned": 3,
+        "refused": 0,
+        "not_proven": 2,
+        "stale": 0,
+        "lessons_loaded": 1,
+        "used_campaign1_lesson": true,
+        "lessons_learned": 0
+      },
+      {
+        "campaign_id": "cmp_9084968c59",
+        "memory": "on",
+        "status": "finished",
+        "steps": 10,
+        "tool_runs": 16,
+        "tool_failures": 2,
+        "first_tools": [
+          "inspect_video",
+          "lookup_calibration",
+          "lookup_calibration"
+        ],
+        "cost_usd": 0.055064,
+        "earned": 3,
+        "refused": 0,
+        "not_proven": 1,
+        "stale": 0,
+        "lessons_loaded": 1,
+        "used_campaign1_lesson": true,
+        "lessons_learned": 0
+      },
+      {
+        "campaign_id": "cmp_3985fb377c",
+        "memory": "on",
+        "status": "max_steps",
+        "steps": 12,
+        "tool_runs": 20,
+        "tool_failures": 2,
+        "first_tools": [
+          "inspect_video",
+          "lookup_calibration",
+          "lookup_calibration"
+        ],
+        "cost_usd": 0.069744,
+        "earned": 3,
+        "refused": 1,
+        "not_proven": 2,
+        "stale": 0,
+        "lessons_loaded": 1,
+        "used_campaign1_lesson": true,
+        "lessons_learned": 0
+      }
+    ],
+    "off": [
+      {
+        "campaign_id": "cmp_64978167c9",
+        "memory": "off",
+        "status": "finished",
+        "steps": 7,
+        "tool_runs": 11,
+        "tool_failures": 0,
+        "first_tools": [
+          "inspect_video",
+          "lookup_calibration",
+          "lookup_calibration"
+        ],
+        "cost_usd": 0.038868,
+        "earned": 3,
+        "refused": 0,
+        "not_proven": 2,
+        "stale": 0,
+        "lessons_loaded": 0,
+        "used_campaign1_lesson": false,
+        "lessons_learned": 0
+      },
+      {
+        "campaign_id": "cmp_f7c9f986ae",
+        "memory": "off",
+        "status": "finished",
+        "steps": 7,
+        "tool_runs": 10,
+        "tool_failures": 0,
+        "first_tools": [
+          "inspect_video",
+          "lookup_calibration",
+          "lookup_calibration"
+        ],
+        "cost_usd": 0.03758,
+        "earned": 3,
+        "refused": 1,
+        "not_proven": 2,
+        "stale": 0,
+        "lessons_loaded": 0,
+        "used_campaign1_lesson": false,
+        "lessons_learned": 0
+      },
+      {
+        "campaign_id": "cmp_6dd6f1ac8e",
+        "memory": "off",
+        "status": "finished",
+        "steps": 5,
+        "tool_runs": 10,
+        "tool_failures": 0,
+        "first_tools": [
+          "inspect_video",
+          "lookup_calibration",
+          "lookup_calibration"
+        ],
+        "cost_usd": 0.042571,
+        "earned": 3,
+        "refused": 1,
+        "not_proven": 2,
+        "stale": 0,
+        "lessons_loaded": 0,
+        "used_campaign1_lesson": false,
+        "lessons_learned": 0
+      }
+    ]
+  },
+  "summary": {
+    "on": {
+      "steps": 11.3333,
+      "tool_runs": 17.6667,
+      "tool_failures": 2,
+      "cost_usd": 0.063,
+      "earned": 3,
+      "refused": 0.3333,
+      "used_campaign1_lesson": 1
+    },
+    "off": {
+      "steps": 6.3333,
+      "tool_runs": 10.3333,
+      "tool_failures": 0,
+      "cost_usd": 0.0397,
+      "earned": 3,
+      "refused": 0.6667,
+      "used_campaign1_lesson": 0
+    }
+  }
+}

@@ -6,9 +6,10 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, v1 } from "@/lib/api";
 import {
-  ago, KIND_WORD, loopHref, NEXT_WORD, objectiveLine, OUTCOME_WORD, STATUS_WORD,
+  ago, KIND_WORD, loopHref, NEXT_WORD, objectiveLine, STATUS_WORD, summaryOutcome,
   type CampaignSummary, type LedgerInfo,
 } from "@/lib/loop";
+import { session, useSession } from "@/lib/session";
 import { apiConfigured } from "@/lib/sources";
 import { PageHeader } from "./Shell";
 import { LoadState } from "./Status";
@@ -24,6 +25,7 @@ function rememberLedger(lid: string) {
 
 /** The server's ledgers, and the one picked: ?ledger=, else the last one used here, else the first. */
 function useLedgers() {
+  const { epoch } = useSession();
   const [ledgers, setLedgers] = useState<LedgerInfo[] | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [attempt, setAttempt] = useState(0);
@@ -38,7 +40,7 @@ function useLedgers() {
       setLid(pick);
     }).catch((e) => { if (!ctl.signal.aborted) setError(e); });
     return () => ctl.abort();
-  }, [attempt]);
+  }, [attempt, epoch]);
   const choose = useCallback((id: string) => {
     setLid(id);
     rememberLedger(id);
@@ -51,6 +53,7 @@ function useLedgers() {
 
 /** One ledger's campaigns, a page at a time. */
 function useCampaigns(lid: string) {
+  const { epoch } = useSession();
   const [items, setItems] = useState<CampaignSummary[] | null>(null);
   const [next, setNext] = useState<number | null>(null);
   const [error, setError] = useState<unknown>(null);
@@ -64,7 +67,7 @@ function useCampaigns(lid: string) {
     v1.campaigns(lid, null, ctl.signal).then((p) => { setItems(p.items); setNext(p.next_cursor); })
       .catch((e) => { if (!ctl.signal.aborted) setError(e); });
     return () => ctl.abort();
-  }, [lid, attempt]);
+  }, [lid, attempt, epoch]);
   const loadMore = async () => {
     if (next == null) return;
     setMore(true);
@@ -138,11 +141,12 @@ function CampaignRows({ items, compact }: { items: CampaignSummary[]; compact?: 
   return (
     <ul className={`cl-list ${compact ? "is-compact" : ""}`}>
       {items.map((c) => {
+        const outcome = summaryOutcome(c);
         const body = (
           <>
             <span className="cl-top">
               <span className="cl-title">{c.title}</span>
-              {c.outcome ? <span className={`lp-outcome is-${c.outcome}`}>{OUTCOME_WORD[c.outcome]}</span>
+              {outcome ? <span className={`lp-outcome is-${outcome.tone}`} title={outcome.title}>{outcome.word}</span>
                 : <span className={`cl-status is-${c.status}`}>{STATUS_WORD[c.status] ?? c.status}</span>}
             </span>
             {!compact && c.objective && c.objective !== c.title && <span className="cl-objective">{objectiveLine(c.objective)}</span>}
@@ -166,33 +170,51 @@ function CampaignRows({ items, compact }: { items: CampaignSummary[]; compact?: 
 }
 
 /**
- * Home's list: the newest loop campaigns of every ledger on the server, when one is configured. Renders nothing
- * without a server (the recorded examples stand alone then).
+ * Home's list: the newest loop campaigns of every ledger on the server, when one is configured. Reloads after sign-in;
+ * says plainly when the server is unreachable or wants a sign-in.
  */
 export function ServerCampaigns({ limit = 4 }: { limit?: number }) {
   const [items, setItems] = useState<CampaignSummary[] | null>(null);
-  const [failed, setFailed] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  const [attempt, setAttempt] = useState(0);
+  const { epoch } = useSession();
   useEffect(() => {
     if (!apiConfigured()) return;
     const ctl = new AbortController();
+    setError(null);
     (async () => {
       const ledgers = await v1.ledgers(ctl.signal);
       const pages = await Promise.all(ledgers.map((l) => v1.campaigns(l.id, null, ctl.signal)));
       const all = pages.flatMap((p) => p.items).filter((c) => c.kind === "loop").sort((a, b) => b.updated_at - a.updated_at);
       setItems(all.slice(0, limit));
-    })().catch((e) => { if (!ctl.signal.aborted) { console.warn("Server campaigns", e); setFailed(true); } });
+    })().catch((e) => { if (!ctl.signal.aborted) setError(e); });
     return () => ctl.abort();
-  }, [limit]);
-  if (failed) return <p className="dock-note">Couldn’t reach the team server; the recorded examples below still work.</p>;
+  }, [limit, epoch, attempt]);
+  const head = (
+    <div className="lp-section-head">
+      <h2 className="ws-home-h2" id="cl-home-h">On the server</h2>
+      <Link className="text-quiet" href="/campaigns/">All campaigns</Link>
+    </div>
+  );
+  if (error) {
+    const e = error instanceof ApiError ? error : null;
+    return (
+      <section className="cl-home" aria-labelledby="cl-home-h">
+        {head}
+        <p className="lp-plain" role="status">
+          {e?.status === 401 ? <>Sign in to see the server’s campaigns. <button type="button" className="text-link" onClick={() => session.ask()}>Sign in</button></>
+            : e?.unreachable ? <>The team server didn’t answer. <button type="button" className="text-link" onClick={() => setAttempt((n) => n + 1)}>Try again</button></>
+              : <>Couldn’t list the server’s campaigns: {e?.message ?? "unknown error"}.</>}
+        </p>
+      </section>
+    );
+  }
   if (!items) return null;
   return (
     <section className="cl-home" aria-labelledby="cl-home-h">
-      <div className="lp-section-head">
-        <p className="side-label" id="cl-home-h">On the server</p>
-        <Link className="text-quiet" href="/campaigns/">All campaigns</Link>
-      </div>
+      {head}
       {items.length ? <CampaignRows items={items} compact /> : (
-        <p className="lp-plain">No campaigns yet. Start one in a terminal with <code>translucent start</code> (see the README), or let your agent open one over MCP.</p>
+        <p className="lp-plain">No engineering campaigns on this server yet. Start one with New campaign.</p>
       )}
     </section>
   );
