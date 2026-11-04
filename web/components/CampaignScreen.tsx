@@ -24,6 +24,7 @@ import { IconFilm, IconPause, IconPlay, IconRestart } from "./Icons";
 import { PageHeader } from "./Shell";
 import { Boundary, LoadState } from "./Status";
 import { Thread } from "./Thread";
+import { withBase } from "@/lib/base";
 import { Initial, TeamProvider, useTeam } from "./Team";
 
 /** The planner a live run uses when the server does not name one. */
@@ -191,7 +192,7 @@ export function CampaignScreen({ campaignKey }: { campaignKey: string }) {
       <div className="campaign is-empty"><PageHeader />
         <div className="center-empty">
           <p>Nothing running on your recordings yet.</p>
-          <a className="chip" href="/examples/">Start a campaign</a>
+          <a className="chip" href={withBase("/examples/")}>Start a campaign</a>
         </div>
       </div>
     );

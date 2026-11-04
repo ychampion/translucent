@@ -1,5 +1,6 @@
 // The recorded experiments the demo offers, in start-screen order. Pure data: imported by pages at build time and
 // by the client.
+import { withBase } from "./base";
 
 /**
  * Folder under public/fixtures holding the Movie 4 replay export. Swap the export by changing this one name.
@@ -194,4 +195,4 @@ export function paperMatch(ex: Experiment, kind: string, value: number, give: nu
   return { text: `Paper: ${Math.round(w.lo)}–${Math.round(w.hi)} s`, overlaps: value - u <= w.hi && value + u >= w.lo };
 }
 
-export const fixtureBase = (key: string) => `/fixtures/${experiment(key).folder}`;
+export const fixtureBase = (key: string) => withBase(`/fixtures/${experiment(key).folder}`);

@@ -17,6 +17,7 @@ import { SignalPanel } from "./SignalPanel";
 import { Stage } from "./Stage";
 import { LoadState } from "./Status";
 import { Timeline } from "./Timeline";
+import { withBase } from "@/lib/base";
 
 /** The exports that can be compared, by folder. Only these are fetched. */
 export const COMPARABLE: { folder: string; label: string; experiment: string }[] = [
@@ -45,7 +46,7 @@ interface Side { folder: string; label: string; bundle: ReplayBundle; store: Cam
 
 async function loadSide(folder: string): Promise<Side> {
   const k = known(folder)!;
-  const bundle = await loadBundleAt(`/fixtures/${folder}`);
+  const bundle = await loadBundleAt(withBase(`/fixtures/${folder}`));
   const store = storeFrom(bundle, true);
   store.showUpTo(store.total);
   return { folder, label: k.label, bundle, store };
@@ -91,7 +92,7 @@ function CompareBody({ a, b }: { a: Side; b: Side }) {
   const diff = useMemo(() => diffCampaigns(a.bundle, b.bundle), [a.bundle, b.bundle]);
   const swap = compareHref(b.folder, a.folder);
   useCommands("compare", () => [
-    { id: "compare-swap", label: "Swap the two sides", group: "Compare", run: () => { window.location.href = swap; } },
+    { id: "compare-swap", label: "Swap the two sides", group: "Compare", run: () => { window.location.href = withBase(swap); } },
   ], [swap]);
   return (
     <div className="screen compare-screen">
@@ -131,7 +132,7 @@ export function CompareTab({ campaignKey, campaignId }: { campaignKey: string; c
     if (!target) return;
     let gone = false;
     setError(null);
-    Promise.all([loadBundleAt(`/fixtures/${folder}`), loadBundleAt(`/fixtures/${target}`)])
+    Promise.all([loadBundleAt(withBase(`/fixtures/${folder}`)), loadBundleAt(withBase(`/fixtures/${target}`))])
       .then(([x, y]) => { if (!gone) setDiff(diffCampaigns(x, y)); })
       .catch((e: unknown) => { if (!gone) setError(e instanceof Error ? e.message : String(e)); });
     return () => { gone = true; };

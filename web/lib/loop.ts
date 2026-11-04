@@ -2,6 +2,7 @@
 // campaign list shows, and the pure helpers the loop screen words them with. The shapes follow
 // translucent/loop_view.py (the server computes every field; nothing here invents one).
 import type { Assessment } from "./assessment";
+import { withBase } from "./base";
 
 // ---------------------------------------------------------------- the view
 
@@ -863,7 +864,7 @@ export const FASTCHARGE_LAB_HREF = "/w/?recording=fastcharge-lab";
 /** A scored records-intake run (published LG M50 cell exports to a design, every request approved by a standing rule): public/fixtures/loop/records-to-design.loop.json. */
 export const RECORDS_TO_DESIGN_HREF = "/w/?recording=records-to-design";
 
-export const recordingUrl = (name: string) => `/fixtures/loop/${name.replace(/\.loop\.json$/, "")}.loop.json`;
+export const recordingUrl = (name: string) => withBase(`/fixtures/loop/${name.replace(/\.loop\.json$/, "")}.loop.json`);
 
 /**
  * The constraint limit to draw on a series chart: a constraint in the series' unit whose quantity names the series

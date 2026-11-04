@@ -30,3 +30,4 @@ data/groundtruth/lu2023/.test-*/
 deploy/state/
 evals/runs/
 evals/sealed/
+render-site/

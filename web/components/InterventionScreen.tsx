@@ -15,8 +15,9 @@ import { AllCommitments, DecisionMoment, trialOption, useWidth } from "./Decisio
 import { IconCheck } from "./Icons";
 import { PageHeader } from "./Shell";
 import { LoadState } from "./Status";
+import { withBase } from "@/lib/base";
 
-const base = (key: string) => `/fixtures/${key}`;
+const base = (key: string) => withBase(`/fixtures/${key}`);
 const trialCache = new Map<string, Promise<InterventionTrialFile>>();
 function loadTrial(key: string, trial: string): Promise<InterventionTrialFile> {
   const id = `${key}/${trial}`;

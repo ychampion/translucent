@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { DOUBLE_CHECK } from "@/lib/proof";
+import { withBase } from "@/lib/base";
 import "./TryToFool.css";
 
 /** web/public/fixtures/evals.json, written by scripts/export_eval_cases.py from a real eval run. */
@@ -27,7 +28,7 @@ export function TryToFool() {
   const [picked, setPicked] = useState<string | null>(null);
   useEffect(() => {
     let live = true;
-    fetch("/fixtures/evals.json").then((r) => (r.ok ? r.json() : null)).then((d: Evals | null) => { if (live && d) { setData(d); setPicked((p) => p ?? d.cases[0]?.id ?? null); } }).catch(() => {});
+    fetch(withBase("/fixtures/evals.json")).then((r) => (r.ok ? r.json() : null)).then((d: Evals | null) => { if (live && d) { setData(d); setPicked((p) => p ?? d.cases[0]?.id ?? null); } }).catch(() => {});
     return () => { live = false; };
   }, []);
   if (!data) return null;
