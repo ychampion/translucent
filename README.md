@@ -616,6 +616,12 @@ bun run dev        # http://localhost:3000
 bun run build      # static export to web/out; `bun run start` serves it
 ```
 
+The export is served from the site root by default. To serve it under a path on another host, build with
+`NEXT_PUBLIC_BASE_PATH` set, e.g. `NEXT_PUBLIC_BASE_PATH=/demo bun run build`, and put `web/out` at that path.
+A static export opened on a public address never contacts an API server; it replays the recorded campaigns only.
+[`render.yaml`](render.yaml) publishes such a read-only site on Render under `/demo` (see
+[`deploy/README.md`](deploy/README.md#read-only-static-site)).
+
 The home screen leads with the server's engineering campaigns and the recorded fast-charge campaign
 (`fixtures/loop/fastcharge.loop.json`). Below them it offers the NIST benchmark and the microscopy replays `m4-team`
 and `lu-live`, exported from real paid campaigns on Meta's models over the HTTP API

@@ -54,6 +54,21 @@ service's command.
 Going public is a separate decision: point a domain at the host, then use `deploy/nginx-site.conf` (hosts that
 already run nginx) or any reverse proxy with response buffering off (campaign updates stream).
 
+## Read-only static site
+
+The web app alone, without the API, replays the recorded campaigns, the microscopy examples and the intervention
+benchmarks. On a public address it never looks for a server, so visitors cannot start campaigns and no key is
+involved. Build it with `cd web && bun install && bun run build` and serve `web/out` from any static host.
+
+`render.yaml` at the repository root is a Render Blueprint for this. It builds with `NEXT_PUBLIC_BASE_PATH=/demo`,
+publishes the export under `/demo/` and redirects `/` there, so another site can forward its own `/demo/*` path to it
+unchanged (a proxy rewrite that keeps the path). To serve it at the root of your own domain instead, remove
+`NEXT_PUBLIC_BASE_PATH=/demo` and the move into `render-site/demo` from the build command, publish `./web/out`, and
+drop the redirect route. Rename the service if you deploy your own copy. The build output is about 900 MB, most of it
+intervention recordings.
+
+## Paid campaigns
+
 Paid campaigns stay off in this image: it has no model keys. Run them where the keys are
 (`TRANSLUCENT_LIVE=1 translucent serve` with an `admin` key from `translucent keys add --role admin`, or
 `TRANSLUCENT_ADMIN_TOKEN=...`), or give the host its own capped keys. Only an admin key starts one.
