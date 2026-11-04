@@ -1,0 +1,23 @@
+# Render Blueprint: the public, read-only site. It is the static web export with its recorded campaigns and examples.
+# There is no API server and there are no model keys: on a public host the app never looks for a server
+# (web/lib/sources.ts, apiConfigured), so visitors replay recordings and cannot start campaigns.
+# The live API stays on a private host (deploy/).
+services:
+  - type: web
+    runtime: static
+    name: translucent
+    buildCommand: >-
+      command -v bun >/dev/null 2>&1 || curl -fsSL https://bun.sh/install | bash;
+      export PATH="$HOME/.bun/bin:$PATH";
+      cd web && bun install --frozen-lockfile && bun run build
+    staticPublishPath: ./web/out
+    pullRequestPreviewsEnabled: false
+    domains:
+      - translucent.axcelner.com
+    headers:
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
