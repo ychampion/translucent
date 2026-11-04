@@ -305,7 +305,7 @@ def test_a_run_past_its_wall_time_limit_becomes_a_failure(L, cid):
 
 def test_the_child_environment_has_no_keys_or_tokens(monkeypatch):
     # an allowlist: names no denylist foresaw (a database password, a DSN, a connection string) stay out too
-    secret = ("OPENAI_API_KEY", "META_LLAMA_KEY", "TRANSLUCENT_ADMIN_TOKEN", "GITHUB_TOKEN", "MODAL_TOKEN_ID",
+    secret = ("PROVIDER_API_KEY", "META_LLAMA_KEY", "TRANSLUCENT_ADMIN_TOKEN", "GITHUB_TOKEN", "MODAL_TOKEN_ID",
               "DB_PASSWORD", "FIREWORKS_ACCOUNT", "DB_PASS", "MYSQL_PWD", "SMTP_PASS", "SENTRY_DSN", "DATABASE_URL",
               "REDIS_URL", "TRANSLUCENT_TEAM_TOKEN", "PYBAMM_API_TOKEN", "OMP_SECRET")
     for k in secret:

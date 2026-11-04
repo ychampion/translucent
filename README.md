@@ -181,7 +181,7 @@ and metered. A stopped or interrupted campaign resumes from its evidence.
 Scientists can upload a video with its scale, clock and voltage log, recording the source of each. The video's
 frame rate is never used as a clock. See [docs/BRING-YOUR-OWN.md](docs/BRING-YOUR-OWN.md).
 
-Claude Code or any MCP client can run Translucent's measurement tools and propose findings over MCP. The client
+Any MCP client can run Translucent's measurement tools and propose findings over MCP. The client
 cannot write a measurement number or verdict directly. The same checks and rejection reasons apply. See
 [docs/AGENTS.md](docs/AGENTS.md).
 
@@ -555,8 +555,8 @@ uv run translucent resume <campaign-id> --budget 0.5   # continue a stopped or i
 
 ### Agent access
 
-To connect an agent over MCP, use `claude mcp add translucent -- uv run python -m translucent.mcp_server
---ledger <dir> --write --agent <name>` ([docs/AGENTS.md](docs/AGENTS.md)). The MCP server acts as the operator who
+To connect an agent over MCP, register `uv run python -m translucent.mcp_server --ledger <dir> --write --agent
+<name>` as a stdio server in its MCP client ([docs/AGENTS.md](docs/AGENTS.md)). The MCP server acts as the operator who
 started it: proposals are recorded as `agent:<name>`, whatever name the client gives itself, and person tools need
 `--operator NAME`.
 
@@ -598,11 +598,12 @@ development and are not offered on the start screen.
 
 ### Read-only MCP server
 
-The read-only server supports Claude Code or any stdio MCP client. Its tools are `list_campaigns`, `list_findings`,
-`get_evidence` and `verify`. It never starts a campaign or contacts a provider.
+The read-only server works with any stdio MCP client. Its tools are `list_campaigns`, `list_findings`,
+`get_evidence` and `verify`. It never starts a campaign or contacts a provider. Register this command as the
+client's server:
 
 ```sh
-claude mcp add --transport stdio translucent -- uv run --directory /absolute/path/to/translucent --no-sync \
+uv run --directory /absolute/path/to/translucent --no-sync \
   python -m translucent.mcp_server --ledger /absolute/path/to/ledger
 ```
 

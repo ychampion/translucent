@@ -4,24 +4,22 @@ Translucent is a referee for findings about recorded experiments. Your MCP clien
 
 Start from an existing ledger containing imported videos. `list_experiments` returns their experiment ids, video ids, labels and citations; pass the experiment id to `open_campaign`. MCP does not import arbitrary files; a loop campaign's datasets are imported only from the server's `--import-root` (see Loop campaigns). Run the server from the Translucent checkout, or give `uv` its absolute `--directory`.
 
-## Claude Code
+## Connecting a client
 
-From the checkout:
+Use any MCP client that runs stdio servers. The server command, from the checkout:
 
 ```sh
-claude mcp add translucent -- uv run python -m translucent.mcp_server --ledger /absolute/path/to/ledger --write
+uv run python -m translucent.mcp_server --ledger /absolute/path/to/ledger --write
 ```
 
 To pin the checkout:
 
 ```sh
-claude mcp add translucent -- uv run --directory /absolute/path/to/translucent python -m translucent.mcp_server --ledger /absolute/path/to/ledger --write
+uv run --directory /absolute/path/to/translucent python -m translucent.mcp_server --ledger /absolute/path/to/ledger --write
 ```
 
-## Other clients, including Muse Code
-
-Use any MCP client that runs stdio servers. Configure the executable as `uv` with these arguments and environment,
-replacing the absolute paths. A client that reads a TOML server table takes them in this form:
+Configure the executable as `uv` with these arguments and environment, replacing the absolute paths. A client that
+reads a TOML server table takes them in this form:
 
 ```toml
 [mcp_servers.translucent]

@@ -15,7 +15,6 @@ runs/*
 !runs/fw-chain6/
 !runs/fw-chain8/
 # tool state and build output
-.claude/
 .gstack/
 .omx/
 __pycache__/
