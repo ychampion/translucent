@@ -12,8 +12,6 @@ services:
       cd web && bun install --frozen-lockfile && bun run build
     staticPublishPath: ./web/out
     pullRequestPreviewsEnabled: false
-    domains:
-      - translucent.axcelner.com
     headers:
       - path: /*
         name: X-Content-Type-Options
