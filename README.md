@@ -8,7 +8,7 @@ Batteries are the first system. Muse found that two cells of the same type disag
 
 Translucent makes this experimental work checkable. Standing rules approve computational runs within caps on cost, time and count. Approvals bind the exact request, and every decision stays in a record anyone can re-check offline, without keys. Physical bench tests need a person's sign-off and an operator to return the result. The agent is Muse Wonder (`muse-wonder-1.0`) on the Meta Model API; any agent can connect over MCP under the same rules.
 
-[Run it locally](#run-it) · [Connect your agent](docs/AGENTS.md#loop-campaigns) · [How campaigns work](docs/LOOP.md)
+[Live demo](https://translucent.axcelner.com/demo/) · [Run it locally](#run-it) · [Connect your agent](docs/AGENTS.md#loop-campaigns) · [How campaigns work](docs/LOOP.md)
 
 ## Results: a faster charge, with the limits enforced
 
