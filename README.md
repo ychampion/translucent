@@ -1,12 +1,12 @@
-# Translucent
+# Translucent: accelerate experiments with Meta's Muse Wonder
 
-**Put an agent to work on your next engineering test campaign.**
+**Give an agent the experimental loop: read the evidence, test a model, choose what to try next.**
 
-Translucent is test infrastructure for hardware teams. Meta's Muse Wonder runs the investigation autonomously inside limits a person writes once. Standing rules approve computational runs within caps on cost, time and count. Physical bench tests always need a person's sign-off and an operator to return the result.
+Meta's Muse Wonder investigates how a physical system behaves and designs how to control it. Starting from raw instrument data it has never seen, it writes the import mapping, builds models, tests them against held-out evidence and chooses the next experiment. When the evidence cannot support a design, it asks for the physical measurement that would settle the question.
 
-Hand Muse raw lab exports with missing units and unfamiliar columns. It writes the import mapping, fixes refused imports from the parser's reasons and chooses which evidence to test. When a model fails on data it was not fitted to, Muse asks for the physical test needed to resolve the gap. Every step stays in a record anyone can re-check offline, without keys.
+Batteries are the first system. Muse found that two cells of the same type disagree and learned the simulated lab fixture's cooling and thermal mass. It uses the resulting model to search for a faster charging protocol inside plating and temperature limits. The results below show how quickly it reaches a supported design and where it still needs evidence.
 
-Batteries are the first system. The agent is Muse Wonder (`muse-wonder-1.0`) on the Meta Model API; any agent can connect over MCP and work under the same rules.
+Translucent makes this experimental work checkable. Standing rules approve computational runs within caps on cost, time and count. Approvals bind the exact request, and every decision stays in a record anyone can re-check offline, without keys. Physical bench tests need a person's sign-off and an operator to return the result. The agent is Muse Wonder (`muse-wonder-1.0`) on the Meta Model API; any agent can connect over MCP under the same rules.
 
 [Run it locally](#run-it) · [Connect your agent](docs/AGENTS.md#loop-campaigns) · [How campaigns work](docs/LOOP.md)
 
@@ -44,13 +44,13 @@ One scored run shows what that looks like. Given two raw Maccor exports, Muse wr
 
 Translucent recommended in **5 of 6 runs**, with **0 unsupported recommendations**. A general Muse agent using the same numerical tools recommended in **6 of 6**, at **39 % of Translucent's model spend**, with **1 unsupported recommendation**. This is a small comparison, **n = 6 per model arm**, with no claim of statistical superiority. The numerical controller received prepared inputs and still declined in all **3 cases**. [Records-intake results and reproduction scope](evals/RECORDS-INTAKE.md).
 
-The capability is an agent that can build the investigation from unfamiliar files and recognise when its evidence cannot support a design. Translucent makes that work usable by a hardware team: approvals bind the exact request, the server computes the outcome, and the campaign exports for independent checking.
+The capability is an agent that carries the experimental loop from unfamiliar records through model checks to a control design, and recognises when it needs another measurement. Translucent makes that work usable by hardware and materials teams: approvals bind the exact request, the server computes the outcome, and the campaign exports for independent checking.
 
 ## What this makes possible
 
-A hardware team can give an agent a test objective and let it work through the computational investigation. The next bench request arrives with a procedure and a forecast sealed before the result. The engineer can inspect the reasoning and decide whether to spend the bench time.
+Hardware and materials teams can give an agent an experimental objective and let it work through the computational investigation. It can turn unexplained behaviour into a model to test or a specific measurement to request. The next bench request arrives with a procedure and a forecast sealed before the result, so an engineer can decide whether to spend the bench time.
 
-We are starting with US hardware teams and battery testing. The next targets are data-center hardware, robotics and power electronics, each with its own instruments and models. The aim is to let teams run more investigations without writing a custom workflow for every set of records.
+We are starting with US hardware and materials teams working on batteries. The next targets are data-center hardware, robotics and power electronics, each with its own instruments and models. The aim is to shorten the path from raw records to the next useful experiment without writing a custom workflow for every set of records.
 
 Earlier campaigns used the same evidence record to [check microscopy measurements](#microscopy-campaigns) and [test interventions on NIST heating-interruption records](#nist-heating-interruption). Their findings link to the source evidence and analysis code for offline checking.
 
