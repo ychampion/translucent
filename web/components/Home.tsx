@@ -1,9 +1,10 @@
 "use client";
-// Home: engineering campaigns. The server's campaigns, a New campaign button, and the recorded engineering example.
+// Home: engineering campaigns. The server's campaigns, a New campaign button, and the recorded engineering examples
+// (model learning against a simulated lab first, then evaluation case B and its browser demonstration).
 // The microscopy question box and the other recorded examples live on /examples/.
 import Link from "next/link";
 import { useEffect } from "react";
-import { FASTCHARGE_DEMO_HREF, FASTCHARGE_HREF } from "@/lib/loop";
+import { FASTCHARGE_DEMO_HREF, FASTCHARGE_HREF, FASTCHARGE_LAB_HREF } from "@/lib/loop";
 import { canWrite, useApiConfigured, useSession } from "@/lib/session";
 import { ServerCampaigns } from "./CampaignList";
 import { IconNew } from "./Icons";
@@ -33,6 +34,13 @@ export function Home() {
 
         <section className="ws-home-section" aria-labelledby="ws-rec-h">
           <h2 className="ws-home-h2" id="ws-rec-h">Recorded engineering examples</h2>
+          <Link href={FASTCHARGE_LAB_HREF} className="ws-rec-card">
+            <span className="ws-rec-top">
+              <span className="ws-rec-title">Learning the lab fixture&rsquo;s thermal model</span>
+              <span className="ws-chip is-recorded">Recorded</span><span className="ws-chip is-sim">Simulated</span>
+            </span>
+            <span className="ws-rec-line">Muse Wonder ran a first lab test at 1.5C, fitted the fixture&rsquo;s cooling and thermal mass (model v1, 0.15 K RMSE) and ruled out the nominal model. v1 passed held-out checks on two more lab tests; its design, 1.5, 1.35, 0.9 then 0.5C, charged 10 to 80 % in 47.4 min at 37.7 °C in the simulated lab. Seven experiments, $0.78 of model spend. Feasible only in simulation; speed not compared.</span>
+          </Link>
           <Link href={FASTCHARGE_HREF} className="ws-rec-card">
             <span className="ws-rec-top">
               <span className="ws-rec-title">Faster LG M50 charge (evaluation case B)</span>
