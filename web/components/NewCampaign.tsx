@@ -7,22 +7,23 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, newIdempotencyKey, v1 } from "@/lib/api";
-import { loopHref, unitWord, withUnit, type LedgerInfo } from "@/lib/loop";
+import { FASTCHARGE_DEMO_HREF, FASTCHARGE_HREF, FASTCHARGE_LAB_HREF, loopHref, RECORDS_TO_DESIGN_HREF, unitWord, withUnit, type LedgerInfo } from "@/lib/loop";
 import {
   defaultPlanner, draftFor, draftProblems, FALLBACK_PLANNERS, FASTEST_STATEMENT, fileNameProblem, limitWords, newUploadId, openBody, plannerGate, plannerIdentity,
   quantityLabel, RECORDS_MAX_BYTES, RECORDS_MAX_DOC, RECORDS_MAX_FILES, RECORDS_SYSTEM, recordsProblems, scalarQuantities, templateOf,
   type DatasetDetail, type DatasetSummary, type Draft, type DraftConstraint, type PlannerInfo, type SystemSpecFull,
 } from "@/lib/newcampaign";
 import { canWrite, session, useApiConfigured, useSession } from "@/lib/session";
-import { apiConfigured } from "@/lib/sources";
-import { IconPlus, IconClose, IconUpload, Spinner } from "./Icons";
+import { API_BASE, apiConfigured } from "@/lib/sources";
+import { IconChevron, IconClose, IconPlus, IconUpload, Spinner } from "./Icons";
+import { REPO_URL, SelfHostButton } from "./SelfHost";
 import { ApiProblem } from "./Session";
 import { PageHeader } from "./Shell";
 
 const EMPTY: Draft = {
   title: "", system: "", dataset: "", baseline: "", baselineSimulation: true,
   target: { quantity: "", unit: "", direction: "minimize", label: "" }, mode: "fastest_feasible", hardLimit: "", constraints: [],
-  planner: "", experiments: "8", modelUsd: "", autoApprove: false, autoMaxWall: "300", autoMaxCount: "8", memory: "on",
+  planner: "", experiments: "8", labTests: "2", modelUsd: "", autoApprove: false, autoMaxWall: "300", autoMaxCount: "8", memory: "on",
 };
 
 const usd = (n: number | undefined | null) => (n == null ? "–" : `$${n.toFixed(2)}`);
@@ -168,11 +169,19 @@ export function NewCampaign() {
     }
   };
 
-  if (!configured) {
-    return <div className="screen"><PageHeader title="New campaign" /><main className="ws-form-main"><p className="lp-plain">A new campaign needs the team server (NEXT_PUBLIC_API_BASE). The <Link className="text-link" href="/w/?recording=fastcharge">recorded example</Link> works without one.</p></main></div>;
-  }
+  if (!configured) return <DemoOnly />;
   if (loadError && !ledgers) {
-    return <div className="screen"><PageHeader title="New campaign" /><ApiProblem error={loadError} what="the server’s ledgers" onRetry={() => setAttempt((n) => n + 1)} /></div>;
+    return (
+      <div className="screen">
+        <PageHeader title="New campaign" />
+        <div className="nc-problem">
+          <ApiProblem error={loadError} what="the server’s ledgers" onRetry={() => setAttempt((n) => n + 1)} />
+          {loadError instanceof ApiError && loadError.unreachable && (
+            <p className="nc-dev">For developers: start the API server with <code>uv run translucent serve</code> (this page expects it at <code>{API_BASE}</code>), or point the page at another with <code>NEXT_PUBLIC_API_BASE</code>.</p>
+          )}
+        </div>
+      </div>
+    );
   }
 
   const records = detail?.records ?? [];
@@ -351,6 +360,11 @@ export function NewCampaign() {
               <Field label="Experiments (most it may run)" id="f-exp">
                 <input id="f-exp" className="field num" inputMode="numeric" value={d.experiments} onChange={(e) => set({ experiments: e.target.value.replace(/\D/g, "") })} />
               </Field>
+              {fromRecords && (
+                <Field label="Simulated lab tests (most it may run)" id="f-lab">
+                  <input id="f-lab" className="field num" inputMode="numeric" value={d.labTests ?? ""} onChange={(e) => set({ labTests: e.target.value.replace(/\D/g, "") })} />
+                </Field>
+              )}
               {planner?.paid && (
                 <Field label="Model budget (USD)" id="f-usd">
                   <input id="f-usd" className="field num" inputMode="decimal" value={d.modelUsd} onChange={(e) => set({ modelUsd: e.target.value.replace(/[^\d.]/g, "") })} />
@@ -384,7 +398,7 @@ export function NewCampaign() {
                 : `${FASTEST_STATEMENT} (${d.target.label || d.target.quantity}, ${d.target.direction === "maximize" ? "higher" : "lower"} is better)`}</dd></div>
               <div><dt>Constraints</dt><dd>{d.constraints.length ? d.constraints.map((c) => `${quantityLabel(spec, c.quantity)} ${limitWords(c.op, c.limit, c.unit)}`).join("; ") : "none"}</dd></div>
               <div><dt>Planner</dt><dd>{planner ? plannerIdentity(planner) : "–"}</dd></div>
-              <div><dt>Budget</dt><dd>{d.experiments || "–"} experiments{planner?.paid ? `, model ${d.modelUsd ? `$${d.modelUsd}` : "–"}` : ", no model spend"}</dd></div>
+              <div><dt>Budget</dt><dd>{d.experiments || "–"} experiments{fromRecords && d.labTests ? `, of them at most ${d.labTests} simulated lab test${d.labTests === "1" ? "" : "s"}` : ""}{planner?.paid ? `, model ${d.modelUsd ? `$${d.modelUsd}` : "–"}` : ", no model spend"}</dd></div>
               <div><dt>Approval</dt><dd>{d.autoApprove ? `Auto-approve up to ${d.autoMaxCount} computational runs of at most ${d.autoMaxWall} s; others wait for a person` : "Every request waits for a person"}</dd></div>
             </dl>
             {problems.length > 0 && <ul className="ws-problems" aria-label="Before it can launch">{problems.map((p) => <li key={p}>{p}</li>)}</ul>}
@@ -400,6 +414,55 @@ export function NewCampaign() {
             </div>
           </Part>
         </form>
+      </main>
+    </div>
+  );
+}
+
+const RECORDED = [
+  { href: RECORDS_TO_DESIGN_HREF, title: "From raw cell records to a charging design, with no one stepping in" },
+  { href: FASTCHARGE_LAB_HREF, title: "Learning the lab fixture’s thermal model" },
+  { href: FASTCHARGE_HREF, title: "Faster LG M50 charge (evaluation case B)" },
+  { href: FASTCHARGE_DEMO_HREF, title: "Demonstration run of case B, made in the browser" },
+];
+
+/** A page with no server to talk to (the public demo): say what this is, and point at what can be watched. */
+function DemoOnly() {
+  return (
+    <div className="screen">
+      <PageHeader title="New campaign" />
+      <main className="ws-home-main nc-demo">
+        <header className="nc-demo-head">
+          <h1 className="ws-home-title">Starting a campaign needs your own Translucent</h1>
+          <p className="ws-home-lead">
+            This demo replays campaigns Translucent has already run: every proposal, approval and result, as it was recorded.
+            A new campaign runs on your team&rsquo;s own Translucent server, which plans each experiment, runs the solver and waits
+            for a person to approve every request. The code is open: run it on your own machine or server.
+          </p>
+          <SelfHostButton />
+          <p className="nc-demo-local">
+            <a className="text-link" href={`${REPO_URL}/blob/main/docs/LOOP.md#start-one`} target="_blank" rel="noreferrer">Run a campaign locally</a>{" "}
+            <span className="ws-muted">three commands in docs/LOOP.md; the default planner needs no paid model</span>
+          </p>
+        </header>
+        <section className="ws-home-section" aria-labelledby="nc-rec-h">
+          <h2 className="ws-home-h2" id="nc-rec-h">Watch a recorded campaign</h2>
+          <p className="nc-demo-local">
+            New here? <Link className="text-link" href={RECORDS_TO_DESIGN_HREF}>Follow the raw-records campaign step by step</Link>{" "}
+            <span className="ws-muted">five points where the evidence changed what Translucent did next</span>
+          </p>
+          <ul className="nc-demo-list">
+            {RECORDED.map((r) => (
+              <li key={r.href}>
+                <Link href={r.href} className="ws-rec-card nc-demo-row">
+                  <span className="ws-rec-title">{r.title}</span>
+                  <IconChevron size={16} />
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+        <p className="ws-home-other"><Link className="text-link" href="/examples/">Other recorded examples</Link> <span className="ws-muted">microscopy questions and intervention benchmarks</span></p>
       </main>
     </div>
   );

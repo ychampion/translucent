@@ -126,6 +126,8 @@ export interface Draft {
   constraints: DraftConstraint[];
   planner: string;
   experiments: string;
+  /** With records: the most simulated lab tests the campaign may run (the lab system's lab_tests budget). */
+  labTests?: string;
   modelUsd: string;
   autoApprove: boolean;
   autoMaxWall: string;
@@ -174,6 +176,9 @@ export function draftProblems(d: Draft, planner: PlannerInfo | null, ctx: { canW
   if (d.mode === "hard_target" && !finite(d.hardLimit)) out.push("Set the hard target’s value, or choose “fastest meeting the constraints”.");
   d.constraints.forEach((c, i) => { if (!c.quantity || !finite(c.limit)) out.push(`Constraint ${i + 1} needs a quantity and a number.`); });
   if (!/^\d+$/.test(d.experiments.trim()) || Number(d.experiments) < 1 || Number(d.experiments) > 100) out.push("Experiments: a whole number from 1 to 100.");
+  if (d.source === "records" && d.labTests != null && d.labTests.trim() !== "" && (!/^\d+$/.test(d.labTests.trim()) || Number(d.labTests) > Number(d.experiments))) {
+    out.push("Simulated lab tests: a whole number, at most the experiments.");
+  }
   const gate = plannerGate(planner);
   if (!gate.ok) out.push(gate.reason!);
   if (planner?.paid) {
@@ -234,7 +239,8 @@ export function openBody(d: Draft, spec: SystemSpecFull, planner: PlannerInfo): 
     target: { quantity: d.target.quantity, unit: d.target.unit, direction: d.target.direction, ...(t?.target.margin != null && t.target.quantity === d.target.quantity ? { margin: t.target.margin } : {}), ...(limit != null ? { limit } : {}) },
     constraints,
     quantities,
-    budget: { model_usd: planner.paid ? Number(d.modelUsd) : 0, experiments, experiment_usd: 0 },
+    budget: { model_usd: planner.paid ? Number(d.modelUsd) : 0, experiments, experiment_usd: 0,
+      ...(records && d.labTests?.trim() ? { lab_tests: Number(d.labTests) } : {}) },
     planner: { kind: planner.kind, profile: planner.paid ? planner.profile ?? null : null, client: null },
     auto_approve: d.autoApprove
       ? [{ executor: "computational", max_usd: 0, max_wall_s: Number(d.autoMaxWall), max_count: Number(d.autoMaxCount) }]

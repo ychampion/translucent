@@ -11,6 +11,7 @@ import {
   unbroken, verdictSentence, wordsFor,
   bestIsOlderModel, designCaveat, designHeading, designShown, leadLine, PARAM_RECORDED, paramText, cRatesLine, FASTCHARGE_LAB_HREF, labTestOf, marginLine, nextStepOf, paramLine, fitValue, traceChart, versionOf,
   bytesWord, engineerConstraints, isRecordTest, priorLines, recordStretchLine, spanWord, uncertaintyWord,
+  loopWhere, loopWhereKey,
   type Comparison, type Learning, type LoopView, type SystemSpecLite,
 } from "./loop";
 
@@ -609,5 +610,24 @@ describe("investigation from the engineer's records", () => {
     expect(engineerConstraints(v)).toBe(own);
     delete v.investigation;
     expect(engineerConstraints(v)).toBe(v.objective.constraints);
+  });
+});
+
+describe("which campaign /w/ shows", () => {
+  test("the query names it: a live campaign, a recording, or the open-a-file page", () => {
+    expect(loopWhere("?recording=records-to-design")).toEqual({ mode: "recording", name: "records-to-design" });
+    expect(loopWhere("recording=fastcharge")).toEqual({ mode: "recording", name: "fastcharge" });
+    expect(loopWhere("?ledger=acme&id=loop_1")).toEqual({ mode: "live", ledger: "acme", id: "loop_1" });
+    expect(loopWhere("")).toEqual({ mode: "file" });
+    // a name that could be a path is not a recording
+    expect(loopWhere("?recording=../secrets")).toEqual({ mode: "file" });
+    expect(loopWhere("?ledger=acme")).toEqual({ mode: "file" });
+  });
+  test("each campaign has its own key, so moving between two remounts the screen with nothing carried over", () => {
+    const keys = ["?recording=records-to-design", "?recording=fastcharge", "?recording=fastcharge-lab", "?recording=fastcharge-demo",
+      "?ledger=a&id=1", "?ledger=a&id=2", "?ledger=b&id=1", ""].map((q) => loopWhereKey(loopWhere(q)));
+    expect(new Set(keys).size).toBe(keys.length);
+    // the same campaign by another spelling of its address keeps its key (no needless reload)
+    expect(loopWhereKey(loopWhere("?recording=fastcharge&x=1"))).toBe(loopWhereKey(loopWhere("recording=fastcharge")));
   });
 });

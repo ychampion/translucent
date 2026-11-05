@@ -85,7 +85,7 @@ export function Glance({ view, model, who, verified }: {
         </div>
         <div className="glance-sec">
           <p className="glance-h">{working ? "Working on it" : "Who worked on it"}</p>
-          <p className="glance-line">
+          <p className="glance-line glance-tally">
             <span className="avatars">
               {roles.map((r) => {
                 const name = roleWho(r, model, who);

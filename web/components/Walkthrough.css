@@ -1,0 +1,103 @@
+/* The investigation's turning points: a numbered list of steps, then the chosen step. Quiet: the app's tokens and type,
+   one accent for the step in view, no decoration. */
+
+.wk { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.wk-head { display: flex; flex-direction: column; gap: 4px; }
+.wk-sub { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text-secondary); max-width: 62em; }
+
+/* the steps: five numbered buttons on one line, a short label under each number */
+.wk-steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+.wk-step {
+  width: 100%; height: 100%; display: flex; align-items: flex-start; gap: 8px; padding: 9px 10px; border: 0; border-radius: 10px;
+  background: transparent; color: var(--text-secondary); font: inherit; font-size: 13px; line-height: 1.3; text-align: left; cursor: pointer;
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.wk-step:hover { background: var(--surface-1); color: var(--text-primary); }
+.wk-step:focus-visible { outline: none; box-shadow: inset 0 0 0 1px var(--border), 0 0 0 2px var(--focus); }
+.wk-step.is-on { background: var(--surface-1); color: var(--text-primary); box-shadow: inset 0 -2px 0 var(--accent), inset 0 0 0 1px var(--border-strong, var(--border)); }
+.wk-step-n {
+  flex: none; display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%;
+  font-size: 11.5px; font-weight: 650; color: var(--text-secondary); box-shadow: inset 0 0 0 1px var(--border-strong, var(--border));
+}
+.wk-step.is-past .wk-step-n { color: var(--text-primary); background: var(--surface-2); box-shadow: none; }
+.wk-step.is-on .wk-step-n { color: var(--accent-on, var(--surface-0)); background: var(--accent); box-shadow: none; }
+.wk-step-t { min-width: 0; padding-top: 1px; }
+
+/* the step in view */
+.wk-panel { display: flex; flex-direction: column; gap: 14px; padding: 16px 18px; border-radius: 12px; background: var(--surface-1); box-shadow: var(--card-shadow); min-width: 0; }
+.wk-title { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.3; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.wk-title-n { font-size: 12px; font-weight: 500; color: var(--text-tertiary); letter-spacing: 0; }
+.wk-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+
+.wk-story { margin: 0; display: flex; flex-direction: column; gap: 12px; }
+.wk-story dt { font-size: 12px; color: var(--text-tertiary); margin-bottom: 3px; }
+.wk-story dd { margin: 0; font-size: 14.5px; line-height: 1.55; color: var(--text-primary); max-width: 46em; }
+
+.wk-side { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.wk-k { margin: 0 0 6px; font-size: 12px; color: var(--text-tertiary); }
+.wk-computed { padding: 10px 12px; border-radius: 10px; background: var(--surface-2); }
+.wk-computed .wk-k { color: var(--text-secondary); }
+.wk-computed ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+.wk-computed li { font-size: 13px; line-height: 1.45; padding-left: 10px; box-shadow: inset 2px 0 0 var(--border-strong, var(--border)); }
+.wk-computed li.is-good { box-shadow: inset 2px 0 0 var(--ok); }
+.wk-computed li.is-bad { box-shadow: inset 2px 0 0 var(--danger); }
+.wk-fact-k { display: block; color: var(--text-secondary); font-size: 12px; }
+.wk-fact-v { color: var(--text-primary); }
+
+.wk-quote { margin: 0; padding: 2px 0 2px 12px; box-shadow: inset 2px 0 0 var(--border-strong, var(--border)); }
+.wk-quote blockquote { margin: 0; font-size: 13.5px; line-height: 1.55; color: var(--text-primary); }
+.wk-quote blockquote::before { content: "“"; }
+.wk-quote blockquote::after { content: "”"; }
+.wk-quote figcaption { margin-top: 4px; font-size: 12px; color: var(--text-tertiary); }
+.wk-quote figcaption .text-link { font-size: 12px; }
+
+.wk-note { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--text-tertiary); max-width: 62em; }
+
+/* the outcome beside what it still lacks */
+.wk-outcome { display: grid; grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr); gap: 12px 24px; padding-top: 14px; border-top: 1px solid var(--border); }
+.wk-out-main { min-width: 0; }
+.wk-out-big { margin: 0; font-size: 32px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.1; }
+.wk-out-sub { margin: 4px 0 0; font-size: 13px; color: var(--text-secondary); }
+.wk-out-facts { margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.wk-out-facts > div { display: grid; grid-template-columns: minmax(150px, 0.6fr) minmax(0, 1fr); gap: 2px 12px; font-size: 13.5px; line-height: 1.45; }
+.wk-out-facts dt { color: var(--text-tertiary); font-size: 12.5px; }
+.wk-out-facts dd { margin: 0; color: var(--text-primary); }
+.wk-out-facts > div.is-bad dd { color: var(--danger); font-weight: 550; }
+.wk-unresolved { grid-column: 1 / -1; }
+.wk-unresolved ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; line-height: 1.5; color: var(--text-secondary); max-width: 70em; }
+
+.wk-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; padding-top: 12px; border-top: 1px solid var(--border); }
+.wk-links { margin: 0; font-size: 13px; color: var(--text-secondary); min-width: 0; }
+.wk-links-k { color: var(--text-tertiary); }
+.wk-nav { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+
+/* sized by the walkthrough's own width, not the window's: beside the sidebar at ~900 px it is only ~560 px wide */
+.wk { container-type: inline-size; }
+@container (max-width: 820px) {
+  .wk-grid { grid-template-columns: minmax(0, 1fr); }
+}
+.wk-mini { display: none; }
+/* narrower: still all five in a row, the number above its label so each label has the button's full width */
+@container (max-width: 720px) {
+  .wk-step { flex-direction: column; gap: 5px; padding: 8px; font-size: 12.5px; }
+  .wk-outcome { grid-template-columns: minmax(0, 1fr); }
+}
+/* a phone: a numbered stepper, the chosen step named beside its number, and arrows for the next and previous step */
+@container (max-width: 520px) {
+  .wk-stepbar { display: flex; align-items: center; gap: 8px; }
+  .wk-steps { display: flex; gap: 4px; flex: 1; min-width: 0; }
+  .wk-steps > li { flex: none; }
+  .wk-steps > li.is-on { flex: 1; min-width: 0; }
+  .wk-step { flex-direction: row; align-items: center; padding: 6px; min-height: 36px; }
+  .wk-step:not(.is-on) .wk-step-t { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .wk-step.is-on .wk-step-t { padding-top: 0; line-height: 1.25; }
+  .wk-mini { display: flex; gap: 4px; flex: none; }
+  .wk-mini .btn { min-width: 36px; min-height: 36px; justify-content: center; }
+}
+@media (max-width: 560px) {
+  .wk-panel { padding: 14px 14px; }
+  .wk-story dd { font-size: 14px; }
+  .wk-out-facts > div { grid-template-columns: minmax(0, 1fr); }
+  .wk-nav { margin-left: 0; width: 100%; }
+  .wk-nav .btn { flex: 1; }
+}

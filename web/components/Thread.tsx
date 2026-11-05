@@ -13,8 +13,9 @@ import { reducedMotion, scrollBehavior } from "@/lib/motion";
 import { activeSeconds, answerParts, clean, clock, durationWord, isPhrasedTool, keepUnits, money, toolPhrase } from "@/lib/words";
 import { FindingCard, StateMark } from "./Findings";
 import { FrameStrip } from "./FrameStrip";
-import { IconBolt, IconBook, IconChevron, IconDown, IconEye, IconMemory, IconRuler, IconShape, IconWave, Spinner } from "./Icons";
+import { IconAim, IconBolt, IconBook, IconChevron, IconDown, IconEye, IconMemory, IconRuler, IconShape, IconWave, Spinner } from "./Icons";
 import { Boundary } from "./Status";
+import { CodeBlock, failureText, stepDigest, StepResult, type StepData } from "./StepResult";
 import { Initial, useTeam } from "./Team";
 
 // ---------------------------------------------------------------- steady reveal
@@ -320,7 +321,7 @@ const TOOL_ICON: Record<string, ReactNode> = {
   lookup_calibration: <IconBook size={15} />,
   read_cell_voltage: <IconWave size={15} />,
   segment_images: <IconShape size={15} />,
-  track_objects: <IconShape size={15} />,
+  track_objects: <IconAim size={15} />,
   measure_growth: <IconRuler size={15} />,
   run_analysis_code: <IconBolt size={15} />,
 };
@@ -455,18 +456,35 @@ function StepRow({ item, ctx }: { item: Item; ctx: StepCtx }) {
   const runIds = line.runs ?? [];
   const startedArgs = runIds.map((r) => (ctx.runs.started.get(r)?.data?.args ?? {}) as Record<string, unknown>);
   const frames = [...new Set(startedArgs.map((a) => a.frame).filter((x): x is number => typeof x === "number"))].sort((a, b) => a - b);
-  const last = ctx.runs.finished.get(runIds[runIds.length - 1] ?? "");
+  const lastRun = runIds[runIds.length - 1] ?? "";
+  const last = ctx.runs.finished.get(lastRun);
   const result = (last?.data?.result ?? {}) as Record<string, unknown>;
   const images = typeof result.images === "number" ? result.images : Array.isArray(result.frames) ? result.frames.length : null;
   const summary = typeof last?.data?.summary === "string" ? last.data.summary : "";
+  const data: StepData = {
+    tool, summary, result, measurements: ctx.store.catalog.measurements,
+    args: (ctx.runs.started.get(lastRun)?.data?.args ?? {}) as Record<string, unknown>,
+  };
+  // A merged row's earlier runs keep their own results; identical ones show once.
+  const each: StepData[] = [];
+  for (const r of runIds) {
+    const f = ctx.runs.finished.get(r);
+    if (!f || f.data?.status !== "ok" || typeof f.data?.summary !== "string") continue;
+    const d: StepData = { tool, summary: f.data.summary, result: (f.data.result ?? {}) as Record<string, unknown>,
+      measurements: ctx.store.catalog.measurements, args: (ctx.runs.started.get(r)?.data?.args ?? {}) as Record<string, unknown> };
+    if (!each.some((x) => x.summary === d.summary && x.args.code === d.args.code)) each.push(d);
+  }
+  const code = tool === "run_analysis_code" && typeof data.args.code === "string" ? data.args.code : "";
   const detail = line.unrecorded ? "This recorded run has no outline for that request, so the agent carried on without it."
-    : line.failed ? "This step didn’t work. The agent carried on without it."
-    : tool === "inspect_video" && frames.length ? "" // the frames say it; the summary is playback detail
-    : summary ? plainSummary(summary) : "";
-  const canOpen = !line.running && (frames.length > 0 || !!detail);
+    : line.failed ? "This step didn’t work. The agent carried on without it." : "";
+  const error = line.failed && !line.unrecorded && summary ? failureText(summary) : "";
+  // the frames say what an inspect step saw; its summary is playback detail
+  const body = !line.unrecorded && !line.failed && !(tool === "inspect_video" && frames.length) && (!!summary || !!code);
+  const canOpen = !line.running && (frames.length > 0 || !!detail || body);
   const text = line.unrecorded && ASKED[tool] ? ASKED[tool] : toolPhrase(tool, { running: !!line.running, frames, images });
   const repeat = line.count > 1 && !(tool === "inspect_video" && frames.length > 1) ? line.count : 0;
   const note = line.unrecorded ? "not in this recording" : line.failed ? "didn’t work" : null;
+  const digest = !line.running && body ? stepDigest(data) : null;
 
   return (
     <div className={`step-wrap ${open ? "is-open" : ""}`}>
@@ -477,6 +495,7 @@ function StepRow({ item, ctx }: { item: Item; ctx: StepCtx }) {
           {text}
           {repeat > 0 && <span className="step-count num">{repeat}×</span>}
           {note && <span className="step-note">{note}</span>}
+          {digest && <span className="step-digest num">{digest}</span>}
         </span>
         {canOpen && <IconChevron size={13} className="step-chev" />}
       </button>
@@ -489,6 +508,15 @@ function StepRow({ item, ctx }: { item: Item; ctx: StepCtx }) {
           )}
           {frames.length > 6 && <p className="step-summary">And {frames.length - 6} more.</p>}
           {detail && <p className="step-summary">{detail}</p>}
+          {error && <pre className="sr-error">{error}</pre>}
+          {line.failed && code && <CodeBlock code={code} lang="Python · sandboxed" />}
+          {body && (each.length > 1 ? (
+            <div className="sr-runs">
+              {each.map((d, i) => (
+                <div key={i} className="sr-run-block"><p className="sr-run num">Result {i + 1} of {each.length}</p><StepResult d={d} /></div>
+              ))}
+            </div>
+          ) : <StepResult d={data} />)}
           {(frames.length > 0 || tool === "read_cell_voltage") && (
             <button type="button" className="pill-link" onClick={() => ctx.onFrames(frames.length ? frames : [0])}>Show in the recording</button>
           )}
@@ -509,16 +537,6 @@ function NotProven({ text }: { text: string }) {
       <Reveal open={open}><p className="answer-rest disclose-body">{text}</p></Reveal>
     </div>
   );
-}
-
-/** A tool's own summary, without ids, pixel sizes or gridline notes. */
-function plainSummary(s: string) {
-  return clean(s)
-    .replace(/\s*Image shows frame[^.]*\./g, "")
-    .replace(/\b\d{3,4}x\d{3,4} px,\s*/g, "")
-    .replace(/\s*(?:Voltage series|Measurement)\s*\.?$/g, "")
-    .replace(/\s*—\s*/g, "; ")
-    .trim();
 }
 
 // ---------------------------------------------------------------- people

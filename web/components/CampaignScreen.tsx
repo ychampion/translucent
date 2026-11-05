@@ -8,6 +8,7 @@ import { OWN, experiment } from "@/lib/campaigns";
 import { VideoClock } from "@/lib/clock";
 import { identity, peopleApi } from "@/lib/people";
 import { markRead, markUnread, remember, setAttention, setRunning } from "@/lib/recents";
+import { useApiConfigured } from "@/lib/session";
 import { ReplayPlayer, connectLive, liveIdFor } from "@/lib/sources";
 import type { CampaignStore, CampaignView, Question } from "@/lib/store";
 import { attentionCount, openQuestions, toSignOff } from "@/lib/attention";
@@ -20,7 +21,8 @@ import { findingHref, receiptHref } from "./Findings";
 import { compareHref, compareTargetFor } from "./CompareScreen";
 import { EvidencePanel, readLayout, saveLayout, type PanelLayout } from "./EvidencePanel";
 import { Glance } from "./Glance";
-import { IconFilm, IconPause, IconPlay, IconRestart } from "./Icons";
+import { IconFilm, IconPause, IconPlay } from "./Icons";
+import { ReplayControl } from "./ReplayControl";
 import { PageHeader } from "./Shell";
 import { Boundary, LoadState } from "./Status";
 import { Thread } from "./Thread";
@@ -278,37 +280,36 @@ function ReplayDock({ store, view, campaignKey, player, model, live }: {
   store: CampaignStore; view: CampaignView; campaignKey: string; player: React.RefObject<ReplayPlayer | null>; model: string | null; live: boolean;
 }) {
   const router = useRouter();
+  // Without a server (the public demo) there is nothing to ask: the recording replays, and the box says so.
+  const canAsk = useApiConfigured();
   const [q, setQ] = useState("");
   const unix = view.campaign?.created_at ?? store.eventAt(0)?.t;
   const samReplayed = useMemo(
     () => Array.from({ length: store.total }, (_, i) => store.eventAt(i)).some((e) => /no live SAM|NoRecording/.test(String(e?.data?.summary ?? ""))),
     [store],
   );
-  const progress = view.replay.total ? view.replay.index / view.replay.total : 0;
   const left = live ? null : (
-    <>
-      <button type="button" className="icon-btn" onClick={() => player.current?.toggle()} aria-label={view.replay.playing ? "Pause the replay" : "Play the replay"} title="Space">
-        {view.replay.playing ? <IconPause size={16} /> : <IconPlay size={16} />}
-      </button>
-      <button type="button" className="icon-btn" onClick={() => player.current?.restart()} aria-label="Replay from the start" title="From the start">
-        <IconRestart size={16} />
-      </button>
-      <span className="replay-label" title={samReplayed ? "SAM 3.1 replies are replayed from earlier recordings" : undefined}>
-        Replay of a recorded run{unix ? ` · ${dayWord(unix)}` : ""}
-      </span>
-    </>
+    <ReplayControl playing={view.replay.playing} index={view.replay.index} total={view.replay.total}
+      day={unix ? dayWord(unix) : null} note={samReplayed ? "SAM 3.1 replies are replayed from earlier recordings" : undefined}
+      onRestart={() => player.current?.restart()} onSeek={(i) => player.current?.jump(i)} />
   );
   return (
     <Composer
-      label="Ask a new question"
-      value={q}
+      label={canAsk ? "Ask a new question" : "A recorded run: to ask your own question, self-host Translucent"}
+      value={canAsk ? q : ""}
       onChange={setQ}
       onSubmit={() => router.push(`/examples/?x=${campaignKey}&q=${encodeURIComponent(q.trim())}`)}
-      placeholder="Ask a new question"
-      canSend={!!q.trim()}
+      placeholder={canAsk ? "Ask a new question" : "A recorded run. To ask your own question, self-host Translucent."}
+      canSend={canAsk && !!q.trim()}
+      disabled={!canAsk}
       left={left}
       right={model ? <span className="model-label">{model}</span> : null}
-      progress={live ? undefined : progress}
+      replay={live ? undefined : {
+        playing: view.replay.playing,
+        done: view.replay.total > 0 && view.replay.index >= view.replay.total,
+        onToggle: () => player.current?.toggle(),
+        onRestart: () => player.current?.restart(),
+      }}
     />
   );
 }

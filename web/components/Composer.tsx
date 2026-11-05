@@ -2,8 +2,21 @@
 // The rounded composer docked at the bottom of a page: a growing text field, a "+" menu of actions, a quiet chip on
 // the left, a label on the right, and one round button that sends, or shows progress, or stops a live run.
 // Keys in the field: Enter sends, Shift+Enter starts a new line, Escape hands back to the page (or to onEscape).
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { IconPlus, IconStop, IconUp, Spinner } from "./Icons";
+import { cloneElement, isValidElement, useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
+import { IconPause, IconPlay, IconPlus, IconRestart, IconStop, IconUp, Spinner } from "./Icons";
+import { MetaMark } from "./MetaMark";
+
+/**
+ * The model label on the right ("Muse Wonder", "Muse Spark Open"): Meta's models carry Meta's mark before the name.
+ * Pages pass a plain `<span className="model-label">`; anything else is shown as given.
+ */
+function withMark(right: ReactNode): ReactNode {
+  if (!isValidElement(right)) return right;
+  const el = right as ReactElement<{ className?: string; children?: ReactNode }>;
+  const text = el.props.children;
+  if (!el.props.className?.split(/\s+/).includes("model-label") || typeof text !== "string" || !/^Muse\b/.test(text)) return right;
+  return cloneElement(el, { className: `${el.props.className} has-mark` }, <MetaMark height={9} />, <span className="model-name">{text}</span>);
+}
 
 export interface PlusAction { label: string; hint?: string; icon?: ReactNode; onSelect(): void }
 
@@ -30,9 +43,15 @@ interface Props {
   progress?: number;
   /** Escape in the field (e.g. leave answering a question). */
   onEscape?: () => void;
+  /** The field shows text that can't be changed (a recorded question); the button still acts on it. */
+  readOnly?: boolean;
+  /** What the round button does, for its label (default "Send"). */
+  sendLabel?: string;
+  /** A recorded run: with no text typed, the round button plays, pauses or restarts the replay. */
+  replay?: { playing: boolean; done: boolean; onToggle(): void; onRestart(): void };
 }
 
-export function Composer({ value, onChange, onSubmit, placeholder, canSend, busy, onStop, plus, left, right, tray, disabled, autoFocus, label, progress, onEscape }: Props) {
+export function Composer({ value, onChange, onSubmit, placeholder, canSend, busy, onStop, plus, left, right, tray, disabled, autoFocus, label, progress, onEscape, readOnly, sendLabel = "Send", replay }: Props) {
   const field = useRef<HTMLTextAreaElement>(null);
   const [menu, setMenu] = useState(false);
   const [confirmStop, setConfirmStop] = useState(false);
@@ -62,6 +81,7 @@ export function Composer({ value, onChange, onSubmit, placeholder, canSend, busy
   }, [confirmStop]);
 
   const stopping = !!onStop && !value.trim();
+  const replaying = !!replay && !value.trim();
   const submit = () => { if (canSend && !busy && !disabled) onSubmit(); };
   const button = busy ? (
     <button type="button" className="send is-busy" disabled aria-label="Working"><Spinner /></button>
@@ -72,8 +92,13 @@ export function Composer({ value, onChange, onSubmit, placeholder, canSend, busy
       <IconStop size={16} />
       {confirmStop && <span className="send-confirm">Stop for good?</span>}
     </button>
+  ) : replaying ? (
+    <button type="button" className="send" onClick={replay!.done ? replay!.onRestart : replay!.onToggle} title="Space"
+      aria-label={replay!.done ? "Replay from the start" : replay!.playing ? "Pause the replay" : "Play the replay"}>
+      {replay!.playing ? <IconPause size={16} /> : replay!.done ? <IconRestart size={17} /> : <IconPlay size={16} />}
+    </button>
   ) : (
-    <button type="submit" className="send" disabled={!canSend || disabled} aria-label="Send"><IconUp size={18} /></button>
+    <button type="submit" className="send" disabled={!canSend || disabled} aria-label={sendLabel} title={sendLabel === "Send" ? undefined : sendLabel}>{readOnly ? <IconPlay size={15} /> : <IconUp size={18} />}</button>
   );
 
   return (
@@ -90,7 +115,11 @@ export function Composer({ value, onChange, onSubmit, placeholder, canSend, busy
           value={value}
           placeholder={placeholder}
           disabled={disabled}
+          readOnly={readOnly}
           maxLength={2000}
+          // Grammar extensions and the browser's form restore write to a text field before React hydrates; the
+          // value is controlled from state either way.
+          suppressHydrationWarning
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit(); }
@@ -125,7 +154,7 @@ export function Composer({ value, onChange, onSubmit, placeholder, canSend, busy
               <span style={{ transform: `scaleX(${Math.min(1, Math.max(0, progress))})` }} />
             </span>
           )}
-          <div className="composer-right">{right}</div>
+          <div className="composer-right">{withMark(right)}</div>
           {button}
         </div>
       </form>

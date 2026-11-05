@@ -476,8 +476,8 @@ function Scorecard({ s, split, setSplit }: { s: InterventionSummary; split: Spli
                       <tr key={x.id} className={x.a_mean_cost < x.b_mean_cost && x.p_holm < 0.05 ? "is-win" : ""}>
                         <th scope="row" data-label="Against">{policyWord(b)}</th>
                         <td data-label="Cost" className="num is-num">{fixed(x.a_mean_cost)} vs {fixed(x.b_mean_cost)}</td>
-                        <td data-label="p" className="num is-num">{pWord(x.p)}</td>
-                        <td data-label="Holm p" className="num is-num">{pWord(x.p_holm)}</td>
+                        <td data-label="p" className="num is-num">{pWord(x.p).replace(" ", " ")}</td>
+                        <td data-label="Holm p" className="num is-num">{pWord(x.p_holm).replace(" ", " ")}</td>
                         <td data-label="Result">{compareWord(x)}{x.source === "gate" && <span className="iv-pnote">the gate’s record</span>}</td>
                       </tr>
                     );

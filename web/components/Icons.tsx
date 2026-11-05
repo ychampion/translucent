@@ -41,7 +41,8 @@ export const IconUpload = (p: P) => <Svg {...p}><path d="M10 13V3.5M6 7.5l4-4 4 
 export const IconBolt = (p: P) => <Svg {...p}><path d="M11 2.5 4.5 11H10l-1 6.5L15.5 9H10z" /></Svg>;
 export const IconRoute = (p: P) => <Svg {...p}><circle cx="5" cy="14.5" r="1.8" /><circle cx="15" cy="5.5" r="1.8" /><path d="M6.8 14.5H12a2.5 2.5 0 0 0 0-5H8a2.5 2.5 0 0 1 0-5h5.2" /></Svg>;
 export const IconAim = (p: P) => <Svg {...p}><circle cx="10" cy="10" r="5.5" /><path d="M10 2.5v3M10 14.5v3M2.5 10h3M14.5 10h3" /><circle cx="10" cy="10" r="0.9" fill="currentColor" stroke="none" /></Svg>;
-export const IconNote =(p: P) => <Svg {...p}><path d="M4 4.5h12v8.5H9l-3.5 3v-3H4z" /></Svg>;
+export const IconSearch = (p: P) => <Svg {...p}><circle cx="9" cy="9" r="5.2" /><path d="m13 13 3.8 3.8" /></Svg>;
+export const IconNote = (p: P) => <Svg {...p}><path d="M4 4.5h12v8.5H9l-3.5 3v-3H4z" /></Svg>;
 
 /** A quiet spinner: one arc turning. */
 export function Spinner({ size = 16 }: { size?: number }) {

@@ -1,0 +1,134 @@
+/* The loop workspace's lead: one header that tells the story (status, question, finding, key numbers), the best
+   result beside it, provenance in a quiet disclosure. Uses the app's tokens only, so dark and light both follow. */
+
+.ws-screen .ws-hero {
+  display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(320px, 1fr); gap: 14px; align-items: start;
+}
+.ws-hero-story { min-width: 0; display: flex; flex-direction: column; gap: 16px; padding: 4px 4px 0 0; }
+
+/* status: one pill, the state beside it */
+.ws-hero-status { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 12.5px; color: var(--text-secondary); }
+.ws-pill {
+  display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; border-radius: 999px;
+  font-size: 12.5px; font-weight: 550; white-space: nowrap; color: var(--text-secondary); background: var(--pill);
+}
+.ws-pill.is-rec { color: var(--info); background: var(--info-wash); }
+.ws-pill.is-ok { color: var(--ok); background: var(--ok-wash); }
+.ws-pill.is-warn { color: var(--warn); background: var(--warn-wash); }
+.ws-pill.is-bad { color: var(--danger); background: var(--danger-wash); }
+.ws-hero-state { color: var(--text-secondary); }
+.ws-hero-since { color: var(--text-tertiary); }
+
+.ws-hero-k { margin: 0 0 6px; font-size: 12px; color: var(--text-tertiary); letter-spacing: 0.01em; }
+.ws-hero-title { margin: 0 0 10px; font-size: 22px; line-height: 1.3; font-weight: 600; letter-spacing: -0.015em; text-wrap: balance; max-width: 34em; }
+.ws-hero-q .ws-con-chip { font-size: 12.5px; padding: 3px 9px; background: transparent; color: var(--text-secondary); }
+.ws-hero-q .ws-registered { margin-top: 8px; }
+.ws-hero-q .ws-amend-btn { margin-top: 8px; }
+
+/* the finding: the outcome in words, the three answers in one line */
+.ws-hero-found { padding: 12px 14px; border-radius: 12px; background: var(--surface-1); box-shadow: var(--card-shadow); }
+.ws-hero-found .ws-hero-k { margin-bottom: 4px; }
+p.ws-hero-outcome { margin: 0 0 8px; font-size: 20px; line-height: 1.25; letter-spacing: -0.01em; }
+.ws-hero-answers { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; color: var(--text-tertiary); }
+.ws-hero-answers li { display: inline-flex; align-items: baseline; gap: 6px; }
+.ws-hero-answers strong { font-weight: 600; color: var(--text-primary); }
+.ws-hero-answers li.is-good strong { color: var(--ok); }
+.ws-hero-answers li.is-bad strong { color: var(--danger); }
+.ws-hero-note { margin: 8px 0 0; font-size: 12.5px; line-height: 1.45; color: var(--text-tertiary); }
+.ws-hero-note code { font-size: 12px; }
+
+/* key numbers */
+.ws-keynums { margin: 0; display: flex; flex-wrap: wrap; gap: 10px 28px; }
+.ws-keynums > div { min-width: 0; }
+.ws-keynums dt { font-size: 12px; color: var(--text-tertiary); margin-bottom: 2px; }
+.ws-keynums dd { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+.ws-keynum-sub { font-size: 12.5px; font-weight: 450; color: var(--text-secondary); letter-spacing: 0; }
+
+/* provenance: one quiet line until opened */
+.ws-prov { font-size: 12.5px; color: var(--text-tertiary); }
+.ws-prov summary { cursor: pointer; width: fit-content; }
+.ws-prov summary:hover { color: var(--text-secondary); }
+.ws-prov-body { margin-top: 8px; padding: 10px 12px; border-radius: 10px; background: var(--surface-1); box-shadow: inset 0 0 0 1px var(--border); color: var(--text-secondary); line-height: 1.5; }
+.ws-prov-body p { margin: 0 0 6px; }
+.ws-prov-body p:last-child { margin-bottom: 0; }
+.ws-prov-cmd { margin: 4px 0 0; padding: 7px 10px; border-radius: 8px; background: var(--surface-2); font-family: var(--mono); font-size: 12px; overflow-x: auto; white-space: pre; }
+
+/* the best result beside the story */
+.ws-hero > .ws-best { padding: 16px 18px; gap: 8px; }
+.ws-hero > .ws-best .ws-big { font-size: 36px; }
+.ws-best-steps { display: flex; flex-direction: column; gap: 2px; margin: 4px 0 2px; }
+.ws-best-steps .ws-stepfig { margin: 0; }
+.ws-best-facts { margin: 2px 0 0; display: flex; flex-direction: column; gap: 6px; }
+.ws-best-facts > div { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; }
+.ws-best-facts dt { font-size: 12px; color: var(--text-tertiary); display: flex; align-items: center; gap: 6px; }
+.ws-best-facts dd { margin: 0; font-size: 13.5px; color: var(--text-primary); }
+.ws-tag { font-size: 10.5px; padding: 0 5px; border-radius: 4px; background: var(--pill); color: var(--text-secondary); letter-spacing: 0.02em; }
+.ws-fit { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.ws-best-params { line-height: 1.45; }
+.ws-best-checks-k { margin: 4px 0 0; font-size: 12px; color: var(--text-tertiary); }
+.ws-best-open { align-self: flex-start; margin-top: 2px; font-size: 13px; }
+
+/* a term with its meaning on hover or focus */
+.ws-term { position: relative; border-bottom: 1px dotted var(--text-tertiary); cursor: help; outline: none; }
+.ws-term:focus-visible { box-shadow: 0 0 0 2px var(--focus); border-radius: 3px; }
+.ws-term::after {
+  content: attr(data-tip); position: absolute; z-index: 20; left: 0; top: calc(100% + 6px); width: max-content; max-width: 260px;
+  padding: 7px 9px; border-radius: 8px; background: var(--tip); color: var(--text-primary); box-shadow: var(--pop-shadow);
+  font-size: 12px; font-weight: 400; line-height: 1.4; white-space: normal; letter-spacing: 0;
+  opacity: 0; pointer-events: none; transform: translateY(-2px); transition: opacity 120ms var(--ease-out), transform 120ms var(--ease-out);
+}
+.ws-term:hover::after, .ws-term:focus::after { opacity: 1; transform: none; }
+.ws-best .ws-term::after { left: auto; right: 0; }
+
+/* the learning grid without the best design (it leads the page now): model and evidence, the next experiment under them */
+@media (min-width: 1280px) {
+  .ws-screen .ws-learn > .ws-learn-next { grid-column: 1 / -1; grid-row: auto; }
+}
+.ws-screen .ws-learn > .ws-learn-next { grid-column: 1 / -1; }
+
+/* experiments and model versions on one timeline */
+.ws-exp-mark {
+  list-style: none; display: flex; align-items: flex-start; gap: 8px; padding: 6px 10px; margin: 2px 0;
+  font-size: 12px; color: var(--text-secondary); border-radius: 8px; background: var(--surface-2);
+}
+.ws-exp-mark strong { color: var(--text-primary); font-weight: 600; }
+.ws-exp-mark-dot { flex: none; width: 8px; height: 8px; margin-top: 4px; border-radius: 50%; background: var(--text-tertiary); }
+.ws-exp-mark.is-good .ws-exp-mark-dot { background: var(--ok); }
+.ws-exp-mark.is-bad .ws-exp-mark-dot { background: var(--danger); }
+.ws-exp-mark.is-current { box-shadow: inset 0 0 0 1px var(--border-strong); }
+.ws-chip.is-test { color: var(--text-primary); background: var(--surface-3, var(--pill)); }
+
+@media (max-width: 1100px) {
+  .ws-screen .ws-hero { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 560px) {
+  .ws-hero-title { font-size: 19px; }
+  p.ws-hero-outcome { font-size: 18px; }
+  .ws-keynums { gap: 10px 20px; }
+  .ws-keynums dd { font-size: 15.5px; }
+  .ws-hero > .ws-best .ws-big { font-size: 30px; }
+  .ws-term::after { max-width: 220px; }
+}
+
+/* missing information: the gap, then why it matters on its own line */
+.ws-inv-why { display: block; margin-top: 2px; font-size: 12.5px; font-weight: 400; color: var(--text-tertiary); line-height: 1.45; }
+/* open a file: the icon beside its label */
+.lp-open .file-pick { justify-content: flex-start; gap: 10px; }
+.ws-keynums dd.ws-keynum-note { margin-top: 2px; font-size: 12px; font-weight: 400; color: var(--text-tertiary); letter-spacing: 0; }
+
+/* a records investigation with a walkthrough: the question leads alone; the turning points follow it */
+.ws-screen .ws-hero.is-guided { grid-template-columns: minmax(0, 1fr); }
+.ws-hero.is-guided .ws-hero-story { gap: 14px; }
+/* the experiments of the turning point in view */
+.ws-exp-row.is-step:not(.is-on) { box-shadow: inset 2px 0 0 var(--border-strong); }
+#ws-tabs, #ws-inv-h { scroll-margin-top: 12px; }
+.ws-data .ws-h3 { margin: 14px 0 4px; }
+/* the selected row sits on --pill: its muted text and neutral chips step up one level to keep 4.5:1 in both themes */
+.ws-exp-row.is-on .ws-exp-n, .ws-exp-row.is-on .ws-muted { color: var(--text-secondary); }
+.ws-exp-row.is-on .ws-verdict:not(.is-good):not(.is-bad), .ws-exp-row.is-on .lp-state.is-good { color: var(--text-primary); }
+/* an experiment row's facts as plain text, separated by a dot: no chips */
+.ws-exp-tag, .ws-exp-verdict { font-size: 12px; }
+.ws-exp-verdict.is-good { color: var(--ok); }
+.ws-exp-verdict.is-bad { color: var(--danger); }
+.ws-exp-verdict.is-off { color: var(--text-secondary); }
+.ws-exp-meta > :not(:first-child)::before { content: "·"; margin-right: 6px; color: var(--text-tertiary); }

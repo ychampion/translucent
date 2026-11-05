@@ -6,11 +6,13 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, v1 } from "@/lib/api";
 import {
-  ago, KIND_WORD, loopHref, NEXT_WORD, objectiveLine, STATUS_WORD, summaryOutcome,
+  ago, KIND_WORD, loopHref, NEXT_WORD, objectiveLine, RECORDINGS, STATUS_WORD, summaryOutcome,
   type CampaignSummary, type LedgerInfo,
 } from "@/lib/loop";
-import { session, useSession } from "@/lib/session";
+import { session, useApiConfigured, useSession } from "@/lib/session";
 import { apiConfigured } from "@/lib/sources";
+import { IconChevron } from "./Icons";
+import { SelfHostButton } from "./SelfHost";
 import { PageHeader } from "./Shell";
 import { LoadState } from "./Status";
 
@@ -24,13 +26,14 @@ function rememberLedger(lid: string) {
 }
 
 /** The server's ledgers, and the one picked: ?ledger=, else the last one used here, else the first. */
-function useLedgers() {
+function useLedgers(configured: boolean) {
   const { epoch } = useSession();
   const [ledgers, setLedgers] = useState<LedgerInfo[] | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [attempt, setAttempt] = useState(0);
   const [lid, setLid] = useState("");
   useEffect(() => {
+    if (!configured) return;   // the public demo has no server: never probe the visitor's own machine
     const ctl = new AbortController();
     setError(null);
     v1.ledgers(ctl.signal).then((ls) => {
@@ -40,7 +43,7 @@ function useLedgers() {
       setLid(pick);
     }).catch((e) => { if (!ctl.signal.aborted) setError(e); });
     return () => ctl.abort();
-  }, [attempt, epoch]);
+  }, [attempt, epoch, configured]);
   const choose = useCallback((id: string) => {
     setLid(id);
     rememberLedger(id);
@@ -86,12 +89,13 @@ function useCampaigns(lid: string) {
 
 export function CampaignList() {
   useEffect(() => { document.title = "Campaigns – Translucent"; }, []);
-  const { ledgers, error, lid, choose, retry } = useLedgers();
+  const configured = useApiConfigured();
+  const { ledgers, error, lid, choose, retry } = useLedgers(configured);
+  if (!configured) return <DemoOnly />;
   if (!ledgers) {
     return (
       <div className="screen loading">
         <PageHeader title="Campaigns" />
-        {error && !apiConfigured() ? <p className="lp-plain">No team server is configured for this page (NEXT_PUBLIC_API_BASE).</p> : null}
         <LoadState error={error} what="the server’s ledgers" onRetry={retry} />
       </div>
     );
@@ -217,5 +221,38 @@ export function ServerCampaigns({ limit = 4 }: { limit?: number }) {
         <p className="lp-plain">No engineering campaigns on this server yet. Start one with New campaign.</p>
       )}
     </section>
+  );
+}
+
+/** The public demo has no team server: say what this page is for and point at the recorded campaigns instead. */
+function DemoOnly() {
+  return (
+    <div className="screen">
+      <PageHeader title="Campaigns" />
+      <main className="ws-home-main nc-demo">
+        <header className="nc-demo-head">
+          <h1 className="ws-home-title">Campaigns live on a Translucent server</h1>
+          <p className="ws-home-lead">
+            This page lists the campaigns on your team&rsquo;s own Translucent server. This demo replays campaigns Translucent
+            has already run, with every proposal, approval and result as it was recorded. The code is open: run it yourself.
+          </p>
+          <SelfHostButton />
+        </header>
+        <section className="ws-home-section" aria-labelledby="cl-rec-h">
+          <h2 className="ws-home-h2" id="cl-rec-h">Watch a recorded campaign</h2>
+          <ul className="nc-demo-list">
+            {RECORDINGS.map((r) => (
+              <li key={r.href}>
+                <Link href={r.href} className="ws-rec-card nc-demo-row">
+                  <span className="ws-rec-title">{r.title}</span>
+                  <IconChevron size={16} />
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+        <p className="ws-home-other"><Link className="text-link" href="/examples/">Other recorded examples</Link> <span className="ws-muted">microscopy questions and intervention benchmarks</span></p>
+      </main>
+    </div>
   );
 }

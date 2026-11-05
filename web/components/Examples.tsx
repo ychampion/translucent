@@ -1,7 +1,8 @@
 "use client";
 // Other recorded examples (/examples/): the microscopy question box with a chip per recorded experiment, and the
-// intervention benchmarks. Moved out of the engineering home (M2). Recorded runs replay from here; with the team
-// server switched on, the same composer starts a live microscopy campaign, and "+" adds a lab's own recording.
+// intervention benchmarks. Moved out of the engineering home (M2). A recorded run shows its own question, read-only,
+// and replays it; nothing pretends to answer a new one. With the team server switched on, "+" starts a live microscopy
+// campaign on the visitor's own question, and adds a lab's own recording.
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -82,7 +83,7 @@ export function Examples() {
 
   const live = pick.kind === "live";
   const spend = Number(budget);
-  const canSend = !!q.trim() && (!live || (!!key.trim() && spend > 0 && spend <= 100));
+  const canSend = live ? !!q.trim() && !!key.trim() && spend > 0 && spend <= 100 : true;
 
   const send = async () => {
     if (pick.kind === "replay") {
@@ -134,7 +135,7 @@ export function Examples() {
             <p className="menu-head">Recorded runs</p>
             {EXPERIMENTS.map((x) => (
               <button key={x.key} type="button" role="menuitemradio" aria-checked={pick.kind === "replay" && pick.key === x.key} className="menu-item"
-                onClick={() => { setPick({ kind: "replay", key: x.key }); setQ((t) => (EXPERIMENTS.some((e) => e.suggestion === t) ? "" : t)); close(); }}>
+                onClick={() => { setPick({ kind: "replay", key: x.key }); close(); }}>
                 <img src={x.thumb} alt="" className="menu-thumb" />
                 <span><span className="menu-label">{x.name}</span><span className="menu-hint">{x.source}</span></span>
                 {pick.kind === "replay" && pick.key === x.key && <IconCheck size={16} className="menu-tick" />}
@@ -174,6 +175,14 @@ export function Examples() {
     </>
   );
 
+  const ownQuestion = !live && q.trim() ? q.trim() : "";
+  const replayNote = !live ? (
+    <p className="team-notice replay-note">
+      {ownQuestion
+        ? <>Your question, &ldquo;{ownQuestion}&rdquo;, needs a live run on your own Translucent{liveList.length ? ": choose Run your own under +" : ""}. This demo replays the recorded question below.</>
+        : <>A recorded run: the question below replays exactly as it was asked.{liveList.length ? " To ask your own, choose Run your own under +." : " To ask your own, self-host Translucent."}</>}
+    </p>
+  ) : null;
   const tray = live && !identity.key() ? (
     <label className="tray-field">
       <span>Access key</span>
@@ -193,34 +202,37 @@ export function Examples() {
       </div>
       <div className="home-dock">
         {(error || notice) && <p className={`dock-note ${error ? "is-error" : ""}`} role="status">{error || notice}</p>}
-        {!q && <p className="side-label home-recorded">Recorded intervention benchmarks</p>}
-        {!q && INTERVENTION_NAV.map((x) => (
+        {!(live && q) && <p className="side-label home-recorded">Recorded intervention benchmarks</p>}
+        {!(live && q) && INTERVENTION_NAV.map((x) => (
           <Link key={x.key} href={interventionHref(x.key)} className="home-feature">
             <span className="home-feature-top"><span className="home-feature-title">{x.name}</span><span className="home-feature-kind">{x.source === "live" ? "Live run" : "Scripted benchmark"}</span></span>
             <span className="home-feature-line">{x.line}</span>
           </Link>
         ))}
-        {!q && suggestion && (
+        {!(live && q) && suggestion && (
           <div className="suggestions">
             {EXPERIMENTS.map((x) => (
-              <button key={x.key} type="button" className="suggestion" onClick={() => { if (pick.kind === "replay") setPick({ kind: "replay", key: x.key }); setQ(x.suggestion); }}>
+              <button key={x.key} type="button" className="suggestion" onClick={() => { if (pick.kind === "replay") setPick({ kind: "replay", key: x.key }); else setQ(x.suggestion); }}
+                aria-pressed={pick.kind === "replay" ? pick.key === x.key : undefined}>
                 {CHIP[x.key] ?? x.name}
               </button>
             ))}
           </div>
         )}
         <Composer
-          label="Your question"
-          value={q}
-          onChange={setQ}
+          label={live ? "Your question" : "The recorded question"}
+          value={live ? q : suggestion}
+          onChange={live ? setQ : () => {}}
           onSubmit={send}
-          placeholder={live ? "Ask a question about this recording" : "Ask about a recorded microscopy experiment"}
+          placeholder={live ? "Ask a question about this recording" : ""}
+          readOnly={!live}
+          sendLabel={live ? "Send" : "Replay this recorded run"}
           canSend={canSend}
           busy={busy}
           plus={plus}
           left={left}
           right={<span className="model-label">{live ? server?.model ?? LIVE_MODEL : "Replay"}</span>}
-          tray={tray}
+          tray={tray ?? replayNote}
         />
       </div>
 

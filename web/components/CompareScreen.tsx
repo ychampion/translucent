@@ -97,7 +97,7 @@ function CompareBody({ a, b }: { a: Side; b: Side }) {
   return (
     <div className="screen compare-screen">
       <PageHeader title="Compare">
-        <a className="btn btn-quiet" href={swap}>Swap sides</a>
+        <a className="btn btn-quiet" href={withBase(swap)}>Swap sides</a>
       </PageHeader>
       <main className="compare-main">
         <header className="compare-head">
@@ -175,9 +175,13 @@ function Summary({ diff }: { diff: CampaignDiff }) {
   const verdictsB = [...diff.findings.map((p) => p.bVerdict), ...diff.onlyB.map((x) => x.verdict)];
   const tc = diff.toolCalls;
   const rows: [string, string, string, boolean][] = [];
-  for (const [role, word] of ROLE_WORD) {
+  const roles = ROLE_WORD.filter(([role]) => diff.models.a[role] || diff.models.b[role]);
+  // A side that names none of its models says so once, under the table, instead of "Not recorded" on every row.
+  const silent = (s: "a" | "b") => roles.length > 1 && roles.every(([role]) => !diff.models[s][role]);
+  const quietA = silent("a"), quietB = silent("b");
+  for (const [role, word] of roles) {
     const x = diff.models.a[role], y = diff.models.b[role];
-    if (x || y) rows.push([word, modelWord(x), modelWord(y), x !== y]);
+    rows.push([word, quietA ? "–" : modelWord(x), quietB ? "–" : modelWord(y), x !== y]);
   }
   rows.push(
     ["Findings supported", `${supported(verdictsA)} of ${verdictsA.length}`, `${supported(verdictsB)} of ${verdictsB.length}`, true],
@@ -199,6 +203,7 @@ function Summary({ diff }: { diff: CampaignDiff }) {
           ))}
         </tbody>
       </table>
+      {(quietA || quietB) && <p className="soft small">Run {quietA ? "A" : "B"}&rsquo;s recording doesn&rsquo;t name the models that played these roles.</p>}
       <p className="compare-split">{split}</p>
     </section>
   );
@@ -351,17 +356,51 @@ function Lane({ tag, side, clock }: { tag: string; side: Side; clock: VideoClock
 
 // ---------------------------------------------------------------- steps, aligned
 
-const ID = /^(sha256:[0-9a-f]+|(m|run|claim|cmp|lesson|art|step|q)_[0-9a-f]+)$/;
+const ID = /^(sha256:[0-9a-f]+|[a-z]+_[0-9a-f]{6,})$/;
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+const words = (s: string) => s.replace(/_/g, " ");
+const clip = (s: string, n = 48) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
+/** What a finding claims, in words. */
+const TEST_WORD: Record<string, string> = { trend: "a trend", exists: "something present", value_within: "a value in a range", events_coincide: "two events at the same time" };
+
+/** One tool argument in words, or null when it is an id, code or a long text shown elsewhere. */
+function argWord(k: string, v: unknown): string | null {
+  if (k === "code" || k === "supersedes" || k.endsWith("_id") || (typeof v === "string" && ID.test(v))) return null;
+  if (k === "inputs" || k === "measurement_ids" || k === "evidence_ids") return Array.isArray(v) ? `uses ${plural(v.length, "measurement")}` : null;
+  if (k === "outputs") return Array.isArray(v) ? `makes ${plural(v.length, "result")}` : null;
+  if (k === "boxes") return Array.isArray(v) ? plural(v.length, "box", "boxes") : null;
+  if (k === "points") return Array.isArray(v) ? plural(v.length, "point") : null;
+  if (k === "objects") return Array.isArray(v) ? plural(v.length, "object") : null;
+  if (k === "region" && Array.isArray(v) && v.length === 4 && v.every((x) => typeof x === "number"))
+    return `a ${v[2] - v[0]} × ${v[3] - v[1]} px region`;
+  if (k === "max_images" && typeof v === "number") return `up to ${plural(v, "image")}`;
+  if (k === "frame" && typeof v === "number") return `frame ${v}`;
+  if (k === "grows_from" && typeof v === "string") return `growing from the ${v}`;
+  if (k === "quantity" && typeof v === "string") return words(v);
+  if (k === "type" && typeof v === "string") return `tests ${TEST_WORD[v] ?? words(v)}`;
+  if (k === "params" && v && typeof v === "object" && !Array.isArray(v)) {
+    const p = v as { lo?: unknown; hi?: unknown; unit?: unknown; direction?: unknown };
+    if (typeof p.lo === "number" && typeof p.hi === "number") return `${+p.lo.toPrecision(3)} to ${+p.hi.toPrecision(3)}${typeof p.unit === "string" ? ` ${unitWord(p.unit)}` : ""}`;
+    if (typeof p.direction === "string") return words(p.direction);
+    return null;
+  }
+  if (k === "statement" || k === "text") return null;   // the finding or lesson itself, shown in full elsewhere
+  if (Array.isArray(v)) return v.some((x) => x && typeof x === "object") || v.some((x) => typeof x === "string" && ID.test(x))
+    ? `${words(k)}: ${v.length}` : `${words(k)} ${clip(v.map(String).join(", "))}`;
+  if (v && typeof v === "object") return null;
+  return `${words(k)} ${clip(words(String(v)))}`;
+}
 function argsWord(e: Event): string {
   const args = (e.data?.args ?? {}) as Record<string, unknown>;
-  return Object.entries(args)
-    .filter(([k, v]) => k !== "code" && !(typeof v === "string" && ID.test(v)) && !k.endsWith("_id") && !k.endsWith("_ids"))
-    .map(([k, v]) => `${k.replace(/_/g, " ")} ${Array.isArray(v) ? (v.length > 4 ? `${v.length} items` : v.join(", ")) : typeof v === "object" ? "…" : String(v).slice(0, 40)}`)
-    .join(" · ");
+  return Object.entries(args).map(([k, v]) => argWord(k, v)).filter(Boolean).join(" · ");
 }
+/** Steps the shared tool phrases don't cover. */
+const TOOL_WORD: Record<string, string> = { propose_finding: "Put a finding to the check", record_lesson: "Kept a lesson for next time" };
 function stepWord(e: Event): string {
   const frame = (e.data?.args as { frame?: unknown } | undefined)?.frame;
-  return isPhrasedTool(e.actor) ? toolPhrase(e.actor, { running: false, frames: typeof frame === "number" ? [frame] : [] }) : String(e.actor).replace(/_/g, " ");
+  if (isPhrasedTool(e.actor)) return toolPhrase(e.actor, { running: false, frames: typeof frame === "number" ? [frame] : [] });
+  const own = TOOL_WORD[String(e.actor)];
+  return own ?? words(String(e.actor)).replace(/^./, (c) => c.toUpperCase());
 }
 
 function StepCell({ e }: { e?: Event }) {

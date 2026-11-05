@@ -134,6 +134,8 @@ export interface ModelVersion {
   /** null for v0, which no held-out test has checked. */
   adequate?: boolean | null; consistent_with_nominal?: boolean | null; fit_rmse_K?: number | null;
   result_id?: string | null; request_id?: string | null; source?: string | null; sources?: number[]; checks?: ModelCheck[];
+  /** Whether the version may stand behind a design, and why (recordings made under the standing rule). */
+  standing?: { supported: boolean; reason?: string | null } | null;
 }
 export interface LabTrace {
   t_min: number[]; observed_degC: (number | null)[];
@@ -345,6 +347,16 @@ export async function seriesFromBlob(blobs: Record<string, PackedFile>, url: str
   return { t: body.t, y: body.y, unit: body.unit ?? "", t_unit: "s", n: body.t.length, downsampled: false };
 }
 
+/** A file the receipt carries whole (an uploaded record), as its original bytes; null when the recording lacks it. */
+export async function blobBytes(blobs: Record<string, PackedFile>, sha256: string): Promise<Uint8Array | null> {
+  const packed = blobs[sha256.startsWith("sha256:") ? sha256 : `sha256:${sha256}`];
+  if (!packed) return null;
+  const raw = Uint8Array.from(atob(packed.data), (c) => c.charCodeAt(0));
+  if (!(packed.encoding ?? "").includes("gzip")) return raw;
+  const stream = new Blob([raw]).stream().pipeThrough(new DecompressionStream("gzip"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
 /** At most `max` points, evenly strided (as the server's series endpoint downsamples). */
 export function thin(s: Series, max = 1200): Series {
   if (s.t.length <= max) return s;
@@ -354,7 +366,7 @@ export function thin(s: Series, max = 1200): Series {
 
 // ---------------------------------------------------------------- numbers and units
 
-const UNIT_WORD: Record<string, string> = { degC: "°C", degF: "°F", "1/h": "C", "1": "", percent: "%" };
+const UNIT_WORD: Record<string, string> = { degC: "°C", degF: "°F", delta_degC: "K", "1/h": "C", "1": "", percent: "%" };
 export const unitWord = (u: string) => UNIT_WORD[u] ?? u;
 
 /** A number to read at a glance: whole above 100, one decimal above 10, else up to three significant digits. */
@@ -412,6 +424,8 @@ export function humanize(name: string): string {
 
 /** An id as words, keeping engineering abbreviations: "c_rate_1" -> "C-rate 1", "cv_entered" -> "CV entered". */
 export function idWords(name: string): string {
+  const known = NAME_WORD[name];
+  if (known) return known.charAt(0).toUpperCase() + known.slice(1);
   const s = humanize(name)
     .replace(/\bc rate\b/gi, "C-rate").replace(/\b(soc|soh|cv|cc|ocv|dod)\b/gi, (m) => m.toUpperCase())
     .replace(/^Min /, "Lowest ").replace(/^Max /, "Peak ");
@@ -468,8 +482,10 @@ export function wordsFor(v: Pick<LoopView, "objective" | "campaign">, specs?: Sy
   }
   const t = v.objective.target;
   return {
-    quantity: (name) => (name === t.quantity && t.label ? t.label : q.has(name) ? stripNote(q.get(name)!) : idWords(name)),
-    note: (name) => (name === t.quantity ? "" : q.get(name)?.match(NOTE)?.[1] ?? ""),
+    // The target's label without its note: "(a forecast: the slowest member)" is true of a design search's output, not
+    // of a lab test's observed time, and the same name heads both. The objective itself prints the label whole.
+    quantity: (name) => (name === t.quantity && t.label ? stripNote(t.label) : q.has(name) ? stripNote(q.get(name)!) : idWords(name)),
+    note: (name) => (name === t.quantity ? t.label?.match(NOTE)?.[1] ?? "" : q.get(name)?.match(NOTE)?.[1] ?? ""),
     // "Charge C-rate, 10-27.5 % state of charge" -> "Charge C-rate": the window is the step's, the name the group's.
     param: (name) => (p.has(name) ? stripNote(p.get(name)!.split(",")[0]) : idWords(name.replace(/_\d+$/, ""))),
     action: (name) => a.get(name) ?? idWords(name),
@@ -492,6 +508,34 @@ export function paramText(p: Param): string {
   if (s.length > PARAM_INLINE_MAX || /^\s*[[{]/.test(s)) return PARAM_RECORDED;
   return s;
 }
+/** "test 3", "tests 1 and 2": a set of tests named by a bitmask, test n being bit n-1 (fit_on, test_on). Null when the
+ *  value is not a positive whole number. */
+export function testsWord(mask: unknown): string | null {
+  if (typeof mask !== "number" || !Number.isInteger(mask) || mask < 1 || mask >= 2 ** 31) return null;
+  const ns: number[] = [];
+  for (let i = 0; i < 31; i++) if (mask & (1 << i)) ns.push(i + 1);
+  return ns.length === 1 ? `test ${ns[0]}` : `tests ${ns.slice(0, -1).join(", ")} and ${ns[ns.length - 1]}`;
+}
+
+/**
+ * Parameters whose number is a code, said as what it stands for: the tests a fit or check names (a bitmask), how a
+ * record segment was read (1 a discharge, 2 a charge), the thermal model family. Each applies only beside the parameters
+ * it belongs with, so another system's "mode" or "family" is left as recorded.
+ */
+const CODED: Record<string, { label: string; with: string[]; text(n: number): string | null }> = {
+  fit_on: { label: "Fitted on", with: [], text: testsWord },
+  test_on: { label: "Checked on", with: [], text: testsWord },
+  mode: { label: "Segment read as", with: ["record", "segment"], text: (n) => (n === 1 ? "a discharge" : n === 2 ? "a charge" : null) },
+  family: { label: "Model family", with: ["fit_on"], text: (n) => (n === 1 ? "cooling" : n === 2 ? "cooling and thermal mass" : null) },
+  start_soc: { label: "Starting state of charge", with: ["record", "segment"], text: (n) => (n >= 0 && n <= 1 ? `${num(n * 100)} %` : null) },
+};
+/** A coded parameter's label and value in words, or null when `name` is not one (or its value is not a known code). */
+export function codedParam(name: string, p: Param, params: Record<string, Param>): { label: string; text: string } | null {
+  const c = CODED[name];
+  if (!c || !c.with.every((k) => k in params) || typeof p.value !== "number") return null;
+  const text = c.text(p.value);
+  return text ? { label: c.label, text } : null;
+}
 const paramValue = paramText;
 
 /**
@@ -504,6 +548,8 @@ export function paramsLine(params: Record<string, Param>, words: Words = ID_WORD
   const singles: [string, Param][] = [];
   for (const [k, p] of Object.entries(params)) {
     if (paramText(p) === PARAM_RECORDED) continue;   // a model or a source list: the request's table shows it
+    const coded = codedParam(k, p, params);
+    if (coded) { singles.push([k, { ...p, value: coded.text, unit: "" }]); continue; }
     const m = k.match(/^(.*)_(\d+)$/);
     if (m) {
       const key = `${m[1]}|${p.unit}`;
@@ -517,7 +563,10 @@ export function paramsLine(params: Record<string, Param>, words: Words = ID_WORD
     if (g.items.length < 2) { singles.unshift([`${key.split("|")[0]}_${g.items[0][0]}`, g.items[0][1]]); continue; }
     out.push(`${g.label} ${g.items.sort((x, y) => x[0] - y[0]).map(([, p]) => paramValue(p)).join(" → ")}`);
   }
-  for (const [k, p] of singles) out.push(`${/_\d+$/.test(k) ? idWords(k) : words.param(k)} ${paramValue(p)}`);
+  for (const [k, p] of singles) {
+    const coded = codedParam(k, params[k], params);
+    out.push(`${coded ? coded.label : /_\d+$/.test(k) ? idWords(k) : words.param(k)} ${paramValue(p)}`);
+  }
   return out.join(" · ");
 }
 
@@ -708,6 +757,43 @@ export const OUTCOME_WORD: Record<Outcome, string> = {
   improved: "Improved", improved_in_simulation: "Improved in simulation", not_improved: "Not improved",
   ...Object.fromEntries(Object.entries(OUTCOME3_WORD).flatMap(([k, w]) => [[k, w], [`${k}_in_simulation`, `${w} in simulation`]])),
 } as Record<Outcome, string>;
+
+/** Snake-case names the server writes into its sentences, as a reader says them. */
+const NAME_WORD: Record<string, string> = {
+  model_version: "model version", charge_time_80: "time from 10 to 80 % SOC", min_anode_potential: "lowest anode potential",
+  max_temperature: "peak temperature", temperature_end: "temperature at the end", surface_temperature: "surface temperature",
+  margin_mV: "anode-potential margin", t_limit_C: "temperature limit", start_soc: "starting state of charge",
+  rest_min: "rest", heldout_rmse_K: "held-out RMSE", fit_rmse_K: "fit RMSE",
+};
+
+/**
+ * Prose with the ledger's ids made readable: a request id becomes the request's number ("#9"); result and comparison
+ * ids, which name nothing a reader can open here, are dropped. The ids stay in each request's technical details.
+ */
+export function idsAsNumbers(text: string, requests: readonly { request_id: string }[]): string {
+  return text
+    .replace(/\brq_[0-9a-f]{8,}\b/g, (id) => { const i = requests.findIndex((r) => r.request_id === id); return i >= 0 ? `#${i + 1}` : ""; })
+    .replace(/[ \t]*\b(?:res|cmp)_[0-9a-f]{8,}\b/g, "")
+    .replace(/\(\s*[,;:]?\s*\)/g, "").replace(/\(\s+/g, "(").replace(/[ \t]+([,.;:)])/g, "$1")
+    .replace(/([(,;:])\s*[,;:]/g, "$1").replace(/[ \t]{2,}/g, " ");
+}
+
+/**
+ * Server prose with its code names turned into words: "c_rate_1 1.5C" -> "C-rate, step 1 1.5C", "model_version 5" ->
+ * "model version 5", "improved_in_simulation" -> "improved in simulation". Ids with a hex part (cmp_99d455cb) and file
+ * names are left alone. Numbers are never touched.
+ */
+export function plainWords(text: string): string {
+  return text.replace(/\b[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)+\b/g, (w, at: number, all: string) => {
+    if (/_[0-9a-f]{6,}$/.test(w) || /^\.\w/.test(all.slice(at + w.length)) || /[./]$/.test(all.slice(0, at))) return w;
+    if (NAME_WORD[w]) return NAME_WORD[w];
+    if ((OUTCOME_WORD as Record<string, string>)[w]) return OUTCOME_WORD[w as Outcome].toLowerCase();
+    const step = /^c_rate_(\d+)$/i.exec(w);
+    if (step) return `C-rate, step ${step[1]}`;
+    const s = idWords(w);
+    return /^[A-Z][a-z]/.test(s) ? s.charAt(0).toLowerCase() + s.slice(1) : s;
+  });
+}
 /**
  * A concluded campaign's outcome as the campaign list says it, e.g. "Feasibility recovered (simulation)". The recorded
  * outcome is never rewritten, but a loop-compare/1-2 "improved" whose speed was not shown faster (the limits decided
@@ -856,6 +942,20 @@ export const recordingHref = (name: string) => `/w/?recording=${encodeURICompone
 /** A recording's name as the address carries it: letters, digits, dot, dash and underscore only (no paths). */
 export const RECORDING_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,120}$/;
 /** The recorded fast-charge campaign: public/fixtures/loop/fastcharge.loop.json, evaluation case B. */
+/** What /w/ shows, from its query: a live campaign, a recording by name, or the open-a-file page. */
+export type LoopWhere = { mode: "live"; ledger: string; id: string } | { mode: "recording"; name: string } | { mode: "file" };
+export function loopWhere(search: string): LoopWhere {
+  const q = new URLSearchParams(search);
+  const ledger = q.get("ledger"), id = q.get("id"), rec = q.get("recording");
+  if (ledger && id) return { mode: "live", ledger, id };
+  if (rec && RECORDING_NAME.test(rec)) return { mode: "recording", name: rec };
+  return { mode: "file" };
+}
+/** One key per campaign shown: the screen remounts when it changes, so no state of one campaign survives into another. */
+export function loopWhereKey(w: LoopWhere): string {
+  return w.mode === "live" ? `live:${w.ledger}/${w.id}` : w.mode === "recording" ? `recording:${w.name}` : "file";
+}
+
 export const FASTCHARGE_HREF = "/w/?recording=fastcharge";
 /** A demonstration of case B run once through the web app (Oct 31, 2026): public/fixtures/loop/fastcharge-demo.loop.json. */
 export const FASTCHARGE_DEMO_HREF = "/w/?recording=fastcharge-demo";
@@ -863,6 +963,17 @@ export const FASTCHARGE_DEMO_HREF = "/w/?recording=fastcharge-demo";
 export const FASTCHARGE_LAB_HREF = "/w/?recording=fastcharge-lab";
 /** A scored records-intake run (published LG M50 cell exports to a design, every request approved by a standing rule): public/fixtures/loop/records-to-design.loop.json. */
 export const RECORDS_TO_DESIGN_HREF = "/w/?recording=records-to-design";
+/** The recorded loop campaigns as a visitor meets them: one name each, for the header, the tab title, the sidebar and
+ *  the demo lists. The fixture's own title (an evaluation name) stays in the record's provenance. */
+export const RECORDINGS: { name: string; href: string; title: string }[] = [
+  { name: "records-to-design", href: RECORDS_TO_DESIGN_HREF, title: "Raw records to a design" },
+  { name: "fastcharge-lab", href: FASTCHARGE_LAB_HREF, title: "Learning the lab’s thermal model" },
+  { name: "fastcharge", href: FASTCHARGE_HREF, title: "Faster LG M50 charge" },
+  { name: "fastcharge-demo", href: FASTCHARGE_DEMO_HREF, title: "Case B, browser demonstration" },
+];
+/** A recording's human title from its name or its file name ("fastcharge-lab.loop.json"), or null. */
+export const recordingTitle = (nameOrFile: string | null | undefined) =>
+  RECORDINGS.find((r) => r.name === (nameOrFile ?? "").replace(/\.loop\.json$/, ""))?.title ?? null;
 
 export const recordingUrl = (name: string) => withBase(`/fixtures/loop/${name.replace(/\.loop\.json$/, "")}.loop.json`);
 
@@ -907,6 +1018,8 @@ export function categoriesLine(r: Pick<LoopResult, "categories"> | null | undefi
 /** A step's C-rates as "1.5 · 1.35 · 0.9 · 0.5C"; a missing step reads "–". */
 export function cRatesLine(c: (number | null)[] | null | undefined): string {
   if (!c || !c.length) return "–";
+  // one rate at every step is a constant-current charge: "1C throughout", not "1 · 1 · 1 · 1C"
+  if (c.length > 1 && c.every((x) => x != null && Number.isFinite(x) && x === c[0])) return `${num(c[0])}C throughout`;
   return `${c.map((x) => (x == null || !Number.isFinite(x) ? "–" : num(x))).join(" · ")}C`;
 }
 
@@ -932,6 +1045,46 @@ export function paramLine(name: string, value: number, region?: [number, number]
 export const versionOf = (l: Learning, n: number | null | undefined) => (n == null ? undefined : l.versions?.find((v) => v.version === n));
 /** The lab test numbered n, or undefined. */
 export const labTestOf = (l: Learning, n: number | null | undefined) => (n == null ? undefined : l.lab_tests?.find((t) => t.n === n));
+
+/** The planner's own sealed prediction of a lab test's peak temperature, made with the request, or null. */
+export function labPrediction(t: Pick<LabTest, "prediction">): Predicted | null {
+  const p = t.prediction as Partial<Predicted> | null | undefined;
+  return p && typeof p === "object" && typeof p.value === "number" && Number.isFinite(p.value) ? { value: p.value, lo: p.lo ?? null, hi: p.hi ?? null, unit: p.unit ?? "degC" } : null;
+}
+
+/**
+ * What was said about a test before it ran, once and from its data: a model version's forecast of the protocol (drawn
+ * on the chart), else the planner's sealed prediction of its peak (a number, not a curve), else nothing. A forecast is
+ * claimed only when one is recorded.
+ */
+export function beforeTestNote(t: Pick<LabTest, "forecast" | "prediction" | "record">, planner = "the planner"): { kind: "forecast" | "prediction" | "none"; text: string } {
+  if (t.forecast) return { kind: "forecast", text: `Forecast under model v${t.forecast.model_version}, made before the ${t.record ? "stretch was read" : "test ran"}.` };
+  if (t.record) return { kind: "none", text: "No forecast of this stretch was made before it was read." };
+  const p = labPrediction(t);
+  if (p) return { kind: "prediction", text: `No model forecast of this protocol was recorded; before it ran, ${planner} predicted a peak of ${predictedLine(p)}.` };
+  return { kind: "none", text: "No forecast of this protocol was made before the test." };
+}
+
+/**
+ * What was computed about a test after it ran: a held-out check that set a model version not fitted to it against the
+ * result. That is a replay made after the observation, not a forecast made before it, and is said as such; null when
+ * no check covers the test.
+ */
+export function afterTestNote(l: Pick<Learning, "versions">, t: Pick<LabTest, "n" | "record">, requests: readonly { request_id: string }[]):
+  { version: number; requestNumber: number; rmse: number | null; maxError: number | null; text: string } | null {
+  for (const x of l.versions ?? []) {
+    const c = (x.checks ?? []).find((k) => k.lab_tests?.includes(t.n));
+    if (!c) continue;
+    const i = requests.findIndex((r) => r.request_id === c.request_id) + 1;
+    const rmse = c.heldout_rmse_K ?? null, maxError = c.heldout_max_error_K ?? null;
+    const what = [rmse != null ? `RMSE ${withUnit(rmse, "K")}` : "", maxError != null ? `worst error ${withUnit(maxError, "K")}` : ""].filter(Boolean).join(", ");
+    return {
+      version: x.version, requestNumber: i, rmse, maxError,
+      text: `${t.record ? "After it was read" : "After it ran"}, a held-out check${i ? ` (#${i})` : ""} set model v${x.version}, which was not fitted to it, against the result${what ? `: ${what}` : ""}.`,
+    };
+  }
+  return null;
+}
 
 /** The worst member's anode potential against the margin: "26.3 mV, 1.28 mV above the 25 mV margin". */
 export function marginLine(d: Pick<Design, "min_anode_potential" | "limits">): string {

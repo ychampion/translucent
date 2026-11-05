@@ -284,6 +284,8 @@ h1, h2, h3, p { margin: 0; font-weight: inherit; }
 .sidebar { background: var(--side); overflow: hidden; min-width: 0; border-right: 1px solid var(--line); }
 .no-sidebar .sidebar { border-right: 0; }
 .side { width: var(--side-w); height: 100%; display: flex; flex-direction: column; padding: 12px 8px 10px; }
+.wordmark .workspace-name { display: inline-flex; align-items: center; gap: 9px; margin-left: 1px; font-weight: 400; font-size: 13.5px; letter-spacing: 0; color: var(--text-tertiary); }
+.wordmark .workspace-name::before { content: ""; width: 1px; height: 14px; background: var(--border-strong, var(--border)); }
 .side-head { display: flex; align-items: center; justify-content: space-between; padding: 4px 10px 12px; }
 .side-close { display: none; }
 .side-label { padding: 18px 10px 6px; font-size: 12.5px; font-weight: 500; color: var(--text-tertiary); outline: none; margin: 0; }
@@ -524,3 +526,63 @@ h1, h2, h3, p { margin: 0; font-weight: inherit; }
   .app { display: block; height: auto; }
   .main, .screen { height: auto; overflow: visible; }
 }
+
+/* --- chrome (sidebar/composer) --- */
+.rail-sep { flex: none; width: 18px; height: 1px; margin: 4px 0; background: var(--line); }
+.rail-btn > svg { flex: none; }
+/* the model's name sits clear of the send button, Meta's mark before Meta's models */
+.composer-bar > .composer-right:not(:empty) { margin-right: 10px; }
+.model-label.has-mark { display: inline-flex; align-items: center; gap: 7px; min-width: 0; }
+.model-label.has-mark .meta-mark { flex: none; opacity: 0.85; }
+.model-label .model-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* the public demo's New campaign page */
+.ws-home-main.nc-demo { max-width: 760px; gap: 28px; padding-top: 48px; }
+.nc-demo-head { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+.nc-demo-head .ws-home-title { margin: 0; }
+.nc-demo-row .ws-rec-title { min-width: 0; }
+/* the public demo's way to the code: a quiet header link and, on pages that need a server, a button */
+.selfhost-link {
+  display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 8px; border-radius: 8px;
+  font-size: 13px; color: var(--text-secondary); white-space: nowrap; transition: background 150ms, color 150ms;
+}
+.selfhost-link:hover { background: var(--hover); color: var(--text-primary); }
+.selfhost-link:focus-visible, .selfhost-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+@media (max-width: 640px) { .selfhost-link span { display: none; } }
+.selfhost-btn {
+  display: inline-flex; align-items: center; gap: 12px; margin-top: 6px; padding: 10px 16px 10px 14px; border-radius: 10px;
+  border: 1px solid var(--border-strong); color: var(--text-primary); transition: background 150ms, border-color 150ms;
+}
+.selfhost-btn:hover { background: var(--hover); }
+.selfhost-btn-text { display: flex; flex-direction: column; gap: 1px; line-height: 1.3; }
+.selfhost-btn-title { font-size: 14px; font-weight: 500; }
+.selfhost-btn-repo { font-size: 12.5px; color: var(--text-tertiary); }
+.ws-home-note { margin: -4px 0 2px; font-size: 13px; line-height: 1.5; }
+.nc-demo-local { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--text-secondary); }
+.nc-demo-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.ws-rec-card.nc-demo-row { flex-direction: row; align-items: center; gap: 12px; color: var(--text-primary); }
+.nc-demo-row > svg { flex: none; color: var(--text-tertiary); transition: transform 150ms var(--ease), color 150ms; }
+.nc-demo-row:hover > svg { color: var(--text-primary); transform: translateX(2px); }
+.nc-problem { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 20px; padding: 0 16px 10vh; }
+.nc-problem > .center-empty { flex: none; min-height: 0; }
+.nc-dev { max-width: 520px; margin: 0; font-size: 12.5px; line-height: 1.6; color: var(--text-tertiary); text-align: center; }
+.nc-dev code { font-size: 12px; color: var(--text-secondary); }
+@media (max-width: 860px) { .ws-home-main.nc-demo { padding-top: 20px; } }
+.nf-main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 12px; padding: 0 20px 12vh; }
+.nf-mark { font-size: 17px; margin-bottom: 18px; }
+.nf-code { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: 0.12em; color: var(--text-tertiary); }
+.nf-title { margin: 0; font-size: 26px; font-weight: 550; letter-spacing: -0.015em; color: var(--text-primary); }
+.nf-lead { margin: 0; max-width: 420px; font-size: 14.5px; line-height: 1.5; color: var(--text-secondary); }
+.nf-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-top: 10px; }
+.nf-more { margin: 6px 0 0; font-size: 13.5px; color: var(--text-tertiary); }
+.composer-field[readonly] { color: var(--text-secondary); cursor: default; }
+.replay-note { margin: 0; line-height: 1.45; }
+.graph-fit { flex: 1; min-width: 0; }
+.graph-fit .graph-canvas { zoom: var(--graph-zoom, 1); }
+/* past the fit, the canvas scrolls: a soft edge says there is more to the right */
+.graph-fit .graph-scroll {
+  background: linear-gradient(to right, var(--bg) 30%, transparent) left / 24px 100% no-repeat local,
+    linear-gradient(to left, var(--bg) 30%, transparent) right / 24px 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%, color-mix(in srgb, var(--text-primary) 22%, transparent), transparent) left / 12px 100% no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, color-mix(in srgb, var(--text-primary) 22%, transparent), transparent) right / 12px 100% no-repeat scroll;
+}
+.compare-main > .compare-summary { max-width: none; }
