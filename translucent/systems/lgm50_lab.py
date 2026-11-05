@@ -130,7 +130,7 @@ QUANTITIES = (
     Quantity("design_found", "", kind="category", categories=("yes", "no"),
              label="A design meets the limits for every member"),
     Quantity("evaluations", "1", label="Charges simulated by the search"),
-    *(Quantity(c, "1/h", label=f"Design C-rate, {w} % SOC") for c, w in zip(fc.C_RATES, fc.WINDOWS)),
+    *(Quantity(c, "1/h", label=f"Design C-rate, {w} SOC") for c, w in zip(fc.C_RATES, fc.WINDOWS)),
     Quantity("status", "", kind="category", categories=("ok", "not_reached", "nonsense"), label="Run status"),
     Quantity("surface_temperature", "degC", kind="series", label="Surface temperature (lab)"),
     Quantity("cell_temperature", "degC", kind="series", label="Cell temperature (forecast, the estimate)"),

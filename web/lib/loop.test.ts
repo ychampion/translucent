@@ -228,6 +228,12 @@ describe("the verdict in words", () => {
     expect(w.action("simulate_protocol")).toBe("Simulate a four-step fast charge");
     expect(idWords("cv_entered")).toBe("CV entered");
   });
+  test("a parameter's gloss after a colon is not its name", () => {
+    const { v, specs } = fastCharge();
+    const withVersion = [{ ...specs[0], actions: [...specs[0].actions, { name: "check_model", label: "Check a model version",
+      parameters: [{ name: "model_version", label: "Model version: 0 is nominal, n the n-th thermal fit" }] }] }];
+    expect(wordsFor(v, withVersion).param("model_version")).toBe("Model version");
+  });
   test("stepped parameters read in step order, with C-rates and °C", () => {
     const { v, specs } = fastCharge();
     const params = {

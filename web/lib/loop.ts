@@ -487,7 +487,8 @@ export function wordsFor(v: Pick<LoopView, "objective" | "campaign">, specs?: Sy
     quantity: (name) => (name === t.quantity && t.label ? stripNote(t.label) : q.has(name) ? stripNote(q.get(name)!) : idWords(name)),
     note: (name) => (name === t.quantity ? t.label?.match(NOTE)?.[1] ?? "" : q.get(name)?.match(NOTE)?.[1] ?? ""),
     // "Charge C-rate, 10-27.5 % state of charge" -> "Charge C-rate": the window is the step's, the name the group's.
-    param: (name) => (p.has(name) ? stripNote(p.get(name)!.split(",")[0]) : idWords(name.replace(/_\d+$/, ""))),
+    // "Model version: 0 is nominal, n the n-th thermal fit" -> "Model version": the gloss after a colon is not the name.
+    param: (name) => (p.has(name) ? stripNote(p.get(name)!.split(",")[0].split(":")[0]) : idWords(name.replace(/_\d+$/, ""))),
     action: (name) => a.get(name) ?? idWords(name),
   };
 }
